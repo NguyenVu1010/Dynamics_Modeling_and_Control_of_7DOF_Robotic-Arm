@@ -1,14 +1,16 @@
-cmake_minimum_required(VERSION 2.8.3)
+# Superbuild without ROS: core library, tests and bench.
+# The ROS 2 packages (sim/, ros2_node/) are built with colcon instead (see README).
+cmake_minimum_required(VERSION 3.22)
+project(cobot LANGUAGES CXX)
 
-project(cobot30_5)
+option(COBOT_BUILD_TESTS "Build unit, component and e2e test binaries" ON)
+option(COBOT_BUILD_BENCH "Build the bench binary (cobot_bench)" ON)
 
-find_package(catkin REQUIRED)
-
-catkin_package()
-
-find_package(roslaunch)
-
-foreach(dir config launch meshes urdf)
-	install(DIRECTORY ${dir}/
-		DESTINATION ${CATKIN_PACKAGE_SHARE_DESTINATION}/${dir})
-endforeach(dir)
+add_subdirectory(core)
+if(COBOT_BUILD_TESTS)
+  enable_testing()
+  add_subdirectory(tests)
+endif()
+if(COBOT_BUILD_BENCH AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/bench/CMakeLists.txt")
+  add_subdirectory(bench)
+endif()

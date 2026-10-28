@@ -1,0 +1,20 @@
+# build trees (cmake + colcon)
+build/
+build-*/
+install/
+log/
+# python
+__pycache__/
+*.pyc
+.venv/
+.ruff_cache/
+.pytest_cache/
+*.egg-info/
+# results never go in the source tree (docs/results/ holds curated reports)
+/results/
+# coverage
+coverage/
+# editors
+.vscode/
+.idea/
+*.swp

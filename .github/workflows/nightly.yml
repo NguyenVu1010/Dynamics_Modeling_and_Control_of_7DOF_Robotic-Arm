@@ -1,0 +1,31 @@
+name: nightly
+# E2E-05 (Monte Carlo) and E2E-06 (sensitivity sweep + hardware requirement table), design 11.3.
+on:
+  schedule:
+    - cron: "0 19 * * *"   # 02:00 Vietnam time
+  workflow_dispatch:
+
+jobs:
+  sim-to-real:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - run: >
+          sudo apt-get update && sudo apt-get install -y cmake ninja-build g++ libeigen3-dev
+          libgtest-dev libgmock-dev libtinyxml2-dev libyaml-cpp-dev
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e ".[eval]"
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCOBOT_BUILD_TESTS=OFF
+      - run: cmake --build build --parallel 4
+      - name: Monte Carlo and sensitivity scenarios
+        run: |
+          if ls tests/e2e/scenarios/*.yaml >/dev/null 2>&1; then
+            python tools/run_e2e.py --all --tag nightly --bench build/bench/cobot_bench --out results/nightly-${{ github.run_id }}
+          else
+            echo "no e2e scenarios yet"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: nightly-results, path: results, if-no-files-found: ignore }

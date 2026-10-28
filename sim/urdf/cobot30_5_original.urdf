@@ -1,0 +1,567 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- This URDF was automatically created by SolidWorks to URDF Exporter! Originally created by Stephen Brawner (brawner@gmail.com) 
+     Commit Version: 1.6.0-4-g7f85cfe  Build Version: 1.6.7995.38578
+     For more information, please see http://wiki.ros.org/sw_urdf_exporter -->
+<robot
+  name="cobot30_5">
+  <link name="world"/>
+  <joint name="fixed" type="fixed">
+        <parent link="world"/>
+        <child link="base_link"/>
+    </joint>
+  <link
+    name="base_link">
+    <inertial>
+      <origin
+        xyz="-0.000989056198588842 -5.07148438501949E-05 0.0430543567069582"
+        rpy="0 0 0" />
+      <mass
+        value="0.502562281485237" />
+      <inertia
+        ixx="0.00105781384901632"
+        ixy="2.50133713898659E-08"
+        ixz="-1.00003723448872E-05"
+        iyy="0.00103104252214328"
+        iyz="4.5279766543984E-07"
+        izz="0.00133072867817449" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cobot30_5/meshes/base_link.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cobot30_5/meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link
+    name="link_1">
+    <inertial>
+      <origin
+        xyz="0.00568622330320681 -8.20843742846758E-06 -0.0114699821762951"
+        rpy="0 0 0" />
+      <mass
+        value="1.10620449946111" />
+      <inertia
+        ixx="0.00220293087073834"
+        ixy="-7.40082411829979E-07"
+        ixz="-8.33858647007746E-05"
+        iyy="0.00231081760298515"
+        iyz="3.06494014774345E-07"
+        izz="0.00208648388312482" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cobot30_5/meshes/link_1.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cobot30_5/meshes/link_1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint_1"
+    type="revolute">
+    <origin
+      xyz="0 0 0.159"
+      rpy="0 0 0" />
+    <parent
+      link="base_link" />
+    <child
+      link="link_1" />
+    <axis
+      xyz="0 0 1" />
+    <limit acceleration="15" lower="-2.9671" effort="87" upper="2.9671" velocity="2.5"/>
+    <dynamics D="1" K="7000" mu_coulomb="0" mu_viscous="16" damping="0.003" friction="0.0"/>
+  </joint>
+  <link
+    name="link_2">
+    <inertial>
+      <origin
+        xyz="0.00568634602663737 -8.14228149395926E-06 -0.0114700046641839"
+        rpy="0 0 0" />
+      <mass
+        value="1.10620510110998" />
+      <inertia
+        ixx="0.00220293512171474"
+        ixy="-7.42606871243522E-07"
+        ixz="-8.33802461764644E-05"
+        iyy="0.00231081503344275"
+        iyz="3.09526152628565E-07"
+        izz="0.00208648359816799" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cobot30_5/meshes/link_2.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cobot30_5/meshes/link_2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint_2"
+    type="revolute">
+    <origin
+      xyz="0.134 0 0"
+      rpy="0 -1.5708 3.1416" />
+    <parent
+      link="link_1" />
+    <child
+      link="link_2" />
+    <axis
+      xyz="0 0 1" />
+    <limit acceleration="7.5" lower="-1.8326" effort="870" upper="1.8326" velocity="2.5"/>
+    <dynamics D="1" K="7000" mu_coulomb="0" mu_viscous="16" damping="0.003" friction="0.0"/>
+  </joint>
+  <link
+    name="link_3">
+    <inertial>
+      <origin
+        xyz="0.00258807621496486 1.02786126445452E-05 -0.173183730073437"
+        rpy="0 0 0" />
+      <mass
+        value="1.51230517582787" />
+      <inertia
+        ixx="0.0221850349990058"
+        ixy="9.36987637762013E-07"
+        ixz="-1.64527757366363E-05"
+        iyy="0.0222365347782019"
+        iyz="-8.55727002290495E-07"
+        izz="0.00215451725641023" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cobot30_5/meshes/link_3.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cobot30_5/meshes/link_3.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint_3"
+    type="revolute">
+    <origin
+      xyz="0.641 0 0"
+      rpy="0 1.5708 0" />
+    <parent
+      link="link_2" />
+    <child
+      link="link_3" />
+    <axis
+      xyz="0 0 1" />
+    <limit acceleration="12.5" lower="-2.9671" effort="87" upper="2.9671" velocity="2.5"/>
+    <dynamics D="1" K="7000" mu_coulomb="0" mu_viscous="16" damping="0.003" friction="0.0"/>
+  </joint>
+  <link
+    name="link_4">
+    <inertial>
+      <origin
+        xyz="0.005529275874395 3.20555322787242E-05 -0.00370947694571648"
+        rpy="0 0 0" />
+      <mass
+        value="0.708398068835544" />
+      <inertia
+        ixx="0.000945138777625441"
+        ixy="1.01472359055524E-06"
+        ixz="-1.61315645739266E-05"
+        iyy="0.000996794035275092"
+        iyz="-8.02709883109126E-08"
+        izz="0.000960636719763955" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cobot30_5/meshes/link_4.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cobot30_5/meshes/link_4.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint_4"
+    type="revolute">
+    <origin
+      xyz="0.11 0 0"
+      rpy="3.1416 -1.5708 0" />
+    <parent
+      link="link_3" />
+    <child
+      link="link_4" />
+    <axis
+      xyz="0 0 1" />
+    <limit acceleration="12.5" lower="-3.1416" effort="870" upper="-0.4" velocity="2.5"/>
+    <dynamics D="1" K="7000" mu_coulomb="0" mu_viscous="16" damping="0.003" friction="0.0"/>
+  </joint>
+  <link
+    name="link_5">
+    <inertial>
+      <origin
+        xyz="0.00104204965739937 2.81623847716919E-05 -0.15857751618617"
+        rpy="0 0 0" />
+      <mass
+        value="0.894463793951485" />
+      <inertia
+        ixx="0.00851393427041097"
+        ixy="7.9164021731506E-07"
+        ixz="-3.92803723723753E-06"
+        iyy="0.00853023078560266"
+        iyz="-6.3099432504144E-08"
+        izz="0.000741325682294929" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cobot30_5/meshes/link_5.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cobot30_5/meshes/link_5.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint_5"
+    type="revolute">
+    <origin
+      xyz="0.478 0 0"
+      rpy="0 1.5708 0" />
+    <parent
+      link="link_4" />
+    <child
+      link="link_5" />
+    <axis
+      xyz="0 0 1" />
+    <limit acceleration="15" lower="-2.9671" effort="12" upper="2.9671" velocity="3"/>
+    <dynamics D="1" K="7000" mu_coulomb="0" mu_viscous="16" damping="0.003" friction="0.0"/>
+  </joint>
+  <link
+    name="link_6">
+    <inertial>
+      <origin
+        xyz="0.00290799885931436 7.79152273618633E-05 -0.00368819421517057"
+        rpy="0 0 0" />
+      <mass
+        value="0.323306324607367" />
+      <inertia
+        ixx="0.000268136508211964"
+        ixy="7.91629170963345E-07"
+        ixz="-2.90444946780203E-06"
+        iyy="0.000284214294696326"
+        iyz="-6.30622047056855E-08"
+        izz="0.0002683399895199" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cobot30_5/meshes/link_6.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cobot30_5/meshes/link_6.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint_6"
+    type="revolute">
+    <origin
+      xyz="0.086 0 0"
+      rpy="0 -1.5708 3.1416" />
+    <parent
+      link="link_5" />
+    <child
+      link="link_6" />
+    <axis
+      xyz="0 0 1" />
+    <limit acceleration="20" lower="-0.0873" effort="12" upper="3.8223" velocity="3"/>
+    <dynamics D="1" K="7000" mu_coulomb="0" mu_viscous="16" damping="0.003" friction="0.0"/>
+  </joint>
+  <link
+    name="link_6_2">
+    <inertial>
+      <origin
+        xyz="0.00290799920267108 7.79156612489354E-05 -0.00368819425960698"
+        rpy="0 0 0" />
+      <mass
+        value="0.323306321695791" />
+      <inertia
+        ixx="0.000268136506586479"
+        ixy="7.9163014735652E-07"
+        ixz="-2.90444900052873E-06"
+        iyy="0.000284214294569273"
+        iyz="-6.3060438812504E-08"
+        izz="0.000268339986427764" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cobot30_5/meshes/link_6_2.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cobot30_5/meshes/link_6_2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint_6_2_fix"
+    type="fixed">
+    <origin
+      xyz="0.0860000000000007 0 0"
+      rpy="1.5707963267949 3.1416 1.5707963267949" />
+    <parent
+      link="link_6" />
+    <child
+      link="link_6_2" />
+    <axis
+      xyz="0 0 0" />
+  </joint>
+  <link
+    name="link_7">
+    <inertial>
+      <origin
+        xyz="0.000195407913214707 -2.75686119528204E-05 -0.0151453522300611"
+        rpy="0 0 0" />
+      <mass
+        value="0.0841557704076625" />
+      <inertia
+        ixx="3.98481977075064E-05"
+        ixy="-1.26349081100116E-07"
+        ixz="-1.65032837582159E-08"
+        iyy="3.89701670094055E-05"
+        iyz="2.32099904153232E-09"
+        izz="6.57320956326678E-05" />
+    </inertial>
+    <visual>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cobot30_5/meshes/link_7.STL" />
+      </geometry>
+      <material
+        name="">
+        <color
+          rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin
+        xyz="0 0 0"
+        rpy="0 0 0" />
+      <geometry>
+        <mesh
+          filename="package://cobot30_5/meshes/link_7.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint
+    name="joint_7"
+    type="revolute">
+    <origin
+      xyz="0.0725 0 0"
+      rpy="0 1.5708 0" />
+    <parent
+      link="link_6_2" />
+    <child
+      link="link_7" />
+    <axis
+      xyz="0 0 1" />
+    <limit acceleration="20" lower="-2.9671" effort="12" upper="2.9671" velocity="3"/>
+    <dynamics D="1" K="7000" mu_coulomb="0" mu_viscous="16" damping="0.003" friction="0.0"/>
+  </joint>  
+  <!-- EffortJointInterface -->
+<transmission name="trans_1">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="joint_1">
+        <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="motor_1">
+        <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+    </actuator>
+</transmission>
+
+<transmission name="trans_2">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="joint_2">
+        <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="motor_2">
+        <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+    </actuator>
+</transmission>
+
+<transmission name="trans_3">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="joint_3">
+        <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="motor_3">
+        <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+    </actuator>
+</transmission>
+
+<transmission name="trans_4">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="joint_4">
+        <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="motor_4">
+        <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+    </actuator>
+</transmission>
+
+<transmission name="trans_5">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="joint_5">
+        <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="motor_5">
+        <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+    </actuator>
+</transmission>
+
+<transmission name="trans_6">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="joint_6">
+        <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="motor_6">
+        <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+    </actuator>
+</transmission>
+
+<transmission name="trans_7">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="joint_7">
+        <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="motor_7">
+        <hardwareInterface>hardware_interface/EffortJointInterface</hardwareInterface>
+    </actuator>
+</transmission>
+
+<gazebo>
+  <plugin name="gazebo_ros_control" filename="libgazebo_ros_control.so">
+    <robotNamespace>/</robotNamespace>
+  </plugin>
+</gazebo>
+
+</robot>

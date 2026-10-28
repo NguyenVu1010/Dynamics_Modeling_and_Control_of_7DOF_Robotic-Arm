@@ -1,4 +1,0 @@
-numpy==1.17.4
-rospy==1.17.4
-sensor_msgs==1.13.2
-tf==1.13.4

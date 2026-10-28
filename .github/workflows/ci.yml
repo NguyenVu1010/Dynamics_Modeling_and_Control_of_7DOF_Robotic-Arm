@@ -1,0 +1,154 @@
+name: ci
+# Required checks for main (design 11.5): every job below. Jobs whose subject does not exist
+# yet (no e2e scenarios, no ros2_node) still run and pass, so the required list never changes.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CORE_APT: cmake ninja-build g++ libeigen3-dev libgtest-dev libgmock-dev libtinyxml2-dev libyaml-cpp-dev
+
+jobs:
+  lint:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - run: sudo apt-get update && sudo apt-get install -y $CORE_APT clang-format-18 clang-tidy-18
+      - name: clang-format
+        run: git ls-files '*.cpp' '*.hpp' | xargs -r clang-format-18 --dry-run --Werror
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install "ruff>=0.6"
+      - run: ruff check . && ruff format --check .
+      - name: clang-tidy on changed C++ files
+        if: github.event_name == 'pull_request'
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_BUILD_TYPE=Release
+          files=$(git diff --name-only --diff-filter=AM origin/${{ github.base_ref }}...HEAD -- '*.cpp')
+          if [ -n "$files" ]; then clang-tidy-18 -p build --quiet --warnings-as-errors='*' $files; fi
+
+  frozen-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Tests on main are frozen; tests( commits come first
+        if: github.event_name == 'pull_request'
+        run: >
+          bash tools/ci/check_frozen_tests.sh
+          origin/${{ github.base_ref }} HEAD
+          "${{ join(github.event.pull_request.labels.*.name, ',') }}"
+      - if: github.event_name != 'pull_request'
+        run: echo "push to main, nothing to check"
+
+  core:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y $CORE_APT
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCOBOT_WERROR=ON
+      - run: cmake --build build --parallel 4
+      - run: ctest --test-dir build --output-on-failure --parallel 4
+
+  sanitizers:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y $CORE_APT
+      - run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCOBOT_WERROR=ON
+          "-DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all"
+      - run: cmake --build build --parallel 4
+      - run: ctest --test-dir build --output-on-failure --parallel 4
+
+  coverage:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y $CORE_APT gcovr
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCOBOT_COVERAGE=ON
+      - run: cmake --build build --parallel 4
+      - run: ctest --test-dir build --output-on-failure --parallel 4
+      - name: Line coverage of core/ >= 80 %
+        run: >
+          mkdir -p coverage &&
+          gcovr --root . --filter 'core/' --exclude-unreachable-branches
+          --print-summary --fail-under-line 80
+          --html-details coverage/index.html --xml coverage/coverage.xml build
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: coverage, path: coverage }
+
+  python:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e ".[dev,eval]"
+      - run: pytest
+
+  e2e:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y $CORE_APT
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e ".[eval]"
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCOBOT_WERROR=ON -DCOBOT_BUILD_TESTS=OFF
+      - run: cmake --build build --parallel 4
+      - name: E2E-01..04 and PF-01 (bench, design 11.3)
+        run: |
+          if ls tests/e2e/scenarios/*.yaml >/dev/null 2>&1; then
+            python tools/run_e2e.py --all --tag pr --bench build/bench/cobot_bench --out results/ci-${{ github.run_id }}
+          else
+            echo "no e2e scenarios yet"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: e2e-results, path: results, if-no-files-found: ignore }
+
+  gazebo:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/ros.Dockerfile
+          tags: cobot-ros:ci
+          load: true
+          cache-from: type=gha,scope=ros
+          cache-to: type=gha,mode=max,scope=ros
+      - name: colcon build, asset check, smoke and E2E-07 in ROS 2 Jazzy + Gazebo Harmonic
+        run: >
+          docker run --rm -v ${{ github.workspace }}:/repo -w /repo cobot-ros:ci
+          bash tools/ci/gazebo_ci.sh
+
+  arm64:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+        with: { platforms: arm64 }
+      - uses: docker/setup-buildx-action@v3
+      - name: Build and test in the Pi5-like image (E2E-08)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: docker/pi5.Dockerfile
+          platforms: linux/arm64
+          target: test
+          cache-from: type=gha,scope=pi5
+          cache-to: type=gha,mode=max,scope=pi5

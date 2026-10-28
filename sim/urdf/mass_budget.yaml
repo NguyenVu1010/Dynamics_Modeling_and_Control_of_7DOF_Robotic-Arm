@@ -1,0 +1,22 @@
+# Link masses for sim/urdf/cobot30_5.urdf (design 5.8). Applied by tools/fix_urdf_inertia.py to
+# sim/urdf/cobot30_5_original.urdf (SolidWorks export at the default 1000 kg/m^3 density).
+# Inertia tensors are scaled by mass_kg / original mass (uniform-density assumption), centres
+# of mass are unchanged. Volumes are signed-tetrahedron volumes of sim/meshes/*.STL.
+mesh_package: cobot_sim
+sources:
+  erob: "ZeroErr eRob parameter table v2.0 (H series): eRob70H 0.92 kg, eRob90H 1.98 kg, eRob110H 3.18 kg; meshes are T (hollow) variants, which are heavier"
+  aluminium: "6061 aluminium 2.70 g/cm^3"
+links:
+  base_link: {mass_kg: 1.356, source: "flange, aluminium, 502.3 cm^3"}
+  link_1: {mass_kg: 3.180, source: "eRob110H"}
+  link_2: {mass_kg: 3.180, source: "eRob110H"}
+  link_3: {mass_kg: 4.177, source: "eRob90H 1.98 + Link_23 tube aluminium 813.6 cm^3 (link_3 - link_4 volume)"}
+  link_4: {mass_kg: 1.980, source: "eRob90H"}
+  link_5: {mass_kg: 2.469, source: "eRob70H 0.92 + Link_45 tube aluminium 573.7 cm^3 (link_5 - link_6 volume)"}
+  link_6: {mass_kg: 0.920, source: "eRob70H"}
+  link_6_2: {mass_kg: 0.920, source: "eRob70H"}
+  link_7: {mass_kg: 0.227, source: "end effector, aluminium, 84.0 cm^3"}
+effort_fix:
+  joint_2: {effort_nm: 87.0, source: "URDF typo 870; same-size joint_1/joint_3 use 87"}
+  joint_4: {effort_nm: 87.0, source: "URDF typo 870; same-size joint_1/joint_3 use 87"}
+damping_nm_s_rad: 0.003

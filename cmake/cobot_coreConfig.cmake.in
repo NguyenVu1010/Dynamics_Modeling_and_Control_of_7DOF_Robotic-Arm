@@ -1,0 +1,7 @@
+@PACKAGE_INIT@
+
+include(CMakeFindDependencyMacro)
+find_dependency(Eigen3 3.4 NO_MODULE)
+find_dependency(tinyxml2)
+find_dependency(yaml-cpp)
+include("${CMAKE_CURRENT_LIST_DIR}/cobot_coreTargets.cmake")

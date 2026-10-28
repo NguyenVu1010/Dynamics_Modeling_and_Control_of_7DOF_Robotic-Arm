@@ -1,0 +1,14 @@
+# controller_manager for gz_ros2_control (design 5.5). The real controller (cobot_ros2) is
+# added in feature `ros2-controller`; effort_passthrough serves the smoke test only.
+controller_manager:
+  ros__parameters:
+    update_rate: 1000
+    use_sim_time: true
+    joint_state_broadcaster:
+      type: joint_state_broadcaster/JointStateBroadcaster
+    effort_passthrough:
+      type: effort_controllers/JointGroupEffortController
+
+effort_passthrough:
+  ros__parameters:
+    joints: [joint_1, joint_2, joint_3, joint_4, joint_5, joint_6, joint_7]

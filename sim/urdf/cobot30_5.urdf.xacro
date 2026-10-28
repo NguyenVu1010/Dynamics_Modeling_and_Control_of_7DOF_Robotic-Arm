@@ -1,0 +1,41 @@
+<?xml version="1.0"?>
+<!-- Gazebo model: the corrected URDF (single source of geometry and inertia, design D8)
+     plus ros2_control. Effort command; position, velocity, effort state. -->
+<robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="cobot30_5">
+  <xacro:arg name="controllers_yaml" default=""/>
+  <xacro:arg name="home_q" default="0.0 0.5235987755982988 0.0 -1.5707963267948966 0.0 1.0471975511965976 0.0"/>
+
+  <xacro:include filename="cobot30_5.urdf"/>
+
+  <xacro:property name="home" value="${'$(arg home_q)'.split()}"/>
+
+  <xacro:macro name="arm_joint" params="index">
+    <joint name="joint_${index}">
+      <command_interface name="effort"/>
+      <state_interface name="position">
+        <param name="initial_value">${home[index - 1]}</param>
+      </state_interface>
+      <state_interface name="velocity"/>
+      <state_interface name="effort"/>
+    </joint>
+  </xacro:macro>
+
+  <ros2_control name="cobot" type="system">
+    <hardware>
+      <plugin>gz_ros2_control/GazeboSimSystem</plugin>
+    </hardware>
+    <xacro:arm_joint index="1"/>
+    <xacro:arm_joint index="2"/>
+    <xacro:arm_joint index="3"/>
+    <xacro:arm_joint index="4"/>
+    <xacro:arm_joint index="5"/>
+    <xacro:arm_joint index="6"/>
+    <xacro:arm_joint index="7"/>
+  </ros2_control>
+
+  <gazebo>
+    <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
+      <parameters>$(arg controllers_yaml)</parameters>
+    </plugin>
+  </gazebo>
+</robot>
