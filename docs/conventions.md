@@ -63,6 +63,10 @@ Fixed joints are merged into the parent link when the URDF is loaded:
    the parallel-axis (Steiner) theorem: `I += R I_c R^T + m (|d|² I₃ − d dᵀ)`.
 4. The fixed joint's transform is composed into the `<origin>` of the next revolute joint.
 
+Every link reached from a chain link through fixed joints is merged, including side branches
+off the base → tip path and fixed children of the tip link. Links fixed before the first
+revolute joint belong to the base and are dropped. Moving side branches are ignored.
+
 This URDF has two fixed joints. `fixed` (world → `base_link`) is dropped. `joint_6_2_fix`
 sits **in the middle of the chain** (`link_6 → link_6_2 → joint_7`): `link_6_2` is merged
 into `link_6`, and the origin of `joint_7` becomes `T_link6_link62 * T_link62_joint7`.

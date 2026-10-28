@@ -207,20 +207,28 @@ Status read_revolute(const XMLElement* joint,
   }
   out.axis_joint = axis.normalized();
 
+  // <limit> is required for revolute joints only (URDF spec). A continuous joint without it
+  // has no effort or velocity bound; when present, effort and velocity are required.
+  constexpr double kInf = std::numeric_limits<double>::infinity();
   const XMLElement* limit = joint->FirstChildElement("limit");
-  if (limit == nullptr) {
+  if (limit == nullptr && !continuous) {
     return Status::error(name + ": <limit> missing");
   }
-  s = read_double(limit, "limit", "effort", name, nullptr, out.tau_max);
-  if (s.is_ok()) {
-    s = read_double(limit, "limit", "velocity", name, nullptr, out.qd_max);
-  }
-  if (!s.is_ok()) {
-    return s;
+  if (limit == nullptr) {
+    out.tau_max = kInf;
+    out.qd_max = kInf;
+  } else {
+    s = read_double(limit, "limit", "effort", name, nullptr, out.tau_max);
+    if (s.is_ok()) {
+      s = read_double(limit, "limit", "velocity", name, nullptr, out.qd_max);
+    }
+    if (!s.is_ok()) {
+      return s;
+    }
   }
   if (continuous) {
-    out.q_min = -std::numeric_limits<double>::infinity();
-    out.q_max = std::numeric_limits<double>::infinity();
+    out.q_min = -kInf;
+    out.q_max = kInf;
   } else {
     s = read_double(limit, "limit", "lower", name, nullptr, out.q_min);
     if (s.is_ok()) {
@@ -246,7 +254,8 @@ const char* joint_link(const XMLElement* joint, const char* tag) {
 
 struct UrdfGraph {
   std::map<std::string, const XMLElement*> links;
-  std::map<std::string, const XMLElement*> joint_by_child;  // child link -> joint
+  std::map<std::string, const XMLElement*> joint_by_child;         // child link -> joint
+  std::multimap<std::string, const XMLElement*> joints_by_parent;  // parent link -> joints
 };
 
 Status index_robot(const XMLElement* robot, UrdfGraph& g) {
@@ -274,6 +283,7 @@ Status index_robot(const XMLElement* robot, UrdfGraph& g) {
     if (!g.joint_by_child.emplace(child, joint).second) {
       return Status::error(std::string(name) + ": link '" + child + "' already has a parent");
     }
+    g.joints_by_parent.emplace(parent, joint);
   }
   return Status::ok();
 }
@@ -301,14 +311,62 @@ Status find_path(const UrdfGraph& g,
   return Status::ok();
 }
 
+std::string joint_type(const XMLElement* joint) {
+  const char* type = joint->Attribute("type");
+  return type != nullptr ? type : "";
+}
+
+// Merges every link hanging off `link` through fixed joints that are not on the base -> tip
+// path (a flange, a sensor) into `acc`. T_acc_link places `link` in the frame of `acc`; a null
+// `acc` (before the first revolute joint) means the links belong to the base and are dropped.
+// Off-path joints that are not fixed (e.g. gripper fingers) are not part of the serial chain:
+// they and everything below them are ignored.
+Status merge_side_branches(const UrdfGraph& g,
+                           const std::string& link,
+                           const std::vector<const XMLElement*>& path,
+                           const Pose& T_acc_link,
+                           LinkInertia* acc) {
+  const auto range = g.joints_by_parent.equal_range(link);
+  for (auto it = range.first; it != range.second; ++it) {
+    const XMLElement* joint = it->second;
+    if (std::find(path.begin(), path.end(), joint) != path.end() || joint_type(joint) != "fixed") {
+      continue;
+    }
+    const std::string name = joint->Attribute("name");
+    const std::string child = joint_link(joint, "child");
+    const auto child_link = g.links.find(child);
+    if (child_link == g.links.end()) {
+      return Status::error(cat({name, ": child link '", child, "' not found"}));
+    }
+    Pose T_origin;
+    Status s = read_origin(joint, name, T_origin);
+    if (!s.is_ok()) {
+      return s;
+    }
+    const Pose T_acc_child = common::compose(T_acc_link, T_origin);
+    if (acc != nullptr) {
+      LinkInertia inertia;
+      s = read_inertial(child_link->second, child, inertia);
+      if (!s.is_ok()) {
+        return s;
+      }
+      merge_into(*acc, inertia, T_acc_child);
+    }
+    s = merge_side_branches(g, child, path, T_acc_child, acc);
+    if (!s.is_ok()) {
+      return s;
+    }
+  }
+  return Status::ok();
+}
+
 Status build_chain(const UrdfGraph& g,
                    const std::vector<const XMLElement*>& path,
                    UrdfChain& chain) {
   Pose T_prefix;  // frame of the last revolute joint's child (or base_link) -> current link
   for (const XMLElement* joint : path) {
     const std::string name = joint->Attribute("name");
-    const char* type_attr = joint->Attribute("type");
-    const std::string type = type_attr != nullptr ? type_attr : "";
+    const std::string type = joint_type(joint);
     const std::string child = joint_link(joint, "child");
     const auto link = g.links.find(child);
     if (link == g.links.end()) {
@@ -341,6 +399,12 @@ Status build_chain(const UrdfGraph& g,
     } else {
       return Status::error(cat(
           {name, ": joint type '", type, "' is not supported (revolute, continuous or fixed)"}));
+    }
+    // Fixed side branches of the link just placed (tip_link included) join the same body.
+    s = merge_side_branches(
+        g, child, path, T_prefix, chain.links.empty() ? nullptr : &chain.links.back());
+    if (!s.is_ok()) {
+      return s;
     }
   }
   chain.T_last_tip = T_prefix;

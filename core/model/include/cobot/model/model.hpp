@@ -11,7 +11,11 @@
 // Robot model read from URDF. Implemented in feature `model-urdf` (tinyxml2).
 // Only revolute joints are kept; fixed joints are merged into their parent link:
 // masses add, inertias move with the parallel-axis theorem, and the fixed joint's
-// <origin> is composed into the origin of the next revolute joint.
+// <origin> is composed into the origin of the next revolute joint. Links fixed to a chain
+// link off the base -> tip path (a flange, a sensor) are merged too; links fixed before the
+// first revolute joint belong to the base and are dropped; moving side branches are ignored.
+// A continuous joint has infinite position limits, and infinite effort and velocity limits
+// when it has no <limit>.
 namespace cobot::model {
 
 using common::Mat3;
