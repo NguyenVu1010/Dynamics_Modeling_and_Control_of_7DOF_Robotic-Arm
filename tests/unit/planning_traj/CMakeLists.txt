@@ -1,0 +1,1 @@
+cobot_add_test(test_cartesian_trajectory test_cartesian_trajectory.cpp LIBS cobot::planning)

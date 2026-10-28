@@ -29,6 +29,9 @@ class CartesianTrajectory {
   Pose T_b_start_;
   Pose T_b_goal_;
   double duration_s_;
+  common::Vec3 dp_;   // pT - p0, m
+  common::Vec3 phi_;  // so3_log(R0^T RT), rotation vector in the start frame, rad
+  common::Vec3 w_b_;  // R0 * phi_, the same rotation vector expressed in b, rad
 };
 
 }  // namespace cobot::planning
