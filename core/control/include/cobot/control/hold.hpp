@@ -2,8 +2,9 @@
 
 #include "cobot/control/computed_torque.hpp"
 
-// Safe hold (feature `control`): tau = kp .* (q_hold - q) - kd .* qd + G(q), clamped to
-// tau_max. Used when the loop leaves tracking (limits, bad data, HAL timeout).
+// Safe hold (feature `control`): tau = diag(M(q)) .* (kp .* (q_hold - q) - kd .* qd) + G(q),
+// clamped to tau_max; non-finite -> zero. Used when the loop leaves tracking (limits, bad data,
+// HAL timeout).
 namespace cobot::control {
 
 template <int N>
