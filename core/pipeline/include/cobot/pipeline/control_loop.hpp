@@ -51,6 +51,7 @@ class ControlLoop {
   LoopMode mode_ = LoopMode::kIdle;
   common::Timestamp t_start_;
   common::Timestamp t_last_;
+  common::VecN<N> q_last_finite_ = common::VecN<N>::Zero();  // hold target for a non-finite q
   SpscRing<LogRecord<N>, kLogCapacity> log_;
 };
 
