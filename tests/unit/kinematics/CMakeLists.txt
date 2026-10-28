@@ -1,0 +1,1 @@
+cobot_add_test(test_kinematics test_kinematics.cpp)
