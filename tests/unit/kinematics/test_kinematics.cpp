@@ -61,7 +61,9 @@ Mat3 rz(double a) {
 
 VecN<2> random_q2(std::mt19937_64& rng) {
   std::uniform_real_distribution<double> u(-kPi, kPi);
-  return VecN<2>(u(rng), u(rng));
+  const double a = u(rng);
+  const double b = u(rng);
+  return {a, b};
 }
 
 TEST(Planar2Link, ForwardKinematicsMatchesClosedForm) {
@@ -155,21 +157,21 @@ class ArmKinematics : public ::testing::Test {
   static void SetUpTestSuite() {
     auto chain = model::parse_urdf_chain(kRepo / "sim/urdf/cobot30_5.urdf", "base_link", "link_7");
     ASSERT_TRUE(chain.is_ok()) << chain.reason();
-    chain_ = new model::UrdfChain(chain.value());
+    arm_chain = new model::UrdfChain(chain.value());
     auto m = model::make_model<7>(chain.value(), Vec3(0.0, 0.0, -9.80665));
     ASSERT_TRUE(m.is_ok()) << m.reason();
-    model_ = new Model<7>(m.value());
+    arm_model = new Model<7>(m.value());
   }
   static void TearDownTestSuite() {
-    delete model_;
-    delete chain_;
-    model_ = nullptr;
-    chain_ = nullptr;
+    delete arm_model;
+    delete arm_chain;
+    arm_model = nullptr;
+    arm_chain = nullptr;
   }
-  void SetUp() override { ASSERT_NE(model_, nullptr) << "model failed to load"; }
+  void SetUp() override { ASSERT_NE(arm_model, nullptr) << "model failed to load"; }
 
-  static const Model<7>& arm() { return *model_; }
-  static const model::UrdfChain& chain() { return *chain_; }
+  static const Model<7>& arm() { return *arm_model; }
+  static const model::UrdfChain& chain() { return *arm_chain; }
 
   static VecN<7> random_q(std::mt19937_64& rng) {
     VecN<7> q;
@@ -202,12 +204,12 @@ class ArmKinematics : public ::testing::Test {
   }
 
  private:
-  static Model<7>* model_;
-  static model::UrdfChain* chain_;
+  static Model<7>* arm_model;
+  static model::UrdfChain* arm_chain;
 };
 
-Model<7>* ArmKinematics::model_ = nullptr;
-model::UrdfChain* ArmKinematics::chain_ = nullptr;
+Model<7>* ArmKinematics::arm_model = nullptr;
+model::UrdfChain* ArmKinematics::arm_chain = nullptr;
 
 // Reference FK written out in the test from the brief's recursion:
 //   T_b_i = T_b_{i-1} * T_parent_joint_i * Rot(axis_i, q_i),  T_b_e = T_b_{N-1} * T_last_tip.
@@ -307,8 +309,8 @@ TEST_F(ArmKinematics, JdotQdotMatchesCentralDifferences) {
     if (scale < 1e-6) {
       ASSERT_LT(err, 1e-8) << "sample " << k;
     } else {
-      ASSERT_LT(err / scale, 1e-5) << "sample " << k << "\nanalytic " << a.transpose()
-                                   << "\nnumeric  " << num.transpose();
+      ASSERT_LT(err / scale, 1e-5)
+          << "sample " << k << "\nanalytic " << a.transpose() << "\nnumeric  " << num.transpose();
     }
   }
 }
@@ -342,7 +344,7 @@ TEST_F(ArmKinematics, HomePoseIsWellConditioned) {
 
   const Mat6N<7> J = jacobian_at(q_home);
   const Eigen::JacobiSVD<Mat6N<7>> svd(J);
-  const Vec6 s = svd.singularValues();  // descending, 6 values
+  const Vec6& s = svd.singularValues();  // descending, 6 values
   EXPECT_GT(s(5), 0.05) << "singular values " << s.transpose();
   EXPECT_LT(s(0) / s(5), 100.0) << "singular values " << s.transpose();
 }
