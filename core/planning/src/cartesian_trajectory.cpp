@@ -1,14 +1,13 @@
 #include "cobot/planning/cartesian_trajectory.hpp"
 
-#include <algorithm>
-
 #include "cobot/common/lie.hpp"
 
 namespace cobot::planning {
 
 using common::Vec3;
 
-CartesianTrajectory::CartesianTrajectory(const Pose& T_b_start, const Pose& T_b_goal,
+CartesianTrajectory::CartesianTrajectory(const Pose& T_b_start,
+                                         const Pose& T_b_goal,
                                          double duration_s)
     : T_b_start_(T_b_start),
       T_b_goal_(T_b_goal),
@@ -29,8 +28,9 @@ CartesianSample CartesianTrajectory::sample(double t_s) const {
     return out;
   }
 
-  // Quintic time scaling s(tau) = 10 tau^3 - 15 tau^4 + 6 tau^5, tau = t / T in (0, 1).
-  const double tau = std::clamp(t_s / duration_s_, 0.0, 1.0);
+  // Quintic time scaling s(tau) = 10 tau^3 - 15 tau^4 + 6 tau^5. Both holds have returned, so
+  // tau = t / T already lies in [0, 1] and needs no clamp.
+  const double tau = t_s / duration_s_;
   const double tau2 = tau * tau;
   const double tau3 = tau2 * tau;
   const double s = tau3 * (10.0 + tau * (-15.0 + 6.0 * tau));
