@@ -85,8 +85,8 @@ TEST(LoadConfig, DefaultFile) {
   EXPECT_DOUBLE_EQ(c.clik.k_damp, 2.0);
   EXPECT_DOUBLE_EQ(c.clik.lambda_max, 0.05);
   EXPECT_DOUBLE_EQ(c.clik.cond_threshold, 100.0);
-  EXPECT_DOUBLE_EQ(c.computed_torque.kp[1], 200.0);
-  EXPECT_DOUBLE_EQ(c.computed_torque.kd[6], 20.0);
+  EXPECT_DOUBLE_EQ(c.computed_torque.kp[1], 6400.0);
+  EXPECT_DOUBLE_EQ(c.computed_torque.kd[6], 160.0);
   EXPECT_NEAR(c.safety.soft_margin_rad, 3.0 * kDeg, 1e-15);
   EXPECT_NEAR(c.safety.hal_timeout_s, 0.005, 1e-15);
 }
@@ -113,7 +113,7 @@ TEST(LoadConfig, EachBadValueNamesItsKey) {
       {"[0.0, 30.0, 0.0, -90.0, 0.0, 60.0, 0.0]", "[0.0, 30.0]", "cobot.home_q_deg"},
       {"[0.0, 0.0, -9.80665]", "[0.0, -9.80665]", "cobot.gravity_b"},
       {"[-0.5, -0.6, 0.9]", "[-0.5, -0.6, 0.9, 1.0]", "cobot.trajectory.goal_position_m"},
-      {"kp: [100.0, 200.0,", "kp: [100.0, -200.0,", "cobot.computed_torque.kp"},
+      {"kp: [6400.0, 6400.0,", "kp: [6400.0, -6400.0,", "cobot.computed_torque.kp"},
       {"k_null: 1.0", "k_null: 0.0", "cobot.clik.k_null"},
       {"control_rate_hz: 1000.0", "control_rate_hz: fast", "cobot.control_rate_hz"},
       {"control_rate_hz: 1000.0", "control_rate_hz: 0.0", "cobot.control_rate_hz"},
