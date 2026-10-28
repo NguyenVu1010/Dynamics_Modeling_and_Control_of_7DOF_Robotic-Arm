@@ -43,7 +43,7 @@ jobs:
         if: github.event_name == 'pull_request'
         run: >
           bash tools/ci/check_frozen_tests.sh
-          origin/${{ github.base_ref }} HEAD
+          origin/${{ github.base_ref }} ${{ github.event.pull_request.head.sha }}
           "${{ join(github.event.pull_request.labels.*.name, ',') }}"
       - if: github.event_name != 'pull_request'
         run: echo "push to main, nothing to check"

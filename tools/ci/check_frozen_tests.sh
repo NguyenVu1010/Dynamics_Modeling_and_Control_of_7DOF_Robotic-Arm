@@ -21,9 +21,10 @@ if [[ ",$labels," != *",test-change,"* ]]; then
   fi
 fi
 
-last_test_commit="$(git log --format='%H %s' "$merge_base..$head" | awk '$2 ~ /^test(\(|:)/ {print $1; exit}')"
+last_test_commit="$(git log --format='%H %s' "$merge_base..$head" "^$base" | awk '$2 ~ /^test(\(|:)/ {print $1; exit}')"
 if [ -n "$last_test_commit" ]; then
-  late="$(git log --format='%h %s' "$last_test_commit..$head" -- tests/)"
+  # ^base: commits that came from the base branch (merged or rebased in) are not the PR's own.
+  late="$(git log --format='%h %s' "$last_test_commit..$head" "^$base" -- tests/)"
   if [ -n "$late" ]; then
     echo "FROZEN-TESTS: commits after the last test( commit touch tests/:"
     echo "$late"
