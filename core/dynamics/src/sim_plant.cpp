@@ -3,6 +3,7 @@
 #include <cmath>
 #include <cstddef>
 #include <stdexcept>
+#include <string>
 
 #include "cobot/common/dof.hpp"
 #include "cobot/dynamics/dynamics.hpp"
@@ -28,15 +29,25 @@ VecN<N> plant_qdd(const Model<N>& model,
   return forward_dynamics(model, q, qd, tau);
 }
 
+// Throws naming the field and joint of the first negative (or NaN) entry.
+template <int N>
+void check_non_negative(const VecN<N>& v, const char* field) {
+  for (int j = 0; j < N; ++j) {
+    if (!(v(j) >= 0.0)) {
+      throw std::invalid_argument(std::string("SimPlant: ") + field + "[" + std::to_string(j) +
+                                  "] must be >= 0");
+    }
+  }
+}
+
 }  // namespace
 
 template <int N>
 SimPlant<N>::SimPlant(const Model<N>& model, const VecN<N>& q0, const PlantEffects<N>& effects)
     : model_(model), effects_(effects), q_(q0) {
-  if ((effects.coulomb_nm.array() < 0.0).any() || (effects.viscous_nm_s_rad.array() < 0.0).any() ||
-      (effects.motor_time_constant_s.array() < 0.0).any()) {
-    throw std::invalid_argument("SimPlant: plant effects must be >= 0");
-  }
+  check_non_negative(effects.coulomb_nm, "coulomb_nm");
+  check_non_negative(effects.viscous_nm_s_rad, "viscous_nm_s_rad");
+  check_non_negative(effects.motor_time_constant_s, "motor_time_constant_s");
 }
 
 template <int N>
