@@ -27,7 +27,8 @@ inline constexpr int kMaxDelayCycles = 32;
 template <int N>
 class ImperfectJointInterface final : public JointInterface<N> {
  public:
-  // Throws std::invalid_argument when a delay is outside [0, kMaxDelayCycles].
+  // Throws std::invalid_argument when a delay is outside [0, kMaxDelayCycles] or
+  // control_period_s <= 0.
   ImperfectJointInterface(JointInterface<N>& inner,
                           const ImperfectionConfig<N>& config,
                           double control_period_s,
@@ -58,6 +59,7 @@ class ImperfectJointInterface final : public JointInterface<N> {
   common::VecN<N> qd_filtered_ = common::VecN<N>::Zero();
   common::VecN<N> tau_lagged_ = common::VecN<N>::Zero();
   common::VecN<N> q_last_true_ = common::VecN<N>::Zero();
+  common::VecN<N> qd_last_out_ = common::VecN<N>::Zero();  // friction phase, plant effects
 };
 
 }  // namespace cobot::imperfect
