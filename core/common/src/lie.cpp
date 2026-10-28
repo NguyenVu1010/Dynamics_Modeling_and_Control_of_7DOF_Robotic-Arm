@@ -16,7 +16,7 @@ constexpr double kPiSignNoise = 1e-14;
 
 // vee(R - R^T) / 2 = sin(angle) * axis
 Vec3 antisymmetric_vee(const Mat3& R) {
-  return Vec3(0.5 * (R(2, 1) - R(1, 2)), 0.5 * (R(0, 2) - R(2, 0)), 0.5 * (R(1, 0) - R(0, 1)));
+  return {0.5 * (R(2, 1) - R(1, 2)), 0.5 * (R(0, 2) - R(2, 0)), 0.5 * (R(1, 0) - R(0, 1))};
 }
 
 }  // namespace
@@ -35,10 +35,10 @@ Mat3 so3_exp(const Vec3& phi) {
     b = 2.0 * half_sin * half_sin / theta2;
   }
   const Mat3 K = skew(phi);
-  const Mat3 K2 = phi * phi.transpose() - theta2 * Mat3::Identity();
+  const Mat3 K_sq = phi * phi.transpose() - theta2 * Mat3::Identity();
   Mat3 R = Mat3::Identity();
   R += a * K;
-  R += b * K2;
+  R += b * K_sq;
   return R;
 }
 
