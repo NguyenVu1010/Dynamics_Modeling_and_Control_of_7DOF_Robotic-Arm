@@ -305,7 +305,9 @@ void read_imperfections(Reader& root, imperfect::ImperfectionConfig<N>& c) {
 
 template <int N>
 Result<Config<N>> load_config(const fs::path& yaml) {
-  const fs::path dir = fs::absolute(yaml).parent_path();
+  // Non-throwing overload: an empty or bad path is reported by load() as an error.
+  std::error_code ec;
+  const fs::path dir = fs::absolute(yaml, ec).parent_path();
   return load<Config<N>>(yaml, [&dir](Reader& r, Config<N>& c) { read_config<N>(r, dir, c); });
 }
 
