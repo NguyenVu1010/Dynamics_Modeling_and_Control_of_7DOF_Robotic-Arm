@@ -496,8 +496,10 @@ launch Gazebo), rồi `report.py`, và trả mã lỗi. Ngưỡng nằm trong k�
 
 ### 11.5 CI/CD
 
-`main` được bảo vệ: bắt buộc PR, bắt buộc các check dưới đây xanh, nhánh phải cập nhật với `main`,
-áp dụng cả cho admin, cấm push thẳng và force-push.
+`main` được bảo vệ: bắt buộc PR, bắt buộc các check dưới đây xanh trên commit đầu của PR,
+áp dụng cả cho admin, cấm push thẳng và force-push. Không bắt nhánh cập nhật với `main` trước khi
+merge: các PR song song sửa thư mục khác nhau, và CI vẫn chạy lại trên `main` sau mỗi merge; nếu
+`main` đỏ thì sửa ngay bằng PR kế tiếp trước mọi merge khác.
 
 | Job | Nội dung |
 | --- | --- |

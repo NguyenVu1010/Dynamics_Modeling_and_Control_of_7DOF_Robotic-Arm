@@ -173,8 +173,9 @@ them in a script file.
 
 ## Git and PRs
 
-- Trunk-based. `main` is protected: PR required, required checks green, branch up to date
-  with `main`, rules apply to admins, no direct or force push.
+- Trunk-based. `main` is protected: PR required, required checks green on the PR head, rules
+  apply to admins, no direct or force push. Branches need not be up to date with `main`; CI
+  re-runs on `main` after every merge, and a red `main` is fixed before any other merge.
 - One feature per PR, on a branch `feat/<feature>` (or `fix/`, `docs/`, `chore/`).
 - Size limit: at most 400 changed lines of non-test code and at most 400 lines of tests.
   Pure moves, deletions, binary meshes and docs prose (ADRs, derivations, README) do not

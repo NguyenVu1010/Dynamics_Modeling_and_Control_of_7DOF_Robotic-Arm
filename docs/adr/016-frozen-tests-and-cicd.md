@@ -29,8 +29,9 @@ mỗi PR một tính năng, không dài. Nếu không ép bằng công cụ, cá
 `tests/` đã có trên `main` không được sửa hay xoá trong PR, trừ khi PR có nhãn `test-change` kèm
 lý do; (2) trong PR, sau commit `test(` cuối cùng không commit nào được đụng `tests/`.
 
-**Bảo vệ `main`:** bắt buộc PR, bắt buộc các check dưới đây xanh, nhánh phải cập nhật với `main`,
-áp dụng cả cho admin, cấm push thẳng và force-push.
+**Bảo vệ `main`:** bắt buộc PR, bắt buộc các check dưới đây xanh trên commit đầu của PR, không bắt
+nhánh cập nhật với `main` (CI chạy lại trên `main` sau mỗi merge, `main` đỏ thì sửa trước mọi merge
+khác), áp dụng cả cho admin, cấm push thẳng và force-push.
 
 | Job | Nội dung | Bắt buộc |
 | --- | --- | --- |
