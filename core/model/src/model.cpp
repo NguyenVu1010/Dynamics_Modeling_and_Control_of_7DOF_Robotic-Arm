@@ -10,7 +10,7 @@ namespace cobot::model {
 
 template <int N>
 Result<Model<N>> make_model(const UrdfChain& chain, const Vec3& gravity_b) {
-  constexpr std::size_t kN = static_cast<std::size_t>(N);
+  constexpr auto kN = static_cast<std::size_t>(N);
   if (chain.joints.size() != kN) {
     return Result<Model<N>>::error("expected " + std::to_string(N) + " revolute joints, got " +
                                    std::to_string(chain.joints.size()));
@@ -30,7 +30,7 @@ Result<Model<N>> make_model(const UrdfChain& chain, const Vec3& gravity_b) {
 }
 
 #define COBOT_MODEL_INSTANTIATE(N) \
-  template Result<Model<N>> make_model<N>(const UrdfChain& chain, const Vec3& gravity_b);
+  template Result<Model<(N)>> make_model<(N)>(const UrdfChain& chain, const Vec3& gravity_b);
 COBOT_INSTANTIATE_DOF(COBOT_MODEL_INSTANTIATE)
 #undef COBOT_MODEL_INSTANTIATE
 

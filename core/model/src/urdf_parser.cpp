@@ -1,18 +1,20 @@
-#include "cobot/model/model.hpp"
-
 #include <algorithm>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <initializer_list>
 #include <limits>
 #include <map>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 #include <Eigen/Geometry>
-#include <tinyxml2.h>
 
+#include "cobot/model/model.hpp"
+
+#include <tinyxml2.h>
 
 // URDF subset reader (ADR-005, docs/conventions.md "Model and fixed-joint merge"). Runs once
 // at start-up, so it may allocate; it reports problems through Result and never throws.
@@ -23,6 +25,15 @@ using common::Status;
 using tinyxml2::XMLElement;
 
 constexpr double kMinAxisNorm = 1e-12;  // below this an <axis xyz> counts as zero
+
+// Concatenates the parts of an error message.
+std::string cat(std::initializer_list<std::string_view> parts) {
+  std::string out;
+  for (const std::string_view part : parts) {
+    out.append(part);
+  }
+  return out;
+}
 
 std::string attr_name(const char* element, const char* attribute) {
   return std::string("<") + element + " " + attribute + ">";
@@ -85,18 +96,18 @@ Status read_double(const XMLElement* element,
   }
   if (element->QueryDoubleAttribute(attribute, &out) != tinyxml2::XML_SUCCESS ||
       !std::isfinite(out)) {
-    return Status::error(owner + ": " + attr_name(element_name, attribute) +
-                         " is not a number: '" + text + "'");
+    return Status::error(owner + ": " + attr_name(element_name, attribute) + " is not a number: '" +
+                         text + "'");
   }
   return Status::ok();
 }
 
 // URDF rpy: R = Rz(yaw) Ry(pitch) Rx(roll).
 Mat3 rpy_to_rotation(const Vec3& rpy) {
-  const Mat3 R = (Eigen::AngleAxisd(rpy.z(), Vec3::UnitZ()) *
-                  Eigen::AngleAxisd(rpy.y(), Vec3::UnitY()) *
-                  Eigen::AngleAxisd(rpy.x(), Vec3::UnitX()))
-                     .toRotationMatrix();
+  const Mat3 R =
+      (Eigen::AngleAxisd(rpy.z(), Vec3::UnitZ()) * Eigen::AngleAxisd(rpy.y(), Vec3::UnitY()) *
+       Eigen::AngleAxisd(rpy.x(), Vec3::UnitX()))
+          .toRotationMatrix();
   return R;
 }
 
@@ -124,8 +135,7 @@ Status read_inertial(const XMLElement* link, const std::string& name, LinkInerti
   if (!s.is_ok()) {
     return s;
   }
-  s = read_double(
-      inertial->FirstChildElement("mass"), "mass", "value", name, nullptr, out.mass_kg);
+  s = read_double(inertial->FirstChildElement("mass"), "mass", "value", name, nullptr, out.mass_kg);
   if (!s.is_ok()) {
     return s;
   }
@@ -282,7 +292,7 @@ Status find_path(const UrdfGraph& g,
   while (current != base) {
     const auto it = g.joint_by_child.find(current);
     if (it == g.joint_by_child.end() || path.size() > g.joint_by_child.size()) {
-      return Status::error("no chain from '" + base + "' to '" + tip + "'");
+      return Status::error(cat({"no chain from '", base, "' to '", tip, "'"}));
     }
     path.push_back(it->second);
     current = joint_link(it->second, "parent");
@@ -302,7 +312,7 @@ Status build_chain(const UrdfGraph& g,
     const std::string child = joint_link(joint, "child");
     const auto link = g.links.find(child);
     if (link == g.links.end()) {
-      return Status::error(name + ": child link '" + child + "' not found");
+      return Status::error(cat({name, ": child link '", child, "' not found"}));
     }
     LinkInertia inertia;
     Status s = read_inertial(link->second, child, inertia);
@@ -329,8 +339,8 @@ Status build_chain(const UrdfGraph& g,
       chain.links.push_back(inertia);
       T_prefix = Pose{};
     } else {
-      return Status::error(name + ": joint type '" + type +
-                           "' is not supported (revolute, continuous or fixed)");
+      return Status::error(cat(
+          {name, ": joint type '", type, "' is not supported (revolute, continuous or fixed)"}));
     }
   }
   chain.T_last_tip = T_prefix;
