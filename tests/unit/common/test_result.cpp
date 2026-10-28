@@ -1,8 +1,8 @@
-#include "cobot/common/result.hpp"
-
 #include <string>
 
 #include <gtest/gtest.h>
+
+#include "cobot/common/result.hpp"
 
 namespace cobot::common {
 namespace {

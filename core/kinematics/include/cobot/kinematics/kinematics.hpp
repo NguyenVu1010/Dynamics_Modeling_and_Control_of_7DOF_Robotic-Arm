@@ -19,10 +19,10 @@ using model::Model;
 
 template <int N>
 struct FkState {
-  std::array<Pose, N> T_b_i;       // link frame i (= joint frame after rotation q_i) in b
-  std::array<Vec3, N> axis_b;      // unit joint axis i in b
-  std::array<Vec3, N> p_b_joint;   // joint i origin in b
-  Pose T_b_e;                      // end effector (tip) in b
+  std::array<Pose, N> T_b_i;      // link frame i (= joint frame after rotation q_i) in b
+  std::array<Vec3, N> axis_b;     // unit joint axis i in b
+  std::array<Vec3, N> p_b_joint;  // joint i origin in b
+  Pose T_b_e;                     // end effector (tip) in b
 };
 
 template <int N>

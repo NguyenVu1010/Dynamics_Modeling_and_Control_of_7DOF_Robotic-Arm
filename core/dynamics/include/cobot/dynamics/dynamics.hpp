@@ -15,7 +15,10 @@ using model::Model;
 
 // Inverse dynamics. gravity_b is the gravity vector in b (m/s^2); pass zero to drop G.
 template <int N>
-VecN<N> rnea(const Model<N>& model, const VecN<N>& q, const VecN<N>& qd, const VecN<N>& qdd,
+VecN<N> rnea(const Model<N>& model,
+             const VecN<N>& q,
+             const VecN<N>& qd,
+             const VecN<N>& qdd,
              const Vec3& gravity_b);
 
 // Joint-space inertia matrix M(q) (CRBA), symmetric positive definite.
@@ -32,7 +35,9 @@ VecN<N> coriolis_torque(const Model<N>& model, const VecN<N>& q, const VecN<N>& 
 
 // qdd = M^-1 (tau - C qd - G - damping .* qd)   (LDLT)
 template <int N>
-VecN<N> forward_dynamics(const Model<N>& model, const VecN<N>& q, const VecN<N>& qd,
+VecN<N> forward_dynamics(const Model<N>& model,
+                         const VecN<N>& q,
+                         const VecN<N>& qd,
                          const VecN<N>& tau);
 
 }  // namespace cobot::dynamics

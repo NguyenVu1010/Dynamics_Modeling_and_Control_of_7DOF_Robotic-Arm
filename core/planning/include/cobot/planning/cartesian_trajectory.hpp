@@ -12,9 +12,9 @@ using common::Pose;
 using common::Vec6;
 
 struct CartesianSample {
-  Pose T_b_d;                   // desired tip pose in b
-  Vec6 xd_d = Vec6::Zero();     // desired twist [v; w] in b
-  Vec6 xdd_d = Vec6::Zero();    // desired twist derivative in b
+  Pose T_b_d;                 // desired tip pose in b
+  Vec6 xd_d = Vec6::Zero();   // desired twist [v; w] in b
+  Vec6 xdd_d = Vec6::Zero();  // desired twist derivative in b
 };
 
 class CartesianTrajectory {

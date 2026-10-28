@@ -14,23 +14,23 @@ using common::VecN;
 
 template <int N>
 struct SensorConfig {
-  VecN<N> encoder_bits = VecN<N>::Zero();       // 0 = no quantisation; else step 2*pi / 2^bits
-  VecN<N> q_noise_std_rad = VecN<N>::Zero();    // white noise per sample
-  VecN<N> q_offset_std_rad = VecN<N>::Zero();   // calibration offset, drawn once
-  bool qd_from_diff = false;                    // true: qd = low-passed difference of output q
+  VecN<N> encoder_bits = VecN<N>::Zero();           // 0 = no quantisation; else step 2*pi / 2^bits
+  VecN<N> q_noise_std_rad = VecN<N>::Zero();        // white noise per sample
+  VecN<N> q_offset_std_rad = VecN<N>::Zero();       // calibration offset, drawn once
+  bool qd_from_diff = false;                        // true: qd = low-passed difference of output q
   VecN<N> qd_filter_hz = VecN<N>::Constant(200.0);  // cut-off of that low-pass, Hz
   VecN<N> qd_noise_std_rad_s = VecN<N>::Zero();     // white noise per sample (qd_from_diff=false)
-  int sensor_delay_cycles = 0;                  // measurement age in control cycles, >= 0
+  int sensor_delay_cycles = 0;                      // measurement age in control cycles, >= 0
 };
 
 template <int N>
 struct ActuatorConfig {
-  VecN<N> torque_scale_std = VecN<N>::Zero();        // relative torque-constant error, drawn once
-  VecN<N> torque_ripple_frac = VecN<N>::Zero();      // amplitude / |tau_cmd|
+  VecN<N> torque_scale_std = VecN<N>::Zero();    // relative torque-constant error, drawn once
+  VecN<N> torque_ripple_frac = VecN<N>::Zero();  // amplitude / |tau_cmd|
   VecN<N> ripple_periods_per_rev = VecN<N>::Constant(6.0);  // cycles per output revolution
-  VecN<N> torque_cmd_resolution_nm = VecN<N>::Zero();  // 0 = continuous
-  VecN<N> motor_time_constant_s = VecN<N>::Zero();     // first-order lag, 0 = none
-  int command_delay_cycles = 0;                        // >= 0
+  VecN<N> torque_cmd_resolution_nm = VecN<N>::Zero();       // 0 = continuous
+  VecN<N> motor_time_constant_s = VecN<N>::Zero();          // first-order lag, 0 = none
+  int command_delay_cycles = 0;                             // >= 0
 };
 
 template <int N>

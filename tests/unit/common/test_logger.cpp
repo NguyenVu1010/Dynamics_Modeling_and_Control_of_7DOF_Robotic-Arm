@@ -1,10 +1,10 @@
-#include "cobot/common/logger.hpp"
-
 #include <string>
 #include <utility>
 #include <vector>
 
 #include <gtest/gtest.h>
+
+#include "cobot/common/logger.hpp"
 
 namespace cobot::common {
 namespace {

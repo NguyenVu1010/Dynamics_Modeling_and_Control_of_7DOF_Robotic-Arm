@@ -29,9 +29,9 @@ struct ClikConfig {
 
 template <int N>
 struct JointReference {
-  VecN<N> q = VecN<N>::Zero();    // rad
-  VecN<N> qd = VecN<N>::Zero();   // rad/s
-  VecN<N> qdd = VecN<N>::Zero();  // rad/s^2
+  VecN<N> q = VecN<N>::Zero();     // rad
+  VecN<N> qd = VecN<N>::Zero();    // rad/s
+  VecN<N> qdd = VecN<N>::Zero();   // rad/s^2
   Vec6 task_error = Vec6::Zero();  // e above, [m; rad]
 };
 

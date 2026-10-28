@@ -28,8 +28,10 @@ template <int N>
 class ImperfectJointInterface final : public JointInterface<N> {
  public:
   // Throws std::invalid_argument when a delay is outside [0, kMaxDelayCycles].
-  ImperfectJointInterface(JointInterface<N>& inner, const ImperfectionConfig<N>& config,
-                          double control_period_s, bool apply_plant_effects = false);
+  ImperfectJointInterface(JointInterface<N>& inner,
+                          const ImperfectionConfig<N>& config,
+                          double control_period_s,
+                          bool apply_plant_effects = false);
 
   Status read(JointState<N>& out) override;
   Status write(const JointCommand<N>& cmd) override;

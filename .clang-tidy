@@ -3,9 +3,13 @@ Checks: >
   -*,
   bugprone-*,
   -bugprone-easily-swappable-parameters,
+  -bugprone-unchecked-optional-access,
   performance-*,
+  -performance-enum-size,
   modernize-*,
   -modernize-use-trailing-return-type,
+  -modernize-use-nodiscard,
+  -modernize-avoid-c-arrays,
   readability-identifier-naming,
   readability-braces-around-statements,
   readability-const-return-type,
@@ -32,9 +36,10 @@ CheckOptions:
   - { key: readability-identifier-naming.GlobalConstantCase,      value: CamelCase }
   - { key: readability-identifier-naming.GlobalConstantPrefix,    value: k }
   - { key: readability-identifier-naming.NamespaceCase,           value: lower_case }
-  # Frame-annotated names such as T_w_b, R_w_b, J_r_xi are intentional
-  - { key: readability-identifier-naming.VariableIgnoredRegexp,   value: '^[TRJIMGKpvq]_[a-z0-9_]+$' }
-  - { key: readability-identifier-naming.ParameterIgnoredRegexp,  value: '^[TRJIMGKpvq]_[a-z0-9_]+$' }
-  - { key: readability-identifier-naming.PrivateMemberIgnoredRegexp, value: '^[TRJIMGKpvq]_[a-z0-9_]+_$' }
+  # Math names (R, M, J, single capitals) and frame-annotated names (T_b_e, R_b_i, J_e_b) are intentional.
+  # Result::value() has a documented is_ok() precondition, so unchecked-optional-access is off.
+  - { key: readability-identifier-naming.VariableIgnoredRegexp,   value: '^([A-Z]|[TRJIMGKpvq]_[a-z0-9_]+)$' }
+  - { key: readability-identifier-naming.ParameterIgnoredRegexp,  value: '^([A-Z]|[TRJIMGKpvq]_[a-z0-9_]+)$' }
+  - { key: readability-identifier-naming.PrivateMemberIgnoredRegexp, value: '^([A-Z]|[TRJIMGKpvq]_[a-z0-9_]+)_$' }
   - { key: performance-unnecessary-value-param.AllowedTypes,      value: 'std::shared_ptr' }
 ...

@@ -78,6 +78,7 @@ jobs:
       - run: ctest --test-dir build --output-on-failure --parallel 4
       - name: Line coverage of core/ >= 80 %
         run: >
+          mkdir -p coverage &&
           gcovr --root . --filter 'core/' --exclude-unreachable-branches
           --print-summary --fail-under-line 80
           --html-details coverage/index.html --xml coverage/coverage.xml build

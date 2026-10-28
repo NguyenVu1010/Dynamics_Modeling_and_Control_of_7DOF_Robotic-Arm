@@ -14,10 +14,10 @@ using common::VecN;
 
 template <int N>
 struct JointState {
-  Timestamp t;                                   // time of the measurement
-  VecN<N> q = VecN<N>::Zero();                   // rad
-  VecN<N> qd = VecN<N>::Zero();                  // rad/s
-  VecN<N> tau_measured = VecN<N>::Zero();        // N m, valid only if tau_valid
+  Timestamp t;                             // time of the measurement
+  VecN<N> q = VecN<N>::Zero();             // rad
+  VecN<N> qd = VecN<N>::Zero();            // rad/s
+  VecN<N> tau_measured = VecN<N>::Zero();  // N m, valid only if tau_valid
   bool tau_valid = false;
 };
 

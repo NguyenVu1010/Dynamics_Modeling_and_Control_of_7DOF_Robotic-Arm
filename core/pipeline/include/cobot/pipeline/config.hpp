@@ -21,24 +21,24 @@ using common::Vec3;
 using common::VecN;
 
 struct TrajectoryConfig {
-  Vec3 goal_position_m = Vec3::Zero();   // in b
-  Vec3 goal_rpy_rad = Vec3::Zero();      // roll, pitch, yaw: R = Rz(yaw) Ry(pitch) Rx(roll)
-  double duration_s = 10.0;              // > 0
-  double hold_s = 2.0;                   // >= 0
+  Vec3 goal_position_m = Vec3::Zero();  // in b
+  Vec3 goal_rpy_rad = Vec3::Zero();     // roll, pitch, yaw: R = Rz(yaw) Ry(pitch) Rx(roll)
+  double duration_s = 10.0;             // > 0
+  double hold_s = 2.0;                  // >= 0
 };
 
 struct SafetyConfig {
-  double soft_margin_rad = 0.0524;       // distance to a joint limit that triggers hold
-  double hal_timeout_s = 0.005;          // no fresh read for this long -> hold
+  double soft_margin_rad = 0.0524;  // distance to a joint limit that triggers hold
+  double hal_timeout_s = 0.005;     // no fresh read for this long -> hold
 };
 
 template <int N>
 struct Config {
-  std::filesystem::path urdf_path;       // resolved relative to the YAML file's directory
+  std::filesystem::path urdf_path;  // resolved relative to the YAML file's directory
   std::string base_link = "base_link";
   std::string tip_link = "link_7";
   Vec3 gravity_b = Vec3(0.0, 0.0, -9.80665);
-  double control_rate_hz = 1000.0;       // > 0
+  double control_rate_hz = 1000.0;  // > 0
   bool deterministic = true;
   VecN<N> home_q_rad = VecN<N>::Zero();
   TrajectoryConfig trajectory;

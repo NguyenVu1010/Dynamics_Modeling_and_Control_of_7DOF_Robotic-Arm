@@ -13,7 +13,9 @@ namespace cobot::pipeline {
 template <int N>
 class SimJointInterface final : public hal::JointInterface<N> {
  public:
-  SimJointInterface(dynamics::SimPlant<N>& plant, double period_s, double jitter_std_s = 0.0,
+  SimJointInterface(dynamics::SimPlant<N>& plant,
+                    double period_s,
+                    double jitter_std_s = 0.0,
                     std::uint64_t seed = 1);
 
   common::Status read(hal::JointState<N>& out) override;

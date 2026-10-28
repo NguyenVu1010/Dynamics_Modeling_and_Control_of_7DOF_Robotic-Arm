@@ -1,9 +1,8 @@
-#include "cobot/common/types.hpp"
-
 #include <Eigen/Geometry>
 #include <gtest/gtest.h>
 
 #include "cobot/common/timestamp.hpp"
+#include "cobot/common/types.hpp"
 
 namespace cobot::common {
 namespace {

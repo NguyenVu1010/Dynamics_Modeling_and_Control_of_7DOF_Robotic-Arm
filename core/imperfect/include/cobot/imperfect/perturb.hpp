@@ -15,7 +15,8 @@ namespace cobot::imperfect {
 // the same factor, centre of mass shifted by N(0, com_shift_std_m) per axis, payload added
 // as a point mass at the tip origin to the last link. Deterministic for a given seed.
 template <int N>
-model::Model<N> perturb_model(const model::Model<N>& nominal, const ModelMismatchConfig<N>& mismatch,
+model::Model<N> perturb_model(const model::Model<N>& nominal,
+                              const ModelMismatchConfig<N>& mismatch,
                               std::uint64_t seed);
 
 // Friction and motor lag for dynamics::SimPlant from the imperfection config.

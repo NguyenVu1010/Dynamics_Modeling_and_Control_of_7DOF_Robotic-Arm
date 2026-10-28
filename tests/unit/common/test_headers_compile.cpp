@@ -35,14 +35,14 @@ static_assert(kN == 7);
 static_assert(std::is_abstract_v<cobot::hal::JointInterface<kN>>);
 static_assert(std::is_base_of_v<cobot::hal::JointInterface<kN>,
                                 cobot::imperfect::ImperfectJointInterface<kN>>);
-static_assert(std::is_base_of_v<cobot::hal::JointInterface<kN>,
-                                cobot::pipeline::SimJointInterface<kN>>);
+static_assert(
+    std::is_base_of_v<cobot::hal::JointInterface<kN>, cobot::pipeline::SimJointInterface<kN>>);
 static_assert(cobot::common::VecN<kN>::RowsAtCompileTime == kN);
 static_assert(cobot::common::Mat6N<kN>::RowsAtCompileTime == 6);
 static_assert(cobot::common::Mat6N<kN>::ColsAtCompileTime == kN);
-static_assert(sizeof(cobot::pipeline::LogRecord<kN>) > 0);
-static_assert(sizeof(cobot::pipeline::Config<kN>) > 0);
-static_assert(sizeof(cobot::imperfect::ImperfectionConfig<kN>) > 0);
+static_assert(std::is_default_constructible_v<cobot::pipeline::LogRecord<kN>>);
+static_assert(std::is_default_constructible_v<cobot::pipeline::Config<kN>>);
+static_assert(std::is_default_constructible_v<cobot::imperfect::ImperfectionConfig<kN>>);
 
 TEST(Headers, Compile) {
   const cobot::imperfect::ImperfectionConfig<kN> ideal;

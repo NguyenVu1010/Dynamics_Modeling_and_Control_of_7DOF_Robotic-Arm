@@ -22,19 +22,19 @@ using common::Vec3;
 // Inertial parameters of the link that a joint moves (after merging fixed children).
 struct LinkInertia {
   double mass_kg = 0.0;
-  Vec3 com_i = Vec3::Zero();      // centre of mass in the link frame i, m
-  Mat3 I_com_i = Mat3::Zero();    // inertia about the centre of mass, axes of frame i, kg m^2
+  Vec3 com_i = Vec3::Zero();    // centre of mass in the link frame i, m
+  Mat3 I_com_i = Mat3::Zero();  // inertia about the centre of mass, axes of frame i, kg m^2
 };
 
 struct JointParams {
   std::string name;
-  Pose T_parent_joint;            // joint frame in the parent link frame (URDF <origin>), q = 0
+  Pose T_parent_joint;              // joint frame in the parent link frame (URDF <origin>), q = 0
   Vec3 axis_joint = Vec3::UnitZ();  // unit rotation axis in the joint frame
-  double q_min = 0.0;             // rad
-  double q_max = 0.0;             // rad
-  double qd_max = 0.0;            // rad/s
-  double tau_max = 0.0;           // N m
-  double damping = 0.0;           // N m s / rad (URDF <dynamics damping>)
+  double q_min = 0.0;               // rad
+  double q_max = 0.0;               // rad
+  double qd_max = 0.0;              // rad/s
+  double tau_max = 0.0;             // N m
+  double damping = 0.0;             // N m s / rad (URDF <dynamics damping>)
 };
 
 // Variable-length chain as parsed, before the DOF is checked.
@@ -46,7 +46,8 @@ struct UrdfChain {
 
 // Parse the serial chain from `base_link` to `tip_link`. Errors name the element and
 // attribute (e.g. "joint_3: <limit effort> missing"). Non-standard attributes are ignored.
-Result<UrdfChain> parse_urdf_chain(const std::filesystem::path& urdf, const std::string& base_link,
+Result<UrdfChain> parse_urdf_chain(const std::filesystem::path& urdf,
+                                   const std::string& base_link,
                                    const std::string& tip_link);
 
 template <int N>
