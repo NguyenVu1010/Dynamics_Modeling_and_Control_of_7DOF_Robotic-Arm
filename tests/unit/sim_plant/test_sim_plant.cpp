@@ -196,7 +196,7 @@ TEST(SimPlant, CoulombFrictionHoldsBelowBreakaway) {
 TEST(SimPlant, ViscousFrictionTerminalVelocity) {
   PlantEffects<1> fx;
   fx.viscous_nm_s_rad = V1::Constant(2.0);
-  SimPlant<1> plant(horizontal(), V1::Zero(), fx);
+  SimPlant<1> plant(horizontal(10.0), V1::Zero(), fx);  // q(10 s) = 4.75 rad: stay off the stop
   for (int k = 0; k < 10000; ++k) {
     plant.step(V1::Constant(1.0), kDt);
   }
