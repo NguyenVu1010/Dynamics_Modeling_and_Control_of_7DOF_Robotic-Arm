@@ -1,12 +1,21 @@
-# Forward kinematics, geometric Jacobian and Jdot*qdot
+# Động học thuận, Jacobian hình học và Jdot*qdot
 
-Implementation: `core/kinematics/src/kinematics.cpp`. Frames and names follow
-`docs/conventions.md`; everything below is expressed in `b`.
+Cài đặt: `core/kinematics/src/kinematics.cpp`. Khung và tên gọi theo `docs/conventions.md`;
+mọi đại lượng dưới đây biểu diễn trong `b`.
 
-## Forward kinematics
+## Mô hình và chỗ gộp khớp cố định
 
-Joint `i` (`i = 0..N-1`) has the URDF origin `T_parent_joint_i` (joint frame in the parent
-link frame at `q = 0`) and the unit axis `a_i` in the joint frame. With `T_b_{-1} = I`:
+`parse_urdf_chain` (`core/model`) chỉ giữ các khớp quay, và `make_model` chép chuỗi đó sang
+`Model<N>`: `model.joints` gồm đúng `N` khớp quay theo thứ tự base -> tip. Mỗi khớp cố định được
+gộp vào khung lân cận: `<origin>` của nó được nhân vào
+`T_parent_joint` của khớp quay kế tiếp, còn các khớp cố định sau khớp quay cuối cùng được nhân
+vào `T_last_tip`. Vì vậy `e` là gốc của `link_7` sau khi gộp khớp cố định, và mọi phép đệ quy
+dưới đây chỉ chạy qua `N` khớp quay.
+
+## Động học thuận
+
+Khớp `i` (`i = 0..N-1`) có gốc URDF `T_parent_joint_i` (khung khớp trong khung link cha tại
+`q = 0`) và trục đơn vị `a_i` trong khung khớp. Với `T_b_{-1} = I`:
 
 ```
 T_b_jnt_i = T_b_{i-1} * T_parent_joint_i          joint frame, before the rotation
@@ -14,17 +23,17 @@ T_b_i     = T_b_jnt_i * Rot(a_i, q_i)             link frame i
 T_b_e     = T_b_{N-1} * T_last_tip
 ```
 
-The rotation is about the joint origin, so the joint origin and axis in `b` are
+Phép quay đi qua gốc khớp, nên gốc khớp và trục khớp trong `b` là
 
 ```
 p_i = p(T_b_jnt_i) = p(T_b_i)
 z_i = R(T_b_jnt_i) a_i = R_b_i a_i                (a_i is invariant under Rot(a_i, .))
 ```
 
-## Geometric Jacobian
+## Jacobian hình học
 
-A revolute joint `i` turning at `qd_i` moves the tip with linear velocity
-`z_i qd_i x (p_e - p_i)` and angular velocity `z_i qd_i`. Column `i` of `J_e_b` is
+Khớp quay `i` quay với tốc độ `qd_i` làm đầu công cụ có vận tốc dài
+`z_i qd_i x (p_e - p_i)` và vận tốc góc `z_i qd_i`. Cột `i` của `J_e_b` là
 
 ```
 J_i = [ z_i x (p_e - p_i) ; z_i ]
@@ -32,29 +41,30 @@ J_i = [ z_i x (p_e - p_i) ; z_i ]
 
 ## Jdot*qdot
 
-`Jdot qd` is the tip spatial acceleration `[a_e; alpha_e]` when `qdd = 0`. Differentiate each
-column. Link `i` turns with
+`Jdot qd` là gia tốc không gian của đầu công cụ `[a_e; alpha_e]` khi `qdd = 0`. Lấy đạo hàm
+từng cột. Link `i` quay với
 
 ```
 w_i = w_{i-1} + z_i qd_i,  w_{-1} = 0
 ```
 
-and `z_i` is fixed in link `i` (also in link `i-1`), so `d/dt z_i = w_i x z_i = w_{i-1} x z_i`.
-The joint origin `p_i` is fixed in link `i-1`, so its velocity follows
+và `z_i` cố định trong link `i` (cũng cố định trong link `i-1`), nên
+`d/dt z_i = w_i x z_i = w_{i-1} x z_i`. Gốc khớp `p_i` cố định trong link `i-1`, nên vận tốc
+của nó là
 
 ```
 v_0 = 0,  v_i = v_{i-1} + w_{i-1} x (p_i - p_{i-1}),  v_e = v_{N-1} + w_{N-1} x (p_e - p_{N-1})
 ```
 
-Then `d/dt (p_e - p_i) = v_e - v_i` and
+Khi đó `d/dt (p_e - p_i) = v_e - v_i` và
 
 ```
 Jdot qd = sum_i [ (zdot_i x (p_e - p_i) + z_i x (v_e - v_i)) qd_i ;  zdot_i qd_i ],
 zdot_i  = w_i x z_i
 ```
 
-Two O(N) passes (velocities, then the sum), fixed-size arrays only, no finite differences.
-The angular part equals `sum_i w_{i-1} x z_i qd_i`, the derivative of `w_{N-1}` at `qdd = 0`.
+Hai lượt O(N) (vận tốc, rồi tổng), chỉ dùng mảng kích thước cố định, không dùng sai phân số.
+Phần góc bằng `sum_i w_{i-1} x z_i qd_i`, chính là đạo hàm của `w_{N-1}` khi `qdd = 0`.
 
-Checks (`tests/unit/kinematics`): closed forms of a planar 2-link arm, and on the real arm
-central differences of FK (for `J`) and of `J(q + qd t) qd` in `t` (for `Jdot qd`).
+Kiểm chứng (`tests/unit/kinematics`): biểu thức đóng của tay máy phẳng 2 khâu, và trên tay máy
+thật là sai phân trung tâm của FK (cho `J`) và của `J(q + qd t) qd` theo `t` (cho `Jdot qd`).
