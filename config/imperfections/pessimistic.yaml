@@ -1,0 +1,34 @@
+# Pessimistic robot: upper bound of the imperfections expected on the real arm (design 11.1).
+# Schema: imperfect::ImperfectionConfig. A scalar applies to all joints; a 7-element list sets
+# each joint. Every group names the source of its numbers.
+imperfections:
+  seed: 1
+  sensor:
+    source: "assumed: low-cost servo with 14-bit encoder, worst-case bound"
+    encoder_bits: 14
+    q_noise_std_rad: 1.0e-4
+    q_offset_std_rad: 5.0e-3
+    qd_from_diff: true
+    qd_filter_hz: 50.0
+    qd_noise_std_rad_s: 0.0
+    sensor_delay_cycles: 2
+  actuator:
+    source: "assumed: 10x the CiA402 1/1000 rated-torque resolution, worst-case bound"
+    torque_scale_std: 0.15
+    torque_ripple_frac: 0.05
+    ripple_periods_per_rev: 6.0
+    torque_cmd_resolution_nm: [0.87, 0.87, 0.87, 0.87, 0.12, 0.12, 0.12]
+    motor_time_constant_s: 0.003
+    command_delay_cycles: 2
+  friction:
+    source: "assumed about 4 % of rated torque, worst-case bound"
+    coulomb_nm: [3.5, 3.5, 3.5, 3.5, 0.5, 0.5, 0.5]
+    viscous_nm_s_rad: [1.5, 1.5, 1.5, 1.5, 0.3, 0.3, 0.3]
+  model:
+    source: "assumed: worst-case CAD mass and centre-of-mass error, 1 kg unmodelled payload"
+    link_mass_scale_std: 0.15
+    com_shift_std_m: 0.01
+    payload_kg: 1.0
+  timing:
+    source: "assumed: non-RT kernel scheduling jitter, worst-case bound"
+    period_jitter_std_us: 100.0
