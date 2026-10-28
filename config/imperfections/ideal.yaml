@@ -1,0 +1,33 @@
+# Ideal robot: every imperfection off (design 11.1). Schema: imperfect::ImperfectionConfig.
+# A scalar applies to all joints; a 7-element list sets each joint.
+imperfections:
+  seed: 1
+  sensor:
+    source: "ideal"
+    encoder_bits: 0                # 0 = no quantisation
+    q_noise_std_rad: 0.0
+    q_offset_std_rad: 0.0
+    qd_from_diff: false
+    qd_filter_hz: 200.0
+    qd_noise_std_rad_s: 0.0
+    sensor_delay_cycles: 0
+  actuator:
+    source: "ideal"
+    torque_scale_std: 0.0
+    torque_ripple_frac: 0.0
+    ripple_periods_per_rev: 6.0
+    torque_cmd_resolution_nm: 0.0
+    motor_time_constant_s: 0.0
+    command_delay_cycles: 0
+  friction:
+    source: "ideal"
+    coulomb_nm: 0.0
+    viscous_nm_s_rad: 0.0
+  model:
+    source: "ideal"
+    link_mass_scale_std: 0.0
+    com_shift_std_m: 0.0
+    payload_kg: 0.0
+  timing:
+    source: "ideal"
+    period_jitter_std_us: 0.0

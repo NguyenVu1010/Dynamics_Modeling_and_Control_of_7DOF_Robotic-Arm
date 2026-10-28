@@ -1,0 +1,32 @@
+# Single source of controller parameters (design 5.6). Loaded by pipeline::load_config.
+# Paths are relative to this file's directory. Angles with the _deg suffix are degrees.
+cobot:
+  urdf_path: ../sim/urdf/cobot30_5.urdf
+  base_link: base_link
+  tip_link: link_7
+  gravity_b: [0.0, 0.0, -9.80665]      # m/s^2 in base_link
+  control_rate_hz: 1000.0
+  deterministic: true
+  # Home: inside every joint limit with >= 5 deg margin (joint_4 in [-180, -22.9] deg,
+  # joint_6 in [-5, 219] deg). Distance to singularities is checked in feature `kinematics`.
+  home_q_deg: [0.0, 30.0, 0.0, -90.0, 0.0, 60.0, 0.0]
+  trajectory:                          # MVP: one fixed straight-line trajectory (design G3)
+    goal_position_m: [-0.5, -0.6, 0.9] # tip position in base_link
+    goal_rpy_deg: [0.0, 0.0, 90.0]     # R = Rz(yaw) Ry(pitch) Rx(roll)
+    duration_s: 10.0
+    hold_s: 2.0                        # metrics are taken at duration_s + hold_s
+  clik:                                # reference generator (planning::ClikConfig)
+    kp: [100.0, 100.0, 100.0, 100.0, 100.0, 100.0]   # 1/s^2, [v; w]
+    kd: [20.0, 20.0, 20.0, 20.0, 20.0, 20.0]         # 1/s
+    k_null: 1.0                        # 1/s^2, joint-limit avoidance in the null space
+    k_damp: 2.0                        # 1/s, null-space velocity damping
+    lambda_max: 0.05                   # damped pseudo-inverse
+    cond_threshold: 100.0
+  computed_torque:                     # values of the previous Python controller (tinh_u.py)
+    kp: [100.0, 200.0, 100.0, 200.0, 100.0, 50.0, 20.0]  # 1/s^2
+    kd: [50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 20.0]       # 1/s
+  safety:
+    soft_margin_deg: 3.0               # hold when a joint gets this close to a limit
+    hal_timeout_ms: 5.0                # hold when no fresh state arrives for this long
+  log:
+    output_dir: ../results
