@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 
 #include "cobot/control/computed_torque.hpp"
@@ -18,9 +19,10 @@
 //
 // Modes: kIdle --start()--> kTracking --(t >= duration + hold)--> kFinished (keeps tracking the
 // goal reference). Any of: q within soft_margin of a limit, |qd| > qd_max, a non-finite value
-// in the state, or a gap between state timestamps > hal_timeout -> kHolding (HoldController at
-// the q of that moment; never leaves on its own). A non-finite computed torque -> kFault with
-// zero torque. Output torque is always finite and within tau_max.
+// in the state, a state stamp older than hal_timeout (a jump to a newer stamp, or the same
+// stamp repeated for longer than hal_timeout at control_rate_hz), or a stamp going backwards
+// -> kHolding (HoldController at the q of that moment; never leaves on its own). A non-finite
+// computed torque -> kFault with zero torque. Output torque is always finite and within tau_max.
 namespace cobot::pipeline {
 
 using common::Status;
@@ -50,7 +52,8 @@ class ControlLoop {
   std::optional<planning::CartesianTrajectory> trajectory_;
   LoopMode mode_ = LoopMode::kIdle;
   common::Timestamp t_start_;
-  common::Timestamp t_last_;
+  common::Timestamp t_last_;                                 // newest state stamp seen
+  std::int64_t stale_steps_ = 0;                             // steps since t_last_ last advanced
   common::VecN<N> q_last_finite_ = common::VecN<N>::Zero();  // hold target for a non-finite q
   SpscRing<LogRecord<N>, kLogCapacity> log_;
 };

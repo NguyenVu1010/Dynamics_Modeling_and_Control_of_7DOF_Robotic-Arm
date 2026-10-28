@@ -108,7 +108,7 @@ e1..e6, step_us
 | `tau*` | commanded torque (N·m), after clamping |
 | `px..pz`, `rx..rz` | position (m) and `so3_log(R_b_e)` (rad) of `T_b_e` |
 | `pdx..pdz`, `rdx..rdz` | same for `T_b_d` |
-| `e1..e6` | CLIK `task_error`, order `[v; ω]` |
+| `e1..e6` | CLIK `task_error`, order `[v; ω]`; 0 in `holding` rows (CLIK is not stepped there, `qref*` is the hold target and `qdref*` is 0) |
 | `step_us` | wall time of `ControlLoop::step()` (µs); written as 0 when `deterministic: true` so that runs compare byte for byte (timing comes from `cobot_bench timing`) |
 
 ### Summary CSV

@@ -67,6 +67,7 @@ Status ControlLoop<N>::start(const JointState<N>& initial) {
   clik_.reset(initial.q);
   t_start_ = initial.t;
   t_last_ = initial.t;
+  stale_steps_ = 0;
   q_last_finite_ = initial.q;
   mode_ = LoopMode::kTracking;
   return Status::ok();
@@ -84,13 +85,24 @@ Status ControlLoop<N>::step(const JointState<N>& state, JointCommand<N>& out) {
 
   const bool finite = state_finite(state);
   const double t = common::seconds_between(t_start_, state.t);
-  const double gap = common::seconds_between(t_last_, state.t);
-  t_last_ = state.t;
+  // HAL freshness: the age of the newest stamp is the larger of the jump to a newer stamp and
+  // the control periods spent on a repeated one, so a frozen HAL trips the hold while it is
+  // still frozen. A stamp older than the newest one seen is a broken clock.
+  double stamp_age = 0.0;
+  const bool stamp_backwards = state.t < t_last_;
+  if (state.t > t_last_) {
+    stamp_age = common::seconds_between(t_last_, state.t);
+    t_last_ = state.t;
+    stale_steps_ = 0;
+  } else if (state.t == t_last_) {
+    ++stale_steps_;
+    stamp_age = static_cast<double>(stale_steps_) / config_.control_rate_hz;
+  }
+  const bool hal_stale = stamp_backwards || stamp_age > config_.safety.hal_timeout_s;
 
   // 1. Safety: leave tracking for the hold at the q of this moment.
   if (mode_ == LoopMode::kTracking || mode_ == LoopMode::kFinished) {
-    if (!finite || gap > config_.safety.hal_timeout_s ||
-        outside_safe_set(model_, state, config_.safety.soft_margin_rad)) {
+    if (!finite || hal_stale || outside_safe_set(model_, state, config_.safety.soft_margin_rad)) {
       hold_.engage(state.q.allFinite() ? state.q : q_last_finite_);
       mode_ = LoopMode::kHolding;
     }
@@ -132,7 +144,10 @@ Status ControlLoop<N>::step(const JointState<N>& state, JointCommand<N>& out) {
   record.tau = out.tau;
   record.T_b_e = fk.T_b_e;
   record.T_b_d = x_d.T_b_d;
-  record.task_error = clik_.reference().task_error;
+  // CLIK is not stepped while holding, so its error says nothing about the hold target.
+  if (mode_ != LoopMode::kHolding) {
+    record.task_error = clik_.reference().task_error;
+  }
   if (timed) {
     const std::chrono::duration<double, std::micro> elapsed = std::chrono::steady_clock::now() - t0;
     record.step_time_us = elapsed.count();
