@@ -26,6 +26,7 @@
 //               runs round(duration_s * control_rate_hz) cycles and logs one row per cycle.
 // Errors (bad paths, bad YAML) come back as a Status whose reason names the offending file.
 namespace cobot::bench {
+// NOLINTNEXTLINE(readability-redundant-declaration): pins the signature declared in run.hpp
 common::Status run(const std::filesystem::path& config_yaml,
                    const std::filesystem::path& imperfections_yaml,
                    std::optional<std::uint64_t> seed,
