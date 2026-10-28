@@ -22,11 +22,13 @@ from cobot_eval.metrics import (  # noqa: E402
     RunMetrics,
     Thresholds,
     check,
+    checked_values,
     compute_metrics,
     joint_array,
     load_run,
     read_tau_max,
     task_errors,
+    within,
 )
 
 EXIT_PASS, EXIT_FAIL, EXIT_BAD_INPUT = 0, 1, 2
@@ -38,14 +40,17 @@ def load_thresholds(path: Path) -> Thresholds:
     if not isinstance(data, dict) or not isinstance(data.get("thresholds"), dict):
         raise ValueError(f"{path}: no 'thresholds' mapping")
     values = data["thresholds"]
-    try:
-        return Thresholds(
-            final_pos_err_m=float(values["final_pos_err_m"]),
-            final_rot_err_deg=float(values["final_rot_err_deg"]),
-            rms_joint_err_rad=float(values["rms_joint_err_rad"]),
-        )
-    except KeyError as err:
-        raise ValueError(f"{path}: missing threshold {err.args[0]}") from err
+    parsed = {}
+    for key in ("final_pos_err_m", "final_rot_err_deg", "rms_joint_err_rad"):
+        if key not in values:
+            raise ValueError(f"{path}: missing threshold {key}")
+        try:
+            parsed[key] = float(values[key])
+        except (TypeError, ValueError) as err:
+            raise ValueError(f"{path}: threshold {key} is not a number") from err
+        if not math.isfinite(parsed[key]):
+            raise ValueError(f"{path}: threshold {key} is not finite")
+    return Thresholds(**parsed)
 
 
 def _verdict(ok: bool) -> str:
@@ -53,12 +58,7 @@ def _verdict(ok: bool) -> str:
 
 
 def render_markdown(title: str, csv: Path, m: RunMetrics, th: Thresholds) -> str:
-    rot_deg = math.degrees(m.final_rot_err_rad)
-    rows = [
-        ("final_pos_err_m", m.final_pos_err_m, th.final_pos_err_m),
-        ("final_rot_err_deg", rot_deg, th.final_rot_err_deg),
-        ("rms_joint_err_rad", m.rms_joint_err_rad, th.rms_joint_err_rad),
-    ]
+    rows = checked_values(m, th)
     passed = not check(m, th)
     lines = [
         f"# {title}",
@@ -68,7 +68,7 @@ def render_markdown(title: str, csv: Path, m: RunMetrics, th: Thresholds) -> str
         "| Metric | Value | Threshold | Result |",
         "| --- | --- | --- | --- |",
     ]
-    lines += [f"| {name} | {v:.6g} | {t:.6g} | {_verdict(v <= t)} |" for name, v, t in rows]
+    lines += [f"| {name} | {v:.6g} | {t:.6g} | {_verdict(within(v, t))} |" for name, v, t in rows]
     lines += [
         f"| final_rot_err_rad | {m.final_rot_err_rad:.6g} | | |",
         f"| peak_tau_ratio | {m.peak_tau_ratio:.4g} | | |",

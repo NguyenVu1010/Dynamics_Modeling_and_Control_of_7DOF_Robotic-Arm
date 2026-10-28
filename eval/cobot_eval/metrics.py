@@ -45,6 +45,9 @@ def load_run(path: Path) -> pd.DataFrame:
         raise ValueError(f"{path}: unexpected column {actual[len(expected)]}")
     if df.empty:
         raise ValueError(f"{path}: no data rows")
+    t_ns = pd.to_numeric(df["t_ns"], errors="coerce").to_numpy(dtype=float)
+    if not np.all(np.isfinite(t_ns)):
+        raise ValueError(f"{path}: t_ns has a missing or non-numeric value")
     return df
 
 
@@ -123,11 +126,16 @@ def compute_metrics(
     limits = np.asarray(tau_max, dtype=float)
     if limits.shape != (n,):
         raise ValueError(f"tau_max has {limits.size} entries, run has {n} joints")
+    bad = np.flatnonzero(~(np.isfinite(limits) & (limits > 0)))
+    if bad.size:
+        raise ValueError(f"tau_max of joint {bad[0] + 1} is {limits[bad[0]]}, must be > 0")
     t_ns = df["t_ns"].to_numpy(dtype=np.int64)
     k = len(df) - 1
     if t_eval_s is not None:
         idx = np.flatnonzero(t_ns <= round(t_eval_s * 1e9))
-        k = int(idx[-1]) if idx.size else 0
+        if not idx.size:
+            raise ValueError(f"t_eval {t_eval_s} s is before the first sample")
+        k = int(idx[-1])
     row = df.iloc[[k]]
     pos, rot = task_errors(row)
 
@@ -153,27 +161,39 @@ def compute_metrics(
     )
 
 
+def within(value: float, threshold: float) -> bool:
+    """True when `value` is finite and does not exceed `threshold` (NaN/inf always fail)."""
+    return math.isfinite(value) and value <= threshold
+
+
+def checked_values(metrics: RunMetrics, thresholds: Thresholds) -> list[tuple[str, float, float]]:
+    """(name, value, threshold) for each thresholded metric, in report order."""
+    return [
+        ("final_pos_err_m", metrics.final_pos_err_m, thresholds.final_pos_err_m),
+        (
+            "final_rot_err_deg",
+            math.degrees(metrics.final_rot_err_rad),
+            thresholds.final_rot_err_deg,
+        ),
+        ("rms_joint_err_rad", metrics.rms_joint_err_rad, thresholds.rms_joint_err_rad),
+    ]
+
+
 def check(metrics: RunMetrics, thresholds: Thresholds) -> list[str]:
-    """One failure line per violated threshold; empty list means pass."""
-    failures = []
-    if metrics.final_pos_err_m > thresholds.final_pos_err_m:
-        failures.append(
-            f"final_pos_err_m {metrics.final_pos_err_m:.6g} > {thresholds.final_pos_err_m:.6g}"
-        )
-    rot_deg = math.degrees(metrics.final_rot_err_rad)
-    if rot_deg > thresholds.final_rot_err_deg:
-        failures.append(f"final_rot_err_deg {rot_deg:.6g} > {thresholds.final_rot_err_deg:.6g}")
-    if metrics.rms_joint_err_rad > thresholds.rms_joint_err_rad:
-        failures.append(
-            f"rms_joint_err_rad {metrics.rms_joint_err_rad:.6g} > "
-            f"{thresholds.rms_joint_err_rad:.6g}"
-        )
-    return failures
+    """One failure line per violated threshold (non-finite values fail); empty list means pass."""
+    return [
+        f"{name} {value:.6g} > {limit:.6g}"
+        for name, value, limit in checked_values(metrics, thresholds)
+        if not within(value, limit)
+    ]
 
 
 def read_tau_max(urdf: Path) -> list[float]:
     """Effort limits (N·m) of the revolute joints, in URDF order."""
-    root = ET.parse(urdf).getroot()
+    try:
+        root = ET.parse(urdf).getroot()
+    except ET.ParseError as err:
+        raise ValueError(f"{urdf}: {err}") from err
     efforts = []
     for joint in root.iter("joint"):
         if joint.get("type") != "revolute":
@@ -181,5 +201,10 @@ def read_tau_max(urdf: Path) -> list[float]:
         limit = joint.find("limit")
         if limit is None or limit.get("effort") is None:
             raise ValueError(f"{urdf}: joint {joint.get('name')} has no effort limit")
-        efforts.append(float(limit.get("effort")))
+        try:
+            efforts.append(float(limit.get("effort")))
+        except ValueError as err:
+            raise ValueError(f"{urdf}: joint {joint.get('name')} effort is not a number") from err
+    if not efforts:
+        raise ValueError(f"{urdf}: no revolute joints")
     return efforts
