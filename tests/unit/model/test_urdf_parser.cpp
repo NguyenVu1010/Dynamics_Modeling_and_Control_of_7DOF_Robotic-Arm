@@ -171,11 +171,14 @@ TEST(UrdfFixedMerge, MassComSteinerAndOrigins) {
   EXPECT_LT(pose_diff(c.joints[1].T_parent_joint, T_1_j2), kTol);
   EXPECT_LT((c.joints[1].axis_joint - Vec3::UnitY()).norm(), kTol);
 
-  // link_2 (1 kg at 0) + ee (0.2 kg at z=0.1, after the last revolute joint): CoM z = 0.02;
-  // Steiner adds 1*0.02^2 + 0.2*0.08^2 = 0.00168 to Ixx and Iyy.
+  // link_2 (1 kg at 0) + ee (0.2 kg at z=0.1, after the last revolute joint):
+  // CoM z = 0.2 * 0.1 / 1.2; Steiner about the combined CoM adds
+  // m1 m2 / (m1 + m2) * d^2 = (0.2 / 1.2) * 0.01 to Ixx and Iyy.
+  constexpr double kComZ = 0.2 * 0.1 / 1.2;
+  constexpr double kIxx = 0.001 + (0.2 / 1.2) * 0.01;
   EXPECT_NEAR(c.links[1].mass_kg, 1.2, kTol);
-  EXPECT_LT((c.links[1].com_i - Vec3(0, 0, 0.02)).norm(), kTol);
-  EXPECT_LT((c.links[1].I_com_i - inertia(0.00268, 0, 0, 0.00268, 0, 0.001)).norm(), kTol);
+  EXPECT_LT((c.links[1].com_i - Vec3(0, 0, kComZ)).norm(), kTol);
+  EXPECT_LT((c.links[1].I_com_i - inertia(kIxx, 0, 0, kIxx, 0, 0.001)).norm(), kTol);
   EXPECT_LT(pose_diff(c.T_last_tip, origin(Vec3(0, 0, 0.1), Vec3::Zero())), kTol);
 }
 
