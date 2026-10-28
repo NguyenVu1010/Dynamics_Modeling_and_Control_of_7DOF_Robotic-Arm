@@ -75,14 +75,22 @@ Status ImperfectJointInterface<N>::read(JointState<N>& out) {
   state_head_ = (state_head_ + 1) % kRingSize;
   state_ring_[static_cast<std::size_t>(state_head_)] = fresh;
   const int age = k < sensor.sensor_delay_cycles ? k : sensor.sensor_delay_cycles;
-  const JointState<N>& delayed = state_ring_[static_cast<std::size_t>(ring_index(state_head_, age))];
-  ++reads_;
+  const JointState<N>& delayed =
+      state_ring_[static_cast<std::size_t>(ring_index(state_head_, age))];
+  if (reads_ <= kMaxDelayCycles) {
+    ++reads_;  // saturates: only compared against 0 and delays <= kMaxDelayCycles
+  }
 
   std::normal_distribution<double> unit(0.0, 1.0);
   common::VecN<N> q_out;
   common::VecN<N> qd_out;
   for (int j = 0; j < N; ++j) {
-    double q = delayed.q[j] + q_offset_[j];
+    // Each effect is applied only when configured, so an all-zero config is bit-identical
+    // (adding +0.0 would turn an input of -0.0 into +0.0).
+    double q = delayed.q[j];
+    if (sensor.q_offset_std_rad[j] > 0.0) {
+      q += q_offset_[j];
+    }
     if (sensor.q_noise_std_rad[j] > 0.0) {
       q += sensor.q_noise_std_rad[j] * unit(rng_);
     }
@@ -123,7 +131,8 @@ Status ImperfectJointInterface<N>::write(const JointCommand<N>& cmd) {
   for (int j = 0; j < N; ++j) {
     double tau = cmd.tau[j] * torque_scale_[j];
     if (act.torque_ripple_frac[j] != 0.0) {
-      tau *= 1.0 + act.torque_ripple_frac[j] * std::sin(act.ripple_periods_per_rev[j] * q_last_true_[j]);
+      tau *= 1.0 +
+             act.torque_ripple_frac[j] * std::sin(act.ripple_periods_per_rev[j] * q_last_true_[j]);
     }
     shaped.tau[j] = round_to(tau, act.torque_cmd_resolution_nm[j]);
   }
@@ -131,7 +140,9 @@ Status ImperfectJointInterface<N>::write(const JointCommand<N>& cmd) {
   const int k = writes_;
   cmd_head_ = (cmd_head_ + 1) % kRingSize;
   cmd_ring_[static_cast<std::size_t>(cmd_head_)] = shaped;
-  ++writes_;
+  if (writes_ <= kMaxDelayCycles) {
+    ++writes_;  // saturates: only compared against delays <= kMaxDelayCycles
+  }
   JointCommand<N> sent;  // zeros until command_delay_cycles writes have been made
   if (k >= act.command_delay_cycles) {
     sent = cmd_ring_[static_cast<std::size_t>(ring_index(cmd_head_, act.command_delay_cycles))];
@@ -146,8 +157,14 @@ Status ImperfectJointInterface<N>::write(const JointCommand<N>& cmd) {
       } else {
         tau_lagged_[j] = sent.tau[j];
       }
-      const double qd = qd_last_out_[j];
-      sent.tau[j] = tau_lagged_[j] - (friction.coulomb_nm[j] * sign(qd) + friction.viscous_nm_s_rad[j] * qd);
+      const double coulomb = friction.coulomb_nm[j];
+      const double viscous = friction.viscous_nm_s_rad[j];
+      if (coulomb != 0.0 || viscous != 0.0) {
+        const double qd = qd_last_out_[j];
+        sent.tau[j] = tau_lagged_[j] - (coulomb * sign(qd) + viscous * qd);
+      } else {
+        sent.tau[j] = tau_lagged_[j];  // no friction: keep the torque bit-identical
+      }
     }
   }
   return inner_.write(sent);
