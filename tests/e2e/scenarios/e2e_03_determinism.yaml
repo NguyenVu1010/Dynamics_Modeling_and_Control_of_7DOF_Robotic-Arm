@@ -1,0 +1,9 @@
+# E2E-03 (design 11.3): two runs with the same seed give byte-identical CSVs
+# (deterministic: true writes step_us = 0). Realistic profile so the seeded draws are exercised.
+id: E2E-03
+tags: [pr, arm64]
+runner: bench
+kind: determinism
+config: config/default.yaml
+imperfections: config/imperfections/realistic.yaml
+seed: 3

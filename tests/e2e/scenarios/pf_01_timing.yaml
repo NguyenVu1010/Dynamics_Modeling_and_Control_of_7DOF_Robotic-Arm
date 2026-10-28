@@ -1,0 +1,12 @@
+# PF-01 (design 11.3): ControlLoop::step wall time on an ideal run; gate p95 < 1 ms on the CI
+# runner (200 us on the desktop is measured by hand for G3).
+id: PF-01
+tags: [pr]
+runner: bench
+kind: timing
+config: config/default.yaml
+imperfections: config/imperfections/ideal.yaml
+seed: 1
+steps: 10000
+thresholds:
+  p95_step_us: 1000
