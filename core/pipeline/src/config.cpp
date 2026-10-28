@@ -1,8 +1,10 @@
 #include "cobot/pipeline/config.hpp"
 
+#include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <filesystem>
 #include <set>
 #include <string>
@@ -13,6 +15,7 @@
 #include <yaml-cpp/yaml.h>
 
 #include "cobot/common/dof.hpp"
+#include "cobot/pipeline/sweep_config.hpp"
 
 // Strict YAML reading: every problem becomes one line "<full.key.path>: <reason>" and all
 // lines are returned together, so a config file is fixed in one pass.
@@ -62,6 +65,17 @@ class Reader {
         fail(kv.first.Scalar(), "unknown key");
       }
     }
+  }
+
+  // The raw child node (empty after reporting "missing"), for lists the helpers do not cover.
+  YAML::Node node(const std::string& key) { return get(key); }
+
+  // Reader over `n`, an element of a list of this mapping labelled `label`.
+  Reader child(const YAML::Node& n, const std::string& label) {
+    if (!n.IsMap()) {
+      fail(label, "expected a mapping");
+    }
+    return {n.IsMap() ? n : YAML::Node(), full(label), *errors_};
   }
 
   Reader map(const std::string& key) {
@@ -177,9 +191,15 @@ void delay(Reader& r, const std::string& key, int& out) {
   }
 }
 
-// Loads the file, runs `read(root, value)` and turns all collected problems into one error.
-template <typename T, typename ReadFn>
-Result<T> load(const fs::path& yaml, ReadFn read) {
+// No change to the loaded document.
+std::string keep(YAML::Node& /*root*/) {
+  return {};
+}
+
+// Loads the file, applies `edit(root)` (a non-empty return is the error), runs
+// `read(root, value)` and turns all collected problems into one error.
+template <typename T, typename ReadFn, typename EditFn = std::string (*)(YAML::Node&)>
+Result<T> load(const fs::path& yaml, ReadFn read, EditFn edit = keep) {
   std::error_code ec;
   if (!fs::is_regular_file(yaml, ec)) {
     return Result<T>::error("cannot open " + yaml.string() + ": no such file");
@@ -187,9 +207,14 @@ Result<T> load(const fs::path& yaml, ReadFn read) {
   std::vector<std::string> errors;
   T value{};
   try {
-    const YAML::Node node = YAML::LoadFile(yaml.string());
+    // NOLINTNEXTLINE(misc-const-correctness): edit() may change the document
+    YAML::Node node = YAML::LoadFile(yaml.string());
     if (!node.IsMap()) {
       return Result<T>::error(yaml.string() + ": expected a mapping at the top level");
+    }
+    const std::string bad = edit(node);
+    if (!bad.empty()) {
+      return Result<T>::error(yaml.string() + ": " + bad);
     }
     Reader root(node, "", errors);
     read(root, value);
@@ -301,7 +326,98 @@ void read_imperfections(Reader& root, imperfect::ImperfectionConfig<N>& c) {
   }
 }
 
+// `key` must be a non-empty list; calls each(label, element) for every element.
+template <typename EachFn>
+void list(Reader& r, const std::string& key, EachFn each) {
+  const YAML::Node seq = r.node(key);
+  if (seq && (!seq.IsSequence() || seq.size() == 0U)) {
+    r.fail(key, "expected a non-empty list");
+  } else if (seq) {
+    for (std::size_t i = 0; i < seq.size(); ++i) {
+      each(key + "[" + std::to_string(i) + "]", seq[i]);
+    }
+  }
+}
+
+fs::path resolve_base(const fs::path& dir, const fs::path& base) {
+  std::error_code ec;
+  for (fs::path d = dir; !base.is_absolute() && !d.empty(); d = d.parent_path()) {
+    if (fs::is_regular_file(d / base, ec)) {
+      return (d / base).lexically_normal();
+    }
+    if (d == d.parent_path()) {
+      break;
+    }
+  }
+  return base.is_absolute() ? base : (dir / base).lexically_normal();
+}
+
+void read_sweep(Reader& root, const fs::path& dir, SweepSpec& s) {
+  std::string base;
+  if (root.scalar("base_profile", base)) {
+    s.base_profile = resolve_base(dir, base);
+  }
+  list(root, "seeds", [&](const std::string& label, const YAML::Node& n) {
+    std::uint64_t seed = 0;
+    if (!n.IsScalar() || n.Scalar().find('-') != std::string::npos ||
+        !YAML::convert<std::uint64_t>::decode(n, seed)) {
+      root.fail(label, "expected an unsigned integer, got '" + YAML::Dump(n) + "'");
+    }
+    s.seeds.push_back(seed);
+  });
+  list(root, "params", [&](const std::string& label, const YAML::Node& n) {
+    Reader p = root.child(n, label);
+    SweepParam param;
+    p.scalar("name", param.name);
+    list(p, "levels", [&](const std::string& level_label, const YAML::Node& l) {
+      double v = 0.0;
+      if (!l.IsScalar() || !YAML::convert<double>::decode(l, v) || !std::isfinite(v)) {
+        p.fail(level_label, "expected a number, got '" + YAML::Dump(l) + "'");
+      }
+      param.levels.push_back(v);
+    });
+    p.finish();
+    s.params.push_back(param);
+  });
+}
+
 }  // namespace
+
+Result<SweepSpec> load_sweep(const fs::path& yaml) {
+  std::error_code ec;
+  const fs::path dir = fs::absolute(yaml, ec).parent_path();
+  return load<SweepSpec>(yaml, [&dir](Reader& r, SweepSpec& s) { read_sweep(r, dir, s); });
+}
+
+template <int N>
+Result<imperfect::ImperfectionConfig<N>> load_imperfections_with(const fs::path& yaml,
+                                                                 const std::string& name,
+                                                                 double level) {
+  const auto edit = [&name, level](YAML::Node& root) -> std::string {
+    const std::size_t dot = name.find('.');
+    const std::string group = name.substr(0, dot);
+    const std::string key = dot == std::string::npos ? "" : name.substr(dot + 1);
+    // Iterated, not looked up: a lookup of a missing key yields an invalid node that throws.
+    bool found = false;
+    for (const auto& g : root["imperfections"]) {
+      for (const auto& k :
+           g.first.Scalar() == group && g.second.IsMap() ? g.second : YAML::Node()) {
+        found = found || k.first.Scalar() == key;
+      }
+    }
+    if (key.empty() || key == "source" || !found) {
+      return "unknown sweep param " + name + " (no key imperfections." + name + ")";
+    }
+    std::array<char, 32> text{};
+    std::snprintf(text.data(), text.size(), "%.17g", level);
+    root["imperfections"][group][key] = std::string(text.data());
+    return {};
+  };
+  return load<imperfect::ImperfectionConfig<N>>(
+      yaml,
+      [](Reader& r, imperfect::ImperfectionConfig<N>& c) { read_imperfections<N>(r, c); },
+      edit);
+}
 
 template <int N>
 Result<Config<N>> load_config(const fs::path& yaml) {
@@ -318,9 +434,11 @@ Result<imperfect::ImperfectionConfig<N>> load_imperfections(const fs::path& yaml
 }
 
 // NOLINTBEGIN(bugprone-macro-parentheses): N is a template argument
-#define COBOT_INSTANTIATE(N)                                  \
-  template Result<Config<N>> load_config<N>(const fs::path&); \
-  template Result<imperfect::ImperfectionConfig<N>> load_imperfections<N>(const fs::path&);
+#define COBOT_INSTANTIATE(N)                                                                \
+  template Result<Config<N>> load_config<N>(const fs::path&);                               \
+  template Result<imperfect::ImperfectionConfig<N>> load_imperfections<N>(const fs::path&); \
+  template Result<imperfect::ImperfectionConfig<N>> load_imperfections_with<N>(             \
+      const fs::path&, const std::string&, double);
 COBOT_INSTANTIATE_DOF(COBOT_INSTANTIATE)
 #undef COBOT_INSTANTIATE
 // NOLINTEND(bugprone-macro-parentheses)

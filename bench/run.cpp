@@ -13,10 +13,13 @@
 #include <thread>
 #include <vector>
 
+#include "cobot/common/lie.hpp"
 #include "cobot/imperfect/imperfect_joint_interface.hpp"
 #include "cobot/imperfect/perturb.hpp"
 #include "cobot/pipeline/control_loop.hpp"
 #include "cobot/pipeline/sim_joint_interface.hpp"
+
+#include "engine.hpp"
 
 #ifndef COBOT_GIT_DESCRIBE
 #define COBOT_GIT_DESCRIBE ""
@@ -35,6 +38,7 @@ constexpr double kUsPerS = 1e6;
 // never drops a row (the ring holds kLogCapacity - 1 records).
 constexpr std::size_t kMaxInFlight = pipeline::kLogCapacity - 2;
 constexpr std::chrono::microseconds kWriterIdle{200};
+constexpr double kSatFraction = 0.999;  // cobot_eval.metrics.SAT_FRACTION
 
 struct Setup {
   pipeline::Config<kN> config;
@@ -67,6 +71,63 @@ void write_list(std::ostream& os, const char* key, const Vec& v) {
   os << "]\n";
 }
 
+// RunSummary of the logged rows, fed one record at a time by the writer thread.
+class Metrics {
+ public:
+  Metrics(const Vec& tau_max, std::int64_t t_eval_ns) : t_eval_ns_(t_eval_ns) {
+    tau_max_ = tau_max;
+  }
+
+  void add(const pipeline::LogRecord<kN>& r) {
+    if (rows_ > 0) {
+      last_dt_ns_ = r.t.ns - prev_t_ns_;
+      sat_ns_ += prev_sat_ ? last_dt_ns_ : 0;
+    }
+    if (rows_ == 0 || r.t.ns <= t_eval_ns_) {
+      final_e_ = r.T_b_e;
+      final_d_ = r.T_b_d;
+    }
+    const double ratio = (r.tau.cwiseAbs().array() / tau_max_.array()).maxCoeff();
+    s_.peak_tau_ratio = std::max(s_.peak_tau_ratio, ratio);
+    prev_sat_ = ratio >= kSatFraction;
+    prev_t_ns_ = r.t.ns;
+    ++rows_;
+    s_.held = s_.held || r.mode == pipeline::LoopMode::kHolding;
+    if (r.mode == pipeline::LoopMode::kTracking || r.mode == pipeline::LoopMode::kFinished) {
+      const Vec e = r.q_ref - r.q;
+      sum_sq_ += e.cwiseProduct(e);
+      ++error_rows_;
+    }
+  }
+
+  RunSummary finish() const {
+    RunSummary s = s_;
+    s.final_pos_err_m = (final_d_.p - final_e_.p).norm();
+    s.final_rot_err_rad = common::so3_log(final_d_.R * final_e_.R.transpose()).norm();
+    if (error_rows_ > 0) {
+      const Vec mean_sq = sum_sq_ / static_cast<double>(error_rows_);
+      s.rms_joint_err_rad = mean_sq.cwiseSqrt().maxCoeff();
+    }
+    const std::int64_t sat_ns = sat_ns_ + (prev_sat_ && rows_ > 1 ? last_dt_ns_ : 0);
+    s.sat_time_s = static_cast<double>(sat_ns) / static_cast<double>(common::kNanosecondsPerSecond);
+    return s;
+  }
+
+ private:
+  Vec tau_max_ = Vec::Zero();
+  std::int64_t t_eval_ns_;
+  RunSummary s_;
+  common::Pose final_e_;
+  common::Pose final_d_;
+  Vec sum_sq_ = Vec::Zero();
+  std::size_t rows_ = 0;
+  std::size_t error_rows_ = 0;
+  std::int64_t prev_t_ns_ = 0;
+  std::int64_t last_dt_ns_ = 0;
+  std::int64_t sat_ns_ = 0;
+  bool prev_sat_ = false;
+};
+
 }  // namespace
 
 Status run(const std::filesystem::path& config_yaml,
@@ -74,31 +135,52 @@ Status run(const std::filesystem::path& config_yaml,
            std::optional<std::uint64_t> seed,
            const std::filesystem::path& out_csv,
            std::optional<double> duration_s) {
-  const common::Result<Setup> setup = load_setup(config_yaml);
-  if (!setup) {
-    return Status::error(setup.reason());
-  }
   common::Result<imperfect::ImperfectionConfig<kN>> imp =
       pipeline::load_imperfections<kN>(imperfections_yaml);
   if (!imp) {
     return Status::error(imp.reason());
   }
+  imp.value().seed = seed.value_or(imp.value().seed);
+  const common::Result<RunSummary> result =
+      run_profile(config_yaml, imp.value(), imperfections_yaml, out_csv, duration_s);
+  return result ? Status::ok() : Status::error(result.reason());
+}
+
+common::Result<RunSummary> run_profile(const std::filesystem::path& config_yaml,
+                                       const imperfect::ImperfectionConfig<kN>& imperfections,
+                                       const std::filesystem::path& label,
+                                       const std::filesystem::path& out_csv,
+                                       std::optional<double> duration_s) {
+  using Out = common::Result<RunSummary>;
+  const common::Result<Setup> setup = load_setup(config_yaml);
+  if (!setup) {
+    return Out::error(setup.reason());
+  }
   const pipeline::Config<kN>& config = setup.value().config;
-  imperfect::ImperfectionConfig<kN>& imperfections = imp.value();
-  imperfections.seed = seed.value_or(imperfections.seed);
   const double duration =
       duration_s.value_or(config.trajectory.duration_s + config.trajectory.hold_s);
   if (!std::isfinite(duration) || duration <= 0.0) {
-    return Status::error("duration_s must be > 0, got " + std::to_string(duration));
+    return Out::error("duration_s must be > 0, got " + std::to_string(duration));
   }
   const std::int64_t cycles = std::llround(duration * config.control_rate_hz);
   const double period_s = 1.0 / config.control_rate_hz;
-  const std::string meta_path = out_csv.string() + ".meta.yaml";
-  std::ofstream csv(out_csv, std::ios::binary);
-  std::ofstream meta(meta_path, std::ios::binary);
-  if (!csv || !meta) {
-    return Status::error("cannot open " + out_csv.string() + " (or its .meta.yaml) for writing");
+  const bool keep = !out_csv.empty();
+  std::ofstream csv;
+  std::ofstream meta;
+  if (keep) {
+    csv.open(out_csv, std::ios::binary);
+    meta.open(out_csv.string() + ".meta.yaml", std::ios::binary);
+    if (!csv || !meta) {
+      return Out::error("cannot open " + out_csv.string() + " (or its .meta.yaml) for writing");
+    }
   }
+  Vec tau_max;
+  for (int i = 0; i < kN; ++i) {
+    tau_max(i) = setup.value().nominal.joints[static_cast<std::size_t>(i)].tau_max;
+  }
+  const double t_eval_s = config.trajectory.duration_s + config.trajectory.hold_s;
+  Metrics metrics(tau_max,
+                  std::llround(t_eval_s * static_cast<double>(common::kNanosecondsPerSecond)));
   try {
     // The controller keeps the nominal model; the plant gets the perturbed one, with friction
     // and motor lag, so the I/O decorator does not apply them again.
@@ -116,7 +198,7 @@ Status run(const std::filesystem::path& config_yaml,
       mass(i) = plant_model.links[static_cast<std::size_t>(i)].mass_kg;
     }
     meta << std::setprecision(17) << "config: '" << config_yaml.string() << "'\n"
-         << "imperfections: '" << imperfections_yaml.string() << "'\n"
+         << "imperfections: '" << label.string() << "'\n"
          << "seed: " << imperfections.seed << "\n";
     write_list(meta, "q_offset_rad", io.q_offset_rad());
     write_list(meta, "torque_scale", io.torque_scale());
@@ -130,11 +212,13 @@ Status run(const std::filesystem::path& config_yaml,
     static_cast<void>(io.read(state));
     const Status started = loop->start(state);
     if (!started) {
-      return Status::error(started.reason());
+      return Out::error(started.reason());
     }
     // Writer thread: drains the ring into the CSV; reads `done` before draining, so every
     // record pushed before done is set gets written.
-    pipeline::write_csv_header<kN>(csv);
+    if (keep) {
+      pipeline::write_csv_header<kN>(csv);
+    }
     std::atomic<bool> done{false};
     std::atomic<std::size_t> written{0};
     std::thread writer([&] {
@@ -144,7 +228,10 @@ Status run(const std::filesystem::path& config_yaml,
         last = done.load(std::memory_order_acquire);
         bool any = false;
         while (loop->log().pop(r)) {
-          pipeline::write_csv_row<kN>(csv, r);
+          if (keep) {
+            pipeline::write_csv_row<kN>(csv, r);
+          }
+          metrics.add(r);
           written.fetch_add(1, std::memory_order_release);
           any = true;
         }
@@ -168,14 +255,17 @@ Status run(const std::filesystem::path& config_yaml,
     done.store(true, std::memory_order_release);
     writer.join();
     if (loop->log().dropped() > 0) {
-      return Status::error(out_csv.string() + ": log rows dropped");
+      return Out::error(label.string() + ": log rows dropped");
     }
   } catch (const std::exception& e) {
-    return Status::error(imperfections_yaml.string() + ": " + e.what());
+    return Out::error(label.string() + ": " + e.what());
   }
   csv.flush();
   meta.flush();
-  return csv && meta ? Status::ok() : Status::error("cannot write " + out_csv.string());
+  if (keep && (!csv || !meta)) {
+    return Out::error("cannot write " + out_csv.string());
+  }
+  return Out::ok(metrics.finish());
 }
 
 common::Result<TimingStats> timing(const std::filesystem::path& config_yaml, std::int64_t steps) {

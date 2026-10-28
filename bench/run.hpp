@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <optional>
@@ -23,6 +24,30 @@ common::Status run(const std::filesystem::path& config_yaml,
                    std::optional<std::uint64_t> seed,
                    const std::filesystem::path& out_csv,
                    std::optional<double> duration_s);
+
+// Monte Carlo and sweep modes (feature sensitivity, bench/sweep.cpp), built on the run engine.
+// Both write `<out_dir>/summary.csv` (Summary CSV, docs/conventions.md) with metrics computed
+// in C++ by the definitions of cobot_eval.metrics (engine.hpp). `passed` judges the G3
+// thresholds; scenario runners judge again from the metric columns.
+//
+// montecarlo: seeds seed0 .. seed0 + runs - 1 on one profile; rows have param = none, level = 0.
+// With keep_runs, each run's Run CSV is written as `<out_dir>/run_<run_id>.csv`. runs == 0 is an
+// error.
+common::Status montecarlo(const std::filesystem::path& config_yaml,
+                          const std::filesystem::path& imperfections_yaml,
+                          std::size_t runs,
+                          std::uint64_t seed0,
+                          const std::filesystem::path& out_dir,
+                          bool keep_runs,
+                          std::optional<double> duration_s);
+
+// sweep: one at a time (config/sweeps/*.yaml): for each param, level and seed, the base profile
+// with that one key replaced (scalar broadcast to every joint). Every param and level is
+// validated before the first run; an unknown param is an error naming it.
+common::Status sweep(const std::filesystem::path& config_yaml,
+                     const std::filesystem::path& sweep_yaml,
+                     const std::filesystem::path& out_dir,
+                     std::optional<double> duration_s);
 
 // Wall time of ControlLoop::step() over `steps` cycles of an ideal run (no imperfections,
 // deterministic forced off), in microseconds.

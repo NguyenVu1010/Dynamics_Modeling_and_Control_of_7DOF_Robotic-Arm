@@ -1,0 +1,30 @@
+# One-at-a-time hardware sensitivity sweep (design 11.2, E2E-06): each param is set to each
+# level in turn (a scalar is broadcast to every joint) while every other key keeps the base
+# profile's value, for each seed. Paths are relative to the repository root.
+base_profile: config/imperfections/ideal.yaml
+seeds: [1, 2, 3]
+params:
+  - name: sensor.encoder_bits
+    levels: [10, 12, 14, 16, 18, 20]
+  - name: sensor.q_noise_std_rad
+    levels: [0, 1.0e-5, 1.0e-4, 5.0e-4, 1.0e-3]
+  - name: sensor.sensor_delay_cycles
+    levels: [0, 1, 2, 4, 8]
+  - name: actuator.command_delay_cycles
+    levels: [0, 1, 2, 4, 8]
+  - name: actuator.torque_scale_std
+    levels: [0, 0.05, 0.1, 0.2, 0.3]
+  - name: actuator.torque_ripple_frac
+    levels: [0, 0.02, 0.05, 0.1]
+  - name: actuator.torque_cmd_resolution_nm
+    levels: [0, 0.1, 0.5, 1.0, 2.0]
+  - name: actuator.motor_time_constant_s
+    levels: [0, 0.001, 0.003, 0.01]
+  - name: friction.coulomb_nm
+    levels: [0, 1, 2, 4, 8]
+  - name: model.link_mass_scale_std
+    levels: [0, 0.05, 0.1, 0.2]
+  - name: model.payload_kg
+    levels: [0, 0.5, 1, 2, 3]
+  - name: timing.period_jitter_std_us
+    levels: [0, 20, 100, 300]
