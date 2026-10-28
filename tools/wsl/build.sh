@@ -6,6 +6,8 @@ set -euo pipefail
 usage() { echo "Usage: $0 [--asan] [--coverage] [--build-dir DIR] [--target T] [--no-test]" >&2; }
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=git_env.sh
+source "$repo/tools/wsl/git_env.sh" "$repo"
 asan=0
 coverage=0
 build_dir=""

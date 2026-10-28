@@ -3,6 +3,8 @@
 # Usage: lint.sh [--fix] [--tidy-base REF]   (clang-tidy needs a build dir from build.sh)
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+# shellcheck source=git_env.sh
+source "$repo/tools/wsl/git_env.sh" "$repo"
 venv="${COBOT_VENV:-$HOME/.venvs/cobot}"
 fix=0
 base="origin/main"
