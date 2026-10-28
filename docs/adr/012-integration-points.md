@@ -1,0 +1,44 @@
+# ADR-012: Hai điểm cắm: `ros2_control` cho Gazebo, `hal::JointInterface` cho bench; Pi5 để mở
+
+- Trạng thái: đề xuất, chờ bàn
+- Ngày: 2026-10-29
+- Liên quan: thiết kế mục 2 (G4), 5.5; ADR-003, ADR-008, ADR-011, ADR-014, ADR-015
+
+## Bối cảnh
+
+`ControlLoop` phải chạy với ba loại plant: Gazebo (qua `gz_ros2_control`), mô phỏng nội bộ
+`SimPlant` (test, bench, không ROS), và sau này robot thật trên Pi5 với actuator EtherCAT. Bản cũ
+nối các bước qua topic ROS, gây jitter và bốn tần số khác nhau.
+
+## Quyết định
+
+- **Điểm cắm 1, `ros2_control`:** `ros2_node/` là một `controller_interface::ControllerInterface`
+  (`cobot_ros2/CobotController`). `update()` được `controller_manager` gọi ở 1 kHz, đọc state
+  interface (`position`, `velocity`, `effort`) của 7 khớp, gọi `ControlLoop::step()`, ghi command
+  interface `effort`. MVP: quỹ đạo lấy từ YAML, bắt đầu khi controller được kích hoạt; trạng thái
+  và sai số publish 100 Hz. Sau MVP: topic `~/target_pose` (`geometry_msgs/PoseStamped`) qua
+  realtime buffer.
+- **Điểm cắm 2, `hal::JointInterface<N>`:** interface trong lõi (`read(JointState&)`,
+  `write(const JointCommand&)`, trả `Status`). Hiện thực MVP: `pipeline::SimJointInterface`
+  (bọc `SimPlant`) cho bench và test.
+- Decorator `imperfect::ImperfectJointInterface<N>` bọc được cả hai đường: bench bọc
+  `SimJointInterface`; plugin bọc state/command bằng cùng lớp (ADR-015).
+- Lõi không biết đường nào đang dùng.
+
+**Câu hỏi mở cho chủ dự án:** trên Pi5, chạy qua đường nào? Chưa chọn cho tới khi có phần cứng
+(ADR-014); cả hai đường được giữ để không đóng lựa chọn nào.
+
+## Phương án đã cân nhắc
+
+| Phương án | Điểm cộng | Vì sao không chọn |
+| --- | --- | --- |
+| Pi5 qua `ros2_control` + `ethercat_driver_ros2` | Cùng plugin với Gazebo; có sẵn driver CiA402 | Để mở: cần ROS 2 trên Pi5 RT, thêm tầng lịch trình của `controller_manager` |
+| Pi5 qua binary trần + `JointInterface` EtherCAT tự viết (SOEM/IgH) | Ít tầng, kiểm soát thời gian tuyệt đối | Để mở: phải tự viết driver CiA402 và xử lý lỗi bus |
+| Chỉ `ros2_control` (cả bench dùng mock hardware) | Một điểm cắm | Test và bench phải chạy `controller_manager`; trái ADR-003 |
+| Chỉ HAL riêng (cả Gazebo qua plugin Gazebo tự viết) | Một điểm cắm, không ROS | Tự viết plugin Gazebo; mất hệ sinh thái `ros2_control`, RViz |
+| Node topic như bản cũ | Quen | Jitter, không cùng nhịp với bước vật lý |
+
+## Hệ quả
+
+Bench và Gazebo dùng cùng `ControlLoop` và cùng profile nhiễu. Hai adapter phải được giữ mỏng và
+cùng hành vi; E2E-01 (bench) và E2E-07 (Gazebo) dùng cùng quỹ đạo và ngưỡng để phát hiện lệch.

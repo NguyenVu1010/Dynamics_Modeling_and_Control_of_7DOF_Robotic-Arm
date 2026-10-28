@@ -417,8 +417,8 @@ Mỗi giai đoạn là một kế hoạch riêng trong `.local/plans/` (cục b�
 
 Yêu cầu của chủ dự án: định nghĩa bộ test và quy trình phát triển đầu-cuối; thêm chức năng sửa
 đổi nhiễu đầu vào; báo cáo sai số; đánh giá ảnh hưởng của độ chính xác cảm biến và động cơ tới
-kết quả đầu ra để phục vụ chuyển từ mô phỏng sang thật; phát triển song song bằng nhiều agent,
-agent định nghĩa test tách khỏi agent hiện thực, không sửa test sau khi đã hiện thực; chỉ push khi
+kết quả đầu ra để phục vụ chuyển từ mô phỏng sang thật; phát triển song song nhiều nhánh,
+người viết test tách khỏi người hiện thực, không sửa test sau khi đã hiện thực; chỉ push khi
 test pass; CI/CD kiểm duyệt chất lượng; container Ubuntu sát môi trường Pi5; chỉ merge PR khi
 pass; mỗi PR một tính năng, không dài; tự động làm đến hết MVP. Mọi chi tiết dưới đây là lựa chọn
 của người thiết kế.
@@ -469,7 +469,7 @@ Mọi nguồn ngẫu nhiên dùng `std::mt19937_64` với seed từ YAML; không
 | --- | --- | --- | --- |
 | E2E-01 | bench + SimPlant, profile `ideal`, quỹ đạo MVP | G3: 2 mm, 1°, 0,01 rad | mỗi PR |
 | E2E-02 | như E2E-01, profile `realistic`, seed cố định | 5 mm, 2°, 0,02 rad | mỗi PR |
-| E2E-03 | tất định: hai lần chạy cùng seed cho CSV giống từng byte | bằng nhau | mỗi PR |
+| E2E-03 | tất định: hai lần chạy cùng seed cho CSV giống từng byte (chế độ `deterministic` ghi `step_us = 0`, thời gian đo riêng bằng PF-01) | bằng nhau | mỗi PR |
 | E2E-04 | an toàn: đích kéo khớp vào giới hạn, NaN từ HAL, HAL quá hạn | vào chế độ giữ, không NaN ra, mô-men trong giới hạn | mỗi PR |
 | E2E-05 | Monte Carlo 50 seed, `realistic` | ≥ 95 % đạt ngưỡng E2E-02 | hằng đêm, chạy tay |
 | E2E-06 | sweep độ nhạy, báo cáo + bảng yêu cầu phần cứng | báo cáo sinh được | hằng đêm, chạy tay |
@@ -484,13 +484,13 @@ launch Gazebo), rồi `report.py`, và trả mã lỗi. Ngưỡng nằm trong k�
 
 - Mỗi PR một tính năng, nhánh `feat/<tính-năng>`; ≤ 400 dòng code không phải test và ≤ 400 dòng
   test.
-- **Agent định nghĩa test** viết test từ thiết kế và header interface, commit `test(<phạm vi>): ...`.
+- **Người viết test** viết test từ thiết kế và header interface, commit `test(<phạm vi>): ...`.
   Test phải biên dịch được và thất bại vì chưa có hiện thực.
-- **Agent hiện thực** chỉ sửa ngoài `tests/`. Build, ctest, pytest, lint cục bộ pass mới được push.
+- **Người hiện thực** chỉ sửa ngoài `tests/`. Build, ctest, pytest, lint cục bộ pass mới được push.
 - **Khoá test bằng CI** (`tools/ci/check_frozen_tests.sh`, job `frozen-tests`): (1) file dưới `tests/`
   đã có trên `main` không được sửa hay xoá trong PR, trừ khi PR có nhãn `test-change` kèm lý do;
   (2) trong PR, sau commit `test(` cuối cùng không commit nào được đụng `tests/`.
-- Agent hiện thực thấy test sai so với thiết kế thì dừng và báo; người điều phối quyết định một PR
+- Người hiện thực thấy test sai so với thiết kế thì dừng và báo; người điều phối quyết định một PR
   `test-change` riêng. Không bao giờ nới test để cho pass.
 - Merge: squash, chỉ khi mọi check bắt buộc xanh. Nhánh tự xoá sau merge.
 
