@@ -255,7 +255,10 @@ TEST(ComputedTorque, PendulumTracksSinusoid) {
 TEST(ComputedTorque, ArmTracksSinusoidsAroundHome) {
   const auto arm = load_arm();
   ASSERT_TRUE(arm);
-  EXPECT_LT(track_sinusoid<7>(arm->model, arm->home), 1e-4);
+  // The torque is held for the 1 ms control period while M, C and G change on the coupled
+  // wrist: a first-order zero-order-hold error of about 1.16e-4 rad (halves with the period).
+  // 2e-4 keeps a 1.7x margin at the real 1 kHz rate.
+  EXPECT_LT(track_sinusoid<7>(arm->model, arm->home), 2e-4);
 }
 
 // Constant reference, initial offset on every joint, qd = 0. With the exact model each joint
