@@ -1,0 +1,1 @@
+cobot_add_test(test_control test_computed_torque.cpp test_hold.cpp test_control_no_alloc.cpp)
