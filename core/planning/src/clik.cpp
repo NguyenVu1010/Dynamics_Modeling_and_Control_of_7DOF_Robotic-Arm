@@ -95,7 +95,9 @@ VecN<N> joint_limit_gradient(const Model<N>& model, const VecN<N>& q) {
 
 template <int N>
 ClikReference<N>::ClikReference(const Model<N>& model, const ClikConfig& config) {
-  // Copied in the body: the header fixes the const& signature, so there is nothing to move.
+  // Assigned in the body on purpose: copying const& arguments in a member initializer list trips
+  // clang-tidy modernize-pass-by-value (in this file and in the interface header), and the header
+  // fixes the const& signature. The extra default construction runs once, outside the RT loop.
   model_ = model;
   config_ = config;
 }
