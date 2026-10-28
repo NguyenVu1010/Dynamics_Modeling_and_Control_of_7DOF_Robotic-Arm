@@ -55,12 +55,13 @@ Vec3 so3_log(const Mat3& R) {
     return v * (theta / s);
   }
   // Near pi: (R + R^T) / 2 = c I + (1 - c) a a^T. Use the column with the largest diagonal.
+  // Column k of S - c I is (1 - c) a_k a, and a_k^2 >= 1/3 for that column, so normalising
+  // it gives +-a without any risk of dividing by zero.
   const Mat3 S = 0.5 * (R + R.transpose());
   Eigen::Index k = 0;
   S.diagonal().maxCoeff(&k);
   Vec3 axis = S.col(k);
   axis(k) -= c;
-  axis /= std::sqrt(std::max((1.0 - c) * axis(k), 0.0));
   axis.normalize();
   // axis(k) >= 0 here; sin(theta) * axis(k) = v(k) fixes the sign unless theta is pi.
   if (v(k) < -kPiSignNoise) {
