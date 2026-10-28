@@ -9,6 +9,7 @@
 // Columns: t_ns,mode,q1..qN,qd1..qdN,qref1..qrefN,qdref1..qdrefN,tau1..tauN,
 //          px,py,pz,rx,ry,rz,pdx,pdy,pdz,rdx,rdy,rdz,e1..e6,step_us
 // p/r = position and so3_log rotation vector of T_b_e; pd/rd the same for T_b_d.
+// In holding rows q_ref is the hold target, qd_ref and e1..e6 are 0 (CLIK is not stepped).
 // Doubles printed with %.17g so that runs can be compared byte for byte; step_us is written
 // as 0 when config.deterministic is true (wall time is not reproducible).
 namespace cobot::pipeline {
