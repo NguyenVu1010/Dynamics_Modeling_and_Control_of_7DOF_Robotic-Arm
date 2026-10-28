@@ -41,6 +41,17 @@ void operator delete(void* p) noexcept {
 void operator delete(void* p, std::size_t /*size*/) noexcept {
   std::free(p);
 }
+// GoogleTest also uses the nothrow forms; replace them too so every allocation and
+// deallocation goes through malloc/free (otherwise ASan reports alloc-dealloc-mismatch).
+void* operator new(std::size_t size, const std::nothrow_t& /*tag*/) noexcept {
+  if (g_count_allocs.load()) {
+    g_alloc_count.fetch_add(1);
+  }
+  return std::malloc(size == 0 ? 1 : size);
+}
+void operator delete(void* p, const std::nothrow_t& /*tag*/) noexcept {
+  std::free(p);
+}
 
 namespace cobot::imperfect {
 namespace {
