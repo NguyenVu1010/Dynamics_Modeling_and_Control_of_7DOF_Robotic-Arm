@@ -1,9 +1,12 @@
+// clang-format off: the interface header goes first so this file proves it compiles on its own.
+#include "cobot/dynamics/dynamics.hpp"
+// clang-format on
+
 #include <cstddef>
 
 #include <Eigen/Geometry>
 
 #include "cobot/common/dof.hpp"
-#include "cobot/dynamics/dynamics.hpp"
 #include "cobot/kinematics/kinematics.hpp"
 
 // Composite rigid body algorithm with 3D vectors, every quantity expressed in b.
