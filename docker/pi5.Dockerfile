@@ -6,7 +6,7 @@ FROM ubuntu:24.04 AS build
 ARG DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
       cmake ninja-build g++ libeigen3-dev libgtest-dev libgmock-dev libtinyxml2-dev \
-      libyaml-cpp-dev python3 python3-yaml python3-numpy ca-certificates \
+      libyaml-cpp-dev python3 python3-yaml python3-numpy python3-pandas ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY CMakeLists.txt ./
@@ -16,6 +16,7 @@ COPY tests tests
 COPY config config
 COPY sim/urdf sim/urdf
 COPY tools tools
+COPY eval eval
 COPY bench bench
 RUN cmake -S . -B /build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCOBOT_WERROR=ON \
       "-DCOBOT_ARCH_FLAGS=-mcpu=cortex-a76" -DCMAKE_INSTALL_PREFIX=/opt/cobot \
