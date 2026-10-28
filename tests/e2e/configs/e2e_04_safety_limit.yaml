@@ -1,0 +1,36 @@
+# config/default.yaml with an unreachable goal for E2E-04 (only trajectory.goal_* and the
+# relative paths differ). Home tip (FK of home_q_deg) is (0.110, -0.807, 0.389) m with
+# orientation rpy (0, -90, 90) deg. The goal keeps that orientation and moves the tip 0.5 m
+# further out along -y: |goal - joint_1 origin (0, 0, 0.159)| = sqrt(0.1^2 + 1.3^2 + 0.341^2)
+# = 1.348 m, while with joint 4 at its upper limit -0.4 rad (others at home) the tip is only
+# 1.198 m from it. Damped least-squares IK along the straight line (200 steps, URDF limits)
+# reaches the 3 deg soft margin of joint 4 first, at 60 % of the line (q4 = -25.2 deg), with
+# every other joint >= 44.9 deg from its limits; the full line would need q4 > -0.4 rad.
+cobot:
+  urdf_path: ../../../sim/urdf/cobot30_5.urdf
+  base_link: base_link
+  tip_link: link_7
+  gravity_b: [0.0, 0.0, -9.80665]
+  control_rate_hz: 1000.0
+  deterministic: true
+  home_q_deg: [0.0, 30.0, 0.0, -90.0, 0.0, 60.0, 0.0]
+  trajectory:
+    goal_position_m: [0.1, -1.3, 0.5]
+    goal_rpy_deg: [0.0, -90.0, 90.0]
+    duration_s: 10.0
+    hold_s: 2.0
+  clik:
+    kp: [100.0, 100.0, 100.0, 100.0, 100.0, 100.0]
+    kd: [20.0, 20.0, 20.0, 20.0, 20.0, 20.0]
+    k_null: 1.0
+    k_damp: 2.0
+    lambda_max: 0.05
+    cond_threshold: 100.0
+  computed_torque:
+    kp: [100.0, 200.0, 100.0, 200.0, 100.0, 50.0, 20.0]
+    kd: [50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 20.0]
+  safety:
+    soft_margin_deg: 3.0
+    hal_timeout_ms: 5.0
+  log:
+    output_dir: ../../../results

@@ -1,0 +1,12 @@
+# E2E-04 (design 11.3): a goal out of reach stretches the elbow (joint 4) into its upper
+# limit -0.4 rad; the loop must enter holding, with every |tau| <= tau_max and finite.
+# Goal reasoning: tests/e2e/configs/e2e_04_safety_limit.yaml.
+id: E2E-04
+tags: [pr, arm64]
+runner: bench
+kind: safety
+config: tests/e2e/configs/e2e_04_safety_limit.yaml
+imperfections: config/imperfections/ideal.yaml
+seed: 1
+expect:
+  mode_reached: holding
