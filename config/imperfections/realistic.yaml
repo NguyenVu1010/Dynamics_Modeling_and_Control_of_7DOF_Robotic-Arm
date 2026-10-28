@@ -1,0 +1,34 @@
+# Realistic robot: typical industrial servo values (design 11.1).
+# Schema: imperfect::ImperfectionConfig. A scalar applies to all joints; a 7-element list sets
+# each joint. Every group names the source of its numbers.
+imperfections:
+  seed: 1
+  sensor:
+    source: "assumed: typical harmonic-drive servo with 19-bit absolute encoder at 1 kHz EtherCAT"
+    encoder_bits: 19
+    q_noise_std_rad: 1.0e-5
+    q_offset_std_rad: 1.0e-3
+    qd_from_diff: true
+    qd_filter_hz: 100.0
+    qd_noise_std_rad_s: 0.0
+    sensor_delay_cycles: 1
+  actuator:
+    source: "assumed: typical harmonic-drive servo with 19-bit absolute encoder at 1 kHz EtherCAT; torque_cmd_resolution_nm: CiA402 target torque in 1/1000 of rated torque"
+    torque_scale_std: 0.05
+    torque_ripple_frac: 0.02
+    ripple_periods_per_rev: 6.0
+    torque_cmd_resolution_nm: [0.087, 0.087, 0.087, 0.087, 0.012, 0.012, 0.012]
+    motor_time_constant_s: 0.001
+    command_delay_cycles: 1
+  friction:
+    source: "assumed 2 % of rated torque"
+    coulomb_nm: [1.7, 1.7, 1.7, 1.7, 0.24, 0.24, 0.24]
+    viscous_nm_s_rad: [0.5, 0.5, 0.5, 0.5, 0.1, 0.1, 0.1]
+  model:
+    source: "assumed: typical harmonic-drive servo with 19-bit absolute encoder at 1 kHz EtherCAT"
+    link_mass_scale_std: 0.05
+    com_shift_std_m: 0.005
+    payload_kg: 0.0
+  timing:
+    source: "assumed: typical harmonic-drive servo with 19-bit absolute encoder at 1 kHz EtherCAT"
+    period_jitter_std_us: 20.0
