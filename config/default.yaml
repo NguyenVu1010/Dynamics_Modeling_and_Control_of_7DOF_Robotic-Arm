@@ -22,9 +22,13 @@ cobot:
     k_damp: 2.0                        # 1/s, null-space velocity damping
     lambda_max: 0.05                   # damped pseudo-inverse
     cond_threshold: 100.0
-  computed_torque:                     # values of the previous Python controller (tinh_u.py)
-    kp: [100.0, 200.0, 100.0, 200.0, 100.0, 50.0, 20.0]  # 1/s^2
-    kd: [50.0, 50.0, 50.0, 50.0, 50.0, 50.0, 20.0]       # 1/s
+  computed_torque:                     # error dynamics e'' + kd e' + kp e = 0 per joint
+    # Critically damped at w = 80 rad/s (kp = w^2, kd = 2w). The gains of the previous Python
+    # controller (w = 4.5 rad/s on joint 7) let the realistic profile's wrist friction and torque
+    # resolution push joint 7 by ~0.5 rad RMS, since the restoring torque is M(q) kp e and the
+    # wrist inertia is small. w = 80 keeps a 3-cycle loop delay well inside the phase margin.
+    kp: [6400.0, 6400.0, 6400.0, 6400.0, 6400.0, 6400.0, 6400.0]  # 1/s^2
+    kd: [160.0, 160.0, 160.0, 160.0, 160.0, 160.0, 160.0]         # 1/s
   safety:
     soft_margin_deg: 3.0               # hold when a joint gets this close to a limit
     hal_timeout_ms: 5.0                # hold when no fresh state arrives for this long
