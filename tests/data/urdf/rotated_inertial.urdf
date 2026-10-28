@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<robot name="rotated_inertial">
+  <link name="base_link" />
+  <joint name="joint_1" type="revolute">
+    <origin xyz="0 0 0" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="link_1" />
+    <axis xyz="0 0 1" />
+    <limit lower="-1" upper="1" effort="1" velocity="1" />
+  </joint>
+  <link name="link_1">
+    <inertial>
+      <origin xyz="0.1 0.2 0.3" rpy="0.3 -0.2 0.5" />
+      <mass value="1.5" />
+      <inertia ixx="0.01" ixy="0.001" ixz="-0.002" iyy="0.02" iyz="0.003" izz="0.03" />
+    </inertial>
+  </link>
+</robot>

@@ -1,2 +1,5 @@
-# model: URDF -> Model<N> (tinyxml2 is linked when parse_urdf_chain gets its source).
-cobot_add_module(model DEPS cobot::common)
+# model: URDF -> Model<N>. parse_urdf_chain reads the URDF with tinyxml2.
+find_package(tinyxml2 REQUIRED)
+cobot_add_module(model
+  SOURCES src/model.cpp src/urdf_parser.cpp
+  DEPS cobot::common tinyxml2::tinyxml2)

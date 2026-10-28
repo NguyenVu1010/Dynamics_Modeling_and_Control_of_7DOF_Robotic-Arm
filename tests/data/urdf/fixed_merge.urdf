@@ -1,0 +1,58 @@
+<?xml version="1.0"?>
+<!-- base_link -joint_1-> link_1 -tool_fix-> tool -joint_2-> link_2 -ee_fix-> ee.
+     tool is merged into link_1 and ee into link_2 (see test_urdf_parser.cpp). -->
+<robot name="fixed_merge">
+  <link name="base_link" />
+  <joint name="joint_1" type="revolute">
+    <origin xyz="0 0 0.05" rpy="0.1 0.2 0.3" />
+    <parent link="base_link" />
+    <child link="link_1" />
+    <axis xyz="0 0 1" />
+    <limit lower="-1" upper="1" effort="20" velocity="1" />
+  </joint>
+  <link name="link_1">
+    <inertial>
+      <origin xyz="0.1 0 0" rpy="0 0 0" />
+      <mass value="2.0" />
+      <inertia ixx="0.01" ixy="0" ixz="0" iyy="0.02" iyz="0" izz="0.03" />
+    </inertial>
+  </link>
+  <joint name="tool_fix" type="fixed">
+    <origin xyz="0.3 0 0" rpy="0 0 1.5707963267948966" />
+    <parent link="link_1" />
+    <child link="tool" />
+  </joint>
+  <link name="tool">
+    <inertial>
+      <origin xyz="0 0.1 0" rpy="0 0 0" />
+      <mass value="0.5" />
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.002" iyz="0" izz="0.003" />
+    </inertial>
+  </link>
+  <joint name="joint_2" type="revolute">
+    <origin xyz="0.05 0 0" rpy="0 0 0" />
+    <parent link="tool" />
+    <child link="link_2" />
+    <axis xyz="0 1 0" />
+    <limit lower="-1" upper="1" effort="20" velocity="1" />
+  </joint>
+  <link name="link_2">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <mass value="1.0" />
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.001" iyz="0" izz="0.001" />
+    </inertial>
+  </link>
+  <joint name="ee_fix" type="fixed">
+    <origin xyz="0 0 0.1" rpy="0 0 0" />
+    <parent link="link_2" />
+    <child link="ee" />
+  </joint>
+  <link name="ee">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <mass value="0.2" />
+      <inertia ixx="0" ixy="0" ixz="0" iyy="0" iyz="0" izz="0" />
+    </inertial>
+  </link>
+</robot>
