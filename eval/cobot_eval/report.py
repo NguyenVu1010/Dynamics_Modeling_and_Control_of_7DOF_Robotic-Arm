@@ -17,7 +17,6 @@ import matplotlib.pyplot as plt  # noqa: E402
 import numpy as np  # noqa: E402
 import pandas as pd  # noqa: E402
 import yaml  # noqa: E402
-
 from cobot_eval.metrics import (  # noqa: E402
     RunMetrics,
     Thresholds,

@@ -30,7 +30,9 @@ ignore = ["ANN401"]
 "tests/**" = ["ANN"]
 
 [tool.ruff.lint.isort]
-known-third-party = ["launch", "launch_ros"]
+# cobot_eval is imported like an installed package (pytest pythonpath), so it sorts with
+# third-party imports everywhere; listing it keeps the order the same on every ruff version.
+known-third-party = ["launch", "launch_ros", "cobot_eval"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]

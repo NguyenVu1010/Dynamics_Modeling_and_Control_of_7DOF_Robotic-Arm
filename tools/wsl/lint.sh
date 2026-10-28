@@ -22,9 +22,11 @@ if [ "${#cpp[@]}" -gt 0 ]; then
 fi
 
 if [ "$fix" = 1 ]; then
-  "$venv/bin/ruff" check --fix . && "$venv/bin/ruff" format .
+  "$venv/bin/ruff" check --fix .
+  "$venv/bin/ruff" format .
 else
-  "$venv/bin/ruff" check . && "$venv/bin/ruff" format --check .
+  "$venv/bin/ruff" check .
+  "$venv/bin/ruff" format --check .
 fi
 
 branch="$(git rev-parse --abbrev-ref HEAD)"
