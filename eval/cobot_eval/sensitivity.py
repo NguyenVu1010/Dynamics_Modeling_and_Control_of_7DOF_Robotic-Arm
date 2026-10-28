@@ -2,9 +2,9 @@
 
 Usage: python -m cobot_eval.sensitivity --summary S --thresholds YAML --out DIR
 Thresholds come from a scenario file's `thresholds:` mapping. Writes, for sweep rows, one PNG per
-param (level -> metric, mean and max over seeds, threshold line), tornado.png and
-hardware_requirements.md; for Monte Carlo rows (param = none), montecarlo.md. Exit 0 when the
-report is written (failing levels are results), 2 on bad input.
+param (level -> each metric, mean and max over seeds, threshold line where one applies),
+tornado.png and hardware_requirements.md; for Monte Carlo rows (param = none), montecarlo.md.
+Exit 0 when the report is written (failing levels are results), 2 on bad input.
 
 A level passes when every seed meets every threshold. A param's levels are walked in severity
 order: ascending, unless the smallest level fails and the largest passes (fewer encoder bits is
@@ -104,16 +104,23 @@ def requirements(summary: pd.DataFrame, th: Thresholds) -> list[tuple[str, str, 
 def tornado(
     summary: pd.DataFrame, metric: str, th: Thresholds | None = None
 ) -> list[tuple[str, float]]:
-    """[(param, mean at the worst level - mean at level 0 or the best level)], largest first.
+    """[(param, mean at the worst level - mean at the baseline level)], largest first.
 
-    Severity order comes from `th` when given, else from the `passed` column."""
+    The baseline is level 0 when the param has one. Otherwise the severity order decides when
+    the pass verdict differs between the two end levels (from `th` when given, else from the
+    `passed` column); when both ends pass or both fail, the end with the smaller mean of
+    `metric` is the baseline and the other end the worst level."""
     out = []
     for param in sweep_params(summary):
         df = summary[summary["param"] == param]
-        levels, _ = severity_order(df, th)
-        base = 0.0 if 0.0 in levels else levels[0]
+        levels, ok = severity_order(df, th)
         mean = df.groupby("level")[metric].mean()
-        out.append((param, float(mean[levels[-1]] - mean[base])))
+        base, worst = levels[0], levels[-1]
+        if 0.0 in levels:
+            base = 0.0
+        elif ok[base] == ok[worst] and mean[worst] < mean[base]:
+            base, worst = worst, base
+        out.append((param, float(mean[worst] - mean[base])))
     return sorted(out, key=lambda pc: -abs(pc[1]))
 
 
@@ -134,12 +141,13 @@ def montecarlo_markdown(df: pd.DataFrame, th: Thresholds) -> str:
     return "\n".join(lines) + "\n"
 
 
-def limit_of(metric: str, th: Thresholds) -> float:
+def limit_of(metric: str, th: Thresholds) -> float | None:
+    """Threshold of a CHECKED metric in summary units; None for a metric without a limit."""
     return {
         "final_pos_err_m": th.final_pos_err_m,
         "final_rot_err_rad": math.radians(th.final_rot_err_deg),
         "rms_joint_err_rad": th.rms_joint_err_rad,
-    }[metric]
+    }.get(metric)
 
 
 def write_plots(summary: pd.DataFrame, th: Thresholds, out: Path) -> None:
@@ -151,11 +159,13 @@ def write_plots(summary: pd.DataFrame, th: Thresholds, out: Path) -> None:
 
     for param in sweep_params(summary):
         stats = summary[summary["param"] == param].groupby("level")
-        fig, axes = plt.subplots(len(CHECKED), 1, figsize=(7, 8), sharex=True)
-        for ax, m in zip(axes, CHECKED, strict=True):
+        fig, axes = plt.subplots(len(METRICS), 1, figsize=(7, 12), sharex=True)
+        for ax, m in zip(axes, METRICS, strict=True):
             ax.plot(stats[m].mean(), "o-", label="mean over seeds")
             ax.plot(stats[m].max(), "s--", label="max over seeds")
-            ax.axhline(limit_of(m, th), color="red", lw=1, label="threshold")
+            limit = limit_of(m, th)
+            if limit is not None:
+                ax.axhline(limit, color="red", lw=1, label="threshold")
             ax.set_ylabel(m)
             ax.legend(fontsize="small")
         axes[-1].set_xlabel(param)
@@ -185,6 +195,18 @@ def requirements_markdown(rows: list[tuple[str, str, str, str]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def write_tables(summary: pd.DataFrame, th: Thresholds, out: Path) -> None:
+    """montecarlo.md for param = none rows and hardware_requirements.md for sweep rows; needs no
+    matplotlib, so the runner writes them even under --no-report."""
+    out.mkdir(parents=True, exist_ok=True)
+    mc = summary[summary["param"] == MONTECARLO]
+    if not mc.empty:
+        (out / "montecarlo.md").write_text(montecarlo_markdown(mc, th), encoding="utf-8")
+    if sweep_params(summary):
+        text = requirements_markdown(requirements(summary, th))
+        (out / "hardware_requirements.md").write_text(text, encoding="utf-8")
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="cobot_eval.sensitivity", description=__doc__)
     parser.add_argument("--summary", type=Path, required=True)
@@ -199,14 +221,9 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, ValueError) as err:
         print(f"error: {err}", file=sys.stderr)
         return EXIT_BAD_INPUT
-    args.out.mkdir(parents=True, exist_ok=True)
-    mc = summary[summary["param"] == MONTECARLO]
-    if not mc.empty:
-        (args.out / "montecarlo.md").write_text(montecarlo_markdown(mc, th), encoding="utf-8")
+    write_tables(summary, th, args.out)
     if sweep_params(summary):
         write_plots(summary, th, args.out)
-        text = requirements_markdown(requirements(summary, th))
-        (args.out / "hardware_requirements.md").write_text(text, encoding="utf-8")
     return EXIT_OK
 
 

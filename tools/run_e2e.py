@@ -97,10 +97,13 @@ def run_nightly(s: dict, args: argparse.Namespace, out: Path, config: str) -> tu
             str(out),
         )
     summary = sensitivity.load_summary(out / "summary.csv")
-    if not args.no_report:
+    if args.no_report:
+        # The tables need no matplotlib; only the PNGs are skipped.
+        sensitivity.write_tables(summary, thresholds_of(s), out / "report")
+    else:
         sensitivity_report(s, out / "summary.csv", out)
     if s["kind"] == "sweep":
-        produced = args.no_report or (out / "report/hardware_requirements.md").is_file()
+        produced = (out / "report/hardware_requirements.md").is_file()
         return produced, f"{len(summary)} runs, report {'produced' if produced else 'missing'}"
     rate = float(sensitivity.passes(summary, thresholds_of(s)).mean())
     limit = float(s["thresholds"]["pass_rate"])

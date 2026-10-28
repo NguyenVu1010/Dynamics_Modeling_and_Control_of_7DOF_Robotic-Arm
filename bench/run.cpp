@@ -135,6 +135,9 @@ Status run(const std::filesystem::path& config_yaml,
            std::optional<std::uint64_t> seed,
            const std::filesystem::path& out_csv,
            std::optional<double> duration_s) {
+  if (out_csv.empty()) {  // run_profile treats an empty path as "no Run CSV"; run must write one
+    return Status::error("--out must name a file");
+  }
   common::Result<imperfect::ImperfectionConfig<kN>> imp =
       pipeline::load_imperfections<kN>(imperfections_yaml);
   if (!imp) {
