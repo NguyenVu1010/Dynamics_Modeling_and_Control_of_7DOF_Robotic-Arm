@@ -14,7 +14,8 @@ using model::Model;
 
 template <int N>
 struct PlantEffects {
-  VecN<N> coulomb_nm = VecN<N>::Zero();             // N m, sign(qd) friction
+  // N m, applied as coulomb * tanh(qd / 1e-3) (smoothed sign, see sim_plant.cpp)
+  VecN<N> coulomb_nm = VecN<N>::Zero();
   VecN<N> viscous_nm_s_rad = VecN<N>::Zero();       // N m s / rad, on top of URDF damping
   VecN<N> motor_time_constant_s = VecN<N>::Zero();  // 0 = ideal torque source
 };
