@@ -51,6 +51,29 @@ void operator delete[](void* p, std::size_t /*size*/) noexcept {
   std::free(p);
 }
 
+// GoogleTest allocates with the nothrow forms; route them through the replacements above so
+// every allocation and deallocation pair matches (otherwise ASan reports alloc-dealloc-mismatch).
+void* operator new(std::size_t size, const std::nothrow_t& /*tag*/) noexcept {
+  try {
+    return ::operator new(size);
+  } catch (...) {
+    return nullptr;
+  }
+}
+void* operator new[](std::size_t size, const std::nothrow_t& /*tag*/) noexcept {
+  try {
+    return ::operator new[](size);
+  } catch (...) {
+    return nullptr;
+  }
+}
+void operator delete(void* p, const std::nothrow_t& /*tag*/) noexcept {
+  ::operator delete(p);
+}
+void operator delete[](void* p, const std::nothrow_t& /*tag*/) noexcept {
+  ::operator delete[](p);
+}
+
 namespace cobot::dynamics {
 namespace {
 
