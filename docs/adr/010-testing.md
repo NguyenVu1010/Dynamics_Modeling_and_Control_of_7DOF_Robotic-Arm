@@ -1,6 +1,6 @@
 # ADR-010: Kiểm thử: các tầng test, kiểm chứng không cần Pinocchio, ngưỡng trong kịch bản
 
-- Trạng thái: đề xuất
+- Trạng thái: chấp nhận (MVP, 2026-10-29)
 - Ngày: 2026-10-29
 - Liên quan: thiết kế mục 2 (G3), 5.3, 6, 11.3; ADR-004, ADR-015, ADR-016
 

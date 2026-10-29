@@ -57,3 +57,7 @@ Mặc định: có, nhưng chỉ trong công cụ sinh fixture, không link vào
 Mỗi hàm động lực học có test tính chất và test đối chiếu. Fixture KDL phải sinh lại (PR nhãn
 `test-change`) mỗi khi URDF đã sửa thay đổi. Thời gian từng hàm đo trong bench ở giai đoạn
 `dynamics`; nếu vượt 20 µs, xem lại cách cài đặt trước khi chuyển sang 6D.
+
+## Kết quả MVP (2026-10-29)
+
+RNEA và CRBA tự viết đã qua đủ sáu bước kiểm chứng trong test: sai phân hữu hạn Jacobian, M đối xứng và xác định dương, Ṁ − 2C phản đối xứng, bảo toàn năng lượng, và so với fixture KDL (KDL chỉ có trong test). Một bước điều khiển đầy đủ (CLIK, computed torque, RNEA/CRBA) mất p95 4.9 µs trên desktop, nên không cần Pinocchio để đạt hiệu năng. Vẫn giữ trạng thái chờ bàn để chủ dự án quyết có giữ fixture KDL lâu dài hay không.

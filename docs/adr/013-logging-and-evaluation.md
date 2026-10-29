@@ -1,6 +1,6 @@
 # ADR-013: Log và đánh giá: CSV + Python, không rosbag
 
-- Trạng thái: đề xuất
+- Trạng thái: chấp nhận (MVP, 2026-10-29)
 - Ngày: 2026-10-29
 - Liên quan: thiết kế mục 2 (G5), 5.6, 11.2; ADR-008, ADR-015; `docs/conventions.md` (hợp đồng dữ liệu)
 

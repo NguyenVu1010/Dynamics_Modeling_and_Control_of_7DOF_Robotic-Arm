@@ -68,18 +68,36 @@ thread and drains the log ring into a CSV file.
 
 | Phase | Content | Status |
 | --- | --- | --- |
-| 0 | Repo setup: build, CI jobs, corrected URDF, Gazebo assets, interface headers, docs, ADRs | in progress |
-| 1 | `common-lie`, `model-urdf`, `pipeline-config`, `eval-report` | planned |
-| 2 | `kinematics`, `planning-traj`, `imperfect-io` | planned |
-| 3 | `dynamics` (with KDL reference fixture), `planning-clik` | planned |
-| 4 | `sim-plant`, `control` | planned |
-| 5 | `control-loop`, `bench-e2e` | planned |
-| 6 | `ros2-controller` (Gazebo), `sensitivity` | planned |
-| 7 | `mvp-results`: tuning, reports, hardware requirement table | planned |
+| 0 | Repo setup: build, CI jobs, corrected URDF, Gazebo assets, interface headers, docs, ADRs | done (#1, #5) |
+| 1 | `common-lie`, `model-urdf`, `pipeline-config`, `eval-report` | done (#2, #3, #4, #7) |
+| 2 | `kinematics`, `planning-traj`, `imperfect-io` | done (#6, #8, #9) |
+| 3 | `dynamics` (with KDL reference fixture), `planning-clik` | done (#10, #11) |
+| 4 | `sim-plant`, `control` | done (#12, #13) |
+| 5 | `control-loop`, `bench-e2e` | done (#14, #15) |
+| 6 | `ros2-controller` (Gazebo), `sensitivity` | done (#16, #17) |
+| 7 | `mvp-results`: tuning, reports, hardware requirement table | done |
 
 MVP acceptance (G3): track a fixed 10 s straight-line trajectory; at t = 12 s end-effector
 position error < 2 mm, orientation error < 1°, joint tracking RMS < 0.01 rad, desktop step
 time p95 < 200 µs.
+
+### MVP results
+
+Full report: [docs/results/mvp](docs/results/mvp/README.md).
+
+| Check | Threshold | Result |
+| --- | --- | --- |
+| E2E-01 bench, ideal | 2 mm / 1° / 0.01 rad | 2.6e-7 mm / 1e-8° / 9.8e-7 rad |
+| E2E-02 bench, realistic sensors and motors | 5 mm / 2° / 0.02 rad | 0.17 mm / 0.31° / 0.0105 rad |
+| E2E-05 Monte Carlo, 50 seeds realistic | ≥ 95 % pass | 96 % |
+| E2E-07 Gazebo Harmonic | 2 mm / 1° / 0.01 rad | 0.000 mm / 0.000° / 3.7e-6 rad |
+| PF-01 control step, desktop | p95 < 200 µs | p95 4.9 µs |
+| E2E-08 arm64 Pi5-like image (QEMU) | ctest + E2E-01..04 | pass in CI |
+
+The sweep over 12 sensor, motor, model and timing parameters turns into a
+[hardware requirement table](docs/results/mvp/hardware_requirements.md): encoder ≥ 12 bit,
+sensor and command delay ≤ 4 cycles each, torque constant error ≤ 10 %. Coulomb friction and
+torque command resolution are the most sensitive parameters.
 
 ## Build
 

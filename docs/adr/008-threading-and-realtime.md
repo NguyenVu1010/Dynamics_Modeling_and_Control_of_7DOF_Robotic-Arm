@@ -1,6 +1,6 @@
 # ADR-008: Luồng và thời gian thực: lõi không tạo luồng, chế độ tất định
 
-- Trạng thái: đề xuất
+- Trạng thái: chấp nhận (MVP, 2026-10-29)
 - Ngày: 2026-10-29
 - Liên quan: thiết kế mục 5.4 (bước 5), 5.7; ADR-003, ADR-012, ADR-014
 

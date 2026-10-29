@@ -1,6 +1,6 @@
 # ADR-017: Container arm64 sát Pi5: build, test dưới QEMU, image runtime trên GHCR
 
-- Trạng thái: đề xuất
+- Trạng thái: chấp nhận (MVP, 2026-10-29)
 - Ngày: 2026-10-29
 - Liên quan: thiết kế mục 3, 11.5, 11.6; ADR-001, ADR-014, ADR-016
 

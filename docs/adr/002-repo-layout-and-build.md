@@ -1,6 +1,6 @@
 # ADR-002: Bố cục repo và build: CMake superbuild, target theo module, gói ament riêng
 
-- Trạng thái: đề xuất
+- Trạng thái: chấp nhận (MVP, 2026-10-29)
 - Ngày: 2026-10-29
 - Liên quan: thiết kế mục 5.1, 11.7; D5; ADR-013 của graph_slam (mẫu)
 
