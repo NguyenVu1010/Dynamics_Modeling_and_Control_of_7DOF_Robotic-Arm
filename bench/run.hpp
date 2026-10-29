@@ -18,7 +18,24 @@ namespace cobot::bench {
 //            (config and imperfections paths, seed, values drawn from the seed, git describe);
 //   duration_s: simulated time in s; when empty, trajectory.duration_s + hold_s. The loop
 //               runs round(duration_s * control_rate_hz) cycles and logs one row per cycle.
+//   waypoints_yaml: waypoint file (pipeline::load_waypoints, feature bench-waypoints). When set,
+//               the run forces command_source external, starts the loop (standby at the home
+//               pose) and checks the list with pipeline::validate_path from the standby pose
+//               and the measured q. A rejected list is an error with one line per issue,
+//               "waypoint <i>: <issue> [joint <j>] <value> <op> <limit>" (i, j 0-based), and
+//               writes neither the Run CSV nor its meta file. Otherwise the validated
+//               trajectory is loaded; an empty duration_s means its duration + hold_s, and the
+//               meta file gains waypoints_file, waypoint_node_times_s, waypoint_stop and
+//               waypoint_positions_m (tip positions in base_link, one [x, y, z] per waypoint).
 // Errors (bad paths, bad YAML, unwritable output) come back as a Status naming the file.
+common::Status run(const std::filesystem::path& config_yaml,
+                   const std::filesystem::path& imperfections_yaml,
+                   std::optional<std::uint64_t> seed,
+                   const std::filesystem::path& out_csv,
+                   std::optional<double> duration_s,
+                   const std::optional<std::filesystem::path>& waypoints_yaml);
+
+// The configured trajectory: run(..., duration_s, std::nullopt).
 common::Status run(const std::filesystem::path& config_yaml,
                    const std::filesystem::path& imperfections_yaml,
                    std::optional<std::uint64_t> seed,

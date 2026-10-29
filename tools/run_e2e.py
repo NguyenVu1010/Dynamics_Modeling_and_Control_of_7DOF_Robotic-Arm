@@ -2,7 +2,9 @@
 
 Usage: python tools/run_e2e.py (--scenario YAML | --all [--tag T]) [--bench PATH] --out DIR
        [--no-report]
-Scenario paths are relative to the repository root. kind: run (thresholds on the Run CSV),
+Scenario paths are relative to the repository root. A bench run scenario may name a waypoint file
+(`waypoints: <path>`, passed as `cobot_bench run --waypoints`); its optional threshold
+`stop_pos_err_m` is judged from the run's meta file. kind: run (thresholds on the Run CSV),
 determinism (two runs, identical bytes), safety (expect.mode_reached, |tau| <= tau_max and
 finite), timing (p95 of `cobot_bench timing` <= thresholds.p95_step_us), montecarlo (share of
 runs in the summary meeting the thresholds >= thresholds.pass_rate), sweep (bench completes and
@@ -18,6 +20,7 @@ fails, 2 bad arguments.
 """
 
 import argparse
+import math
 import os
 import re
 import signal
@@ -38,6 +41,7 @@ from cobot_eval.metrics import (  # noqa: E402
     check,
     compute_metrics,
     joint_array,
+    load_meta,
     load_run,
     read_tau_max,
 )
@@ -76,7 +80,16 @@ def bench(args: argparse.Namespace, *cmd: str) -> subprocess.CompletedProcess:
 
 
 def thresholds_of(s: dict) -> Thresholds:
-    return Thresholds(*(float(s["thresholds"][k]) for k in THRESHOLD_KEYS))
+    th = s["thresholds"]
+    stop = th.get("stop_pos_err_m")  # optional: judged from the run's meta file
+    parsed = Thresholds(
+        *(float(th[k]) for k in THRESHOLD_KEYS),
+        stop_pos_err_m=None if stop is None else float(stop),
+    )
+    for key, value in vars(parsed).items():
+        if value is not None and not math.isfinite(value):
+            raise ValueError(f"{s.get('id', '?')}: threshold {key} is not finite")
+    return parsed
 
 
 def sensitivity_report(s: dict, summary: Path, out: Path) -> None:
@@ -127,7 +140,7 @@ def run_nightly(s: dict, args: argparse.Namespace, out: Path, config: str) -> tu
 
 
 def judge_run(s: dict, csv: Path, out: Path, report: bool) -> tuple[bool, str]:
-    m = compute_metrics(load_run(csv), tau_max_of(s))
+    m = compute_metrics(load_run(csv), tau_max_of(s), meta=load_meta(csv))
     failures = check(m, thresholds_of(s))
     if report:
         # Imported here: the arm64 image has no matplotlib and runs with --no-report.
@@ -260,6 +273,8 @@ def run_scenario(s: dict, args: argparse.Namespace) -> tuple[bool, str]:
     for csv in csvs:
         imperfections = str(repo_path(s["imperfections"]))
         seed_out = ("--seed", str(s["seed"]), "--out", str(csv))
+        if s.get("waypoints"):
+            seed_out += ("--waypoints", str(repo_path(s["waypoints"])))
         bench(args, "run", "--config", config, "--imperfections", imperfections, *seed_out)
     if s["kind"] == "determinism":
         same = csvs[0].read_bytes() == csvs[1].read_bytes()

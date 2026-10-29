@@ -1,23 +1,28 @@
 #include "run.hpp"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
 #include <exception>
 #include <fstream>
 #include <iomanip>
 #include <memory>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "cobot/common/lie.hpp"
 #include "cobot/imperfect/imperfect_joint_interface.hpp"
 #include "cobot/imperfect/perturb.hpp"
 #include "cobot/pipeline/control_loop.hpp"
+#include "cobot/pipeline/path_validation.hpp"
 #include "cobot/pipeline/sim_joint_interface.hpp"
+#include "cobot/pipeline/waypoint_file.hpp"
 
 #include "engine.hpp"
 
@@ -67,6 +72,36 @@ void write_list(std::ostream& os, const char* key, const Vec& v) {
   os << key << ": [";
   for (int i = 0; i < kN; ++i) {
     os << (i > 0 ? ", " : "") << v(i);
+  }
+  os << "]\n";
+}
+
+// "waypoint 2: torque joint 2 0.95 > 0.9"; a joint_limit value is a distance below its margin.
+std::string issue_line(const pipeline::WaypointIssue& w) {
+  std::array<char, 64> numbers{};
+  const char* op = w.issue == pipeline::PathIssue::kJointLimit ? "<" : ">";
+  std::snprintf(numbers.data(), numbers.size(), " %.4g %s %.4g", w.value, op, w.limit);
+  const std::string joint = w.joint >= 0 ? " joint " + std::to_string(w.joint) : "";
+  return "waypoint " + std::to_string(w.waypoint) + ": " + pipeline::to_string(w.issue) + joint +
+         numbers.data();
+}
+
+// Meta keys of a waypoint run: node times, stop flags and tip positions of the validated list.
+void write_waypoint_meta(std::ostream& os,
+                         const std::filesystem::path& yaml,
+                         const planning::WaypointTrajectory& t) {
+  os << "waypoints_file: '" << yaml.string() << "'\nwaypoint_node_times_s: [";
+  for (std::size_t i = 0; i < t.size(); ++i) {
+    os << (i > 0 ? ", " : "") << t.node_time_s(i);
+  }
+  os << "]\nwaypoint_stop: [";
+  for (std::size_t i = 0; i < t.size(); ++i) {
+    os << (i > 0 ? ", " : "") << (t.stops_at(i) ? "true" : "false");
+  }
+  os << "]\nwaypoint_positions_m: [";
+  for (std::size_t i = 0; i < t.size(); ++i) {
+    const common::Vec3& p = t.waypoint(i).T_b_goal.p;
+    os << (i > 0 ? ", " : "") << "[" << p.x() << ", " << p.y() << ", " << p.z() << "]";
   }
   os << "]\n";
 }
@@ -135,11 +170,14 @@ class Metrics {
 
 }  // namespace
 
-Status run(const std::filesystem::path& config_yaml,
-           const std::filesystem::path& imperfections_yaml,
-           std::optional<std::uint64_t> seed,
-           const std::filesystem::path& out_csv,
-           std::optional<double> duration_s) {
+Status run_checked(const std::filesystem::path& config_yaml,
+                   const std::filesystem::path& imperfections_yaml,
+                   std::optional<std::uint64_t> seed,
+                   const std::filesystem::path& out_csv,
+                   std::optional<double> duration_s,
+                   const std::optional<std::filesystem::path>& waypoints_yaml,
+                   bool& path_invalid) {
+  path_invalid = false;
   if (out_csv.empty()) {  // run_profile treats an empty path as "no Run CSV"; run must write one
     return Status::error("--out must name a file");
   }
@@ -149,46 +187,73 @@ Status run(const std::filesystem::path& config_yaml,
     return Status::error(imp.reason());
   }
   imp.value().seed = seed.value_or(imp.value().seed);
-  const common::Result<RunSummary> result =
-      run_profile(config_yaml, imp.value(), imperfections_yaml, out_csv, duration_s);
+  std::optional<WaypointInput> waypoints;
+  if (waypoints_yaml) {
+    waypoints = WaypointInput{*waypoints_yaml};
+  }
+  const common::Result<RunSummary> result = run_profile(config_yaml,
+                                                        imp.value(),
+                                                        imperfections_yaml,
+                                                        out_csv,
+                                                        duration_s,
+                                                        waypoints ? &*waypoints : nullptr);
+  path_invalid = waypoints && waypoints->path_invalid;
   return result ? Status::ok() : Status::error(result.reason());
+}
+
+Status run(const std::filesystem::path& config_yaml,
+           const std::filesystem::path& imperfections_yaml,
+           std::optional<std::uint64_t> seed,
+           const std::filesystem::path& out_csv,
+           std::optional<double> duration_s,
+           const std::optional<std::filesystem::path>& waypoints_yaml) {
+  bool path_invalid = false;
+  return run_checked(
+      config_yaml, imperfections_yaml, seed, out_csv, duration_s, waypoints_yaml, path_invalid);
+}
+
+Status run(const std::filesystem::path& config_yaml,
+           const std::filesystem::path& imperfections_yaml,
+           std::optional<std::uint64_t> seed,
+           const std::filesystem::path& out_csv,
+           std::optional<double> duration_s) {
+  return run(config_yaml, imperfections_yaml, seed, out_csv, duration_s, std::nullopt);
 }
 
 common::Result<RunSummary> run_profile(const std::filesystem::path& config_yaml,
                                        const imperfect::ImperfectionConfig<kN>& imperfections,
                                        const std::filesystem::path& label,
                                        const std::filesystem::path& out_csv,
-                                       std::optional<double> duration_s) {
+                                       std::optional<double> duration_s,
+                                       WaypointInput* waypoints) {
   using Out = common::Result<RunSummary>;
   const common::Result<Setup> setup = load_setup(config_yaml);
   if (!setup) {
     return Out::error(setup.reason());
   }
-  const pipeline::Config<kN>& config = setup.value().config;
-  const double duration =
-      duration_s.value_or(config.trajectory.duration_s + config.trajectory.hold_s);
-  if (!std::isfinite(duration) || duration <= 0.0) {
-    return Out::error("duration_s must be > 0, got " + std::to_string(duration));
+  pipeline::Config<kN> config = setup.value().config;
+  std::vector<planning::Waypoint> list;
+  if (waypoints != nullptr) {
+    config.command_source = pipeline::CommandSource::kExternal;
+    common::Result<std::vector<planning::Waypoint>> loaded =
+        pipeline::load_waypoints(waypoints->yaml, config.base_link, config.tcp_offset);
+    if (!loaded) {
+      return Out::error(loaded.reason());
+    }
+    list = std::move(loaded.value());
   }
-  const std::int64_t cycles = std::llround(duration * config.control_rate_hz);
+  if (duration_s && (!std::isfinite(*duration_s) || *duration_s <= 0.0)) {
+    return Out::error("duration_s must be > 0, got " + std::to_string(*duration_s));
+  }
   const double period_s = 1.0 / config.control_rate_hz;
   const bool keep = !out_csv.empty();
   std::ofstream csv;
   std::ofstream meta;
-  if (keep) {
-    csv.open(out_csv, std::ios::binary);
-    meta.open(out_csv.string() + ".meta.yaml", std::ios::binary);
-    if (!csv || !meta) {
-      return Out::error("cannot open " + out_csv.string() + " (or its .meta.yaml) for writing");
-    }
-  }
   Vec tau_max;
   for (int i = 0; i < kN; ++i) {
     tau_max(i) = setup.value().nominal.joints[static_cast<std::size_t>(i)].tau_max;
   }
-  const double t_eval_s = config.trajectory.duration_s + config.trajectory.hold_s;
-  Metrics metrics(tau_max,
-                  std::llround(t_eval_s * static_cast<double>(common::kNanosecondsPerSecond)));
+  Metrics metrics(tau_max, 0);
   try {
     // The controller keeps the nominal model; the plant gets the perturbed one, with friction
     // and motor lag, so the I/O decorator does not apply them again.
@@ -201,6 +266,59 @@ common::Result<RunSummary> run_profile(const std::filesystem::path& config_yaml,
     imperfect::ImperfectJointInterface<kN> io(sim, imperfections, period_s, false);
     const std::unique_ptr<Loop> loop = std::make_unique<Loop>(setup.value().nominal, config);
 
+    hal::JointState<kN> state;
+    hal::JointCommand<kN> cmd;
+    static_cast<void>(io.read(state));
+    const Status started = loop->start(state);
+    if (!started) {
+      return Out::error(started.reason());
+    }
+    // Waypoint run: the list is checked from the standby pose and the measured q before any
+    // file is opened, and the trajectory validate_path returns is exactly the one run.
+    std::optional<planning::WaypointTrajectory> trajectory;
+    if (waypoints != nullptr) {
+      const common::Result<pipeline::PathValidation<kN>> checked =
+          pipeline::validate_path<kN>(setup.value().nominal,
+                                      config.clik,
+                                      config.friction_compensation,
+                                      state.q,
+                                      loop->reference_pose(),
+                                      list,
+                                      config.cartesian_limits,
+                                      config.path_validation);
+      if (!checked) {
+        return Out::error(waypoints->yaml.string() + ": " + checked.reason());
+      }
+      const pipeline::PathValidation<kN>& v = checked.value();
+      if (!v.ok || !v.trajectory) {
+        std::string text = waypoints->yaml.string() + ": path validation failed";
+        for (const pipeline::WaypointIssue& issue : v.issues) {
+          text += "\n" + issue_line(issue);
+        }
+        waypoints->path_invalid = true;
+        return Out::error(text);
+      }
+      trajectory = v.trajectory;
+      const Status loaded = loop->load(*trajectory);
+      if (!loaded) {
+        return Out::error(waypoints->yaml.string() + ": " + loaded.reason());
+      }
+    }
+    const double planned_s =
+        (trajectory ? trajectory->duration_s() : config.trajectory.duration_s) +
+        config.trajectory.hold_s;
+    const std::int64_t cycles =
+        std::llround(duration_s.value_or(planned_s) * config.control_rate_hz);
+    metrics = Metrics(tau_max,
+                      std::llround(planned_s * static_cast<double>(common::kNanosecondsPerSecond)));
+
+    if (keep) {
+      csv.open(out_csv, std::ios::binary);
+      meta.open(out_csv.string() + ".meta.yaml", std::ios::binary);
+      if (!csv || !meta) {
+        return Out::error("cannot open " + out_csv.string() + " (or its .meta.yaml) for writing");
+      }
+    }
     Vec mass;
     for (int i = 0; i < kN; ++i) {
       mass(i) = plant_model.links[static_cast<std::size_t>(i)].mass_kg;
@@ -211,17 +329,13 @@ common::Result<RunSummary> run_profile(const std::filesystem::path& config_yaml,
     write_list(meta, "q_offset_rad", io.q_offset_rad());
     write_list(meta, "torque_scale", io.torque_scale());
     write_list(meta, "plant_link_mass_kg", mass);
+    if (trajectory && waypoints != nullptr) {
+      write_waypoint_meta(meta, waypoints->yaml, *trajectory);
+    }
     if (!std::string(COBOT_GIT_DESCRIBE).empty()) {
       meta << "git: '" << COBOT_GIT_DESCRIBE << "'\n";
     }
 
-    hal::JointState<kN> state;
-    hal::JointCommand<kN> cmd;
-    static_cast<void>(io.read(state));
-    const Status started = loop->start(state);
-    if (!started) {
-      return Out::error(started.reason());
-    }
     // Writer thread: drains the ring into the CSV; reads `done` before draining, so every
     // record pushed before done is set gets written.
     if (keep) {

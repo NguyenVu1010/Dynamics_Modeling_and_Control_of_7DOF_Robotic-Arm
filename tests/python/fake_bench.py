@@ -4,7 +4,11 @@ FAKE_BENCH_LOG: file that gets one JSON line (argv) per call. FAKE_BENCH_MODE: c
 flags, empty = clean run (tracking, then finished): hold (add holding rows; also on when the
 config file name contains "safety"), pos4mm / fail (final tip error 4 mm / 10 mm), nondet
 (step_us differs between calls), tau_over (|tau1| = 100 > 87), nan_tau, slow (timing
-p95_us = 1500), crash (exit 3, no output).
+p95_us = 1500), crash (exit 3, no output), stop6mm (with --waypoints: the stop waypoints
+lie 6 mm from the tip).
+With --waypoints FILE (exit 2 when FILE is missing) the meta file gets the waypoint keys of
+`cobot_bench run --waypoints`: four nodes at 10..40 ms, waypoints 1 and 3 stop, every position at
+the fake tip (0.4, 0.1, 0.5), so stop_pos_err_m equals the final tip error.
 """
 
 import argparse
@@ -34,6 +38,13 @@ def write_run(args: argparse.Namespace, flags: set[str], calls: int) -> None:
         lines.append(",".join(str(v) for v in vals))
     Path(args.out).write_text("\n".join(lines) + "\n", encoding="utf-8")
     meta = f"config: {args.config}\nimperfections: {args.imperfections}\nseed: {args.seed}\n"
+    if getattr(args, "waypoints", None):
+        x = 0.406 if "stop6mm" in flags else 0.4
+        meta += f"waypoints_file: {args.waypoints}\n"
+        meta += "waypoint_node_times_s: [0.01, 0.02, 0.03, 0.04]\n"
+        meta += "waypoint_stop: [false, true, false, true]\n"
+        meta += f"waypoint_positions_m: [[0.4, 0.1, 0.5], [{x}, 0.1, 0.5], [0.4, 0.1, 0.5], "
+        meta += f"[{x}, 0.1, 0.5]]\n"
     Path(args.out + ".meta.yaml").write_text(meta, encoding="utf-8")
 
 
@@ -49,12 +60,16 @@ def main() -> int:
     for name in ("--config", "--imperfections", "--seed", "--out"):
         run.add_argument(name, required=True)
     run.add_argument("--duration-s")
+    run.add_argument("--waypoints")
     timing = sub.add_parser("timing")
     timing.add_argument("--config", required=True)
     timing.add_argument("--steps", required=True, type=int)
     args = parser.parse_args()
     if not Path(args.config).is_file():
         print(f"{args.config}: no such file", file=sys.stderr)
+        return 2
+    if getattr(args, "waypoints", None) and not Path(args.waypoints).is_file():
+        print(f"{args.waypoints}: no such file", file=sys.stderr)
         return 2
     if "crash" in flags:
         return 3
