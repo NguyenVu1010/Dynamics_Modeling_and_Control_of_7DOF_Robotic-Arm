@@ -1,0 +1,1 @@
+cobot_add_test(test_sim_plant_coulomb_arm test_sim_plant_coulomb_arm.cpp)
