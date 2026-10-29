@@ -54,8 +54,10 @@ order in a comment at every construction site.
 `Model<N>` holds `N` revolute joints. For each joint: `T_parent_joint`, axis, limits
 `q_min, q_max, qd_max, tau_max`, `damping`, `armature` (reflected rotor inertia `J_in * N^2`,
 kg m², from the non-standard child element `<cobot_armature value="..."/>`, 0 when absent); for
-each child link: mass `m`, centre of mass
-`c` in the link frame, inertia `I_c` about the centre of mass in the link frame.
+each child link: mass `m`, centre of mass `c` in the link frame, inertia `I_c` about the centre
+of mass in the link frame. Gazebo ignores `<cobot_armature>`, so its plant uses
+`sim/urdf/cobot30_5_gazebo.urdf`, where each armature is folded into the child link's inertia
+as a rotor disc about the joint axis (`tools/fix_urdf_inertia.py --gazebo-out`).
 
 Fixed joints are merged into the parent link when the URDF is loaded:
 
