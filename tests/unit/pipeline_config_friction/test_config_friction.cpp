@@ -90,7 +90,7 @@ TEST(LoadConfigFriction, DefaultFileHasTheNominalIdentifiedValues) {
   const auto r = load_config<7>(kRepo / "config/default.yaml");
   ASSERT_TRUE(r.is_ok()) << r.reason();
   const control::FrictionCompensationConfig<7>& f = r.value().friction_compensation;
-  EXPECT_FALSE(f.enabled);  // off until SimPlant applies Coulomb friction stably (fix sim-plant-coulomb)
+  EXPECT_FALSE(f.enabled);  // off until SimPlant applies Coulomb friction stably
   // 80 % of the realistic profile's plant friction: 0.8 * 1.7 = 1.36, 0.8 * 0.24 = 0.192,
   // 0.8 * 0.5 = 0.4, 0.8 * 0.1 = 0.08.
   Vec7 coulomb;
