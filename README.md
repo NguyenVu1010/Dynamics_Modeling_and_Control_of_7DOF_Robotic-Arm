@@ -188,6 +188,7 @@ Unit and known-answer component tests cover every module. End-to-end scenarios l
 - [Design](docs/design/) — the full design (Vietnamese)
 - [ADRs](docs/adr/) — architecture decisions and rejected options (Vietnamese)
 - [Conventions](docs/conventions.md) — frames, units, data contracts
+- [Lessons](docs/lessons/README.md) — problems met so far, how they were found and fixed (Vietnamese)
 - [Contributing](CONTRIBUTING.md) — rules for every change
 
 The previous ROS 1 / Python implementation (six nodes, Maple closed-form M, C, G) is kept at
