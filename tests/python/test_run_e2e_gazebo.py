@@ -20,6 +20,8 @@ import yaml
 REPO = Path(__file__).resolve().parents[2]
 CONFIG = REPO / "config/default.yaml"
 IDEAL = REPO / "config/imperfections/ideal.yaml"
+# default.yaml without friction compensation (the ideal plant has no friction).
+IDEAL_WORLD = REPO / "tests/e2e/configs/ideal_world.yaml"
 G3 = {"final_pos_err_m": 0.002, "final_rot_err_deg": 1.0, "rms_joint_err_rad": 0.01}
 DURATION_S = 0.5
 HOLD_S = 0.5
@@ -103,7 +105,7 @@ def test_gazebo_scenario_file_follows_contract():
     s = yaml.safe_load(path.read_text(encoding="utf-8"))
     assert s["id"] == "E2E-07"
     assert s["runner"] == "gazebo" and s["kind"] == "run" and s["tags"] == ["gazebo"]
-    assert (REPO / s["config"]).resolve() == CONFIG.resolve()
+    assert (REPO / s["config"]).resolve() == IDEAL_WORLD.resolve()
     assert (REPO / s["imperfections"]).resolve() == IDEAL.resolve()
     assert isinstance(s["seed"], int)
     assert s["thresholds"] == G3
@@ -156,7 +158,7 @@ def test_gazebo_verdict_uses_scenario_thresholds(tmp_path, ros2, mode, limit_m, 
 
 
 def test_all_tag_gazebo_runs_e2e_07_without_bench(tmp_path, ros2):
-    # Real scenario: default.yaml has duration_s 10 + hold_s 2, so the fake writes rows up to
+    # Real scenario: ideal_world.yaml has duration_s 10 + hold_s 2, so the fake writes rows up to
     # 12 s and the runner waits at least 10 + 2 + 5 = 17 s. Bench scenarios are not tagged
     # gazebo, so no --bench is needed.
     env = {"FAKE_ROS2_T_END_S": "12.0"}

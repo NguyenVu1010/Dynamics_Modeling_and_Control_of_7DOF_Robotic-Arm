@@ -66,3 +66,18 @@ def test_ideal_profile_is_all_zero():
             if key in keep_nonzero or key == "source" or isinstance(value, bool):
                 continue
             assert value == 0, f"{group}.{key} = {value} in the ideal profile"
+
+
+def test_friction_compensation_is_80_percent_of_realistic_plant_friction(cfg):
+    # Nominal identified values: deliberately 80 % of the realistic profile's plant friction
+    # (identification is never exact; under-compensation is the safe side).
+    comp = cfg["friction_compensation"]
+    assert comp["enabled"] is True
+    assert comp["velocity_eps_rad_s"] == 0.01
+    real = REPO / "config/imperfections/realistic.yaml"
+    plant = yaml.safe_load(real.read_text(encoding="utf-8"))["imperfections"]["friction"]
+    for key in ("coulomb_nm", "viscous_nm_s_rad"):
+        assert len(comp[key]) == 7
+        assert all(v >= 0 for v in comp[key])
+        for k, (c, p) in enumerate(zip(comp[key], plant[key], strict=True)):
+            assert c == pytest.approx(0.8 * p, rel=1e-12), f"{key}[{k}]"

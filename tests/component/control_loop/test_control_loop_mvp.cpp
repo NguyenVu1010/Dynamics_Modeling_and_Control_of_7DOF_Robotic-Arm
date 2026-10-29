@@ -17,7 +17,8 @@
 #include "control_loop_test_util.hpp"
 
 // MVP trajectory (design G3) through the whole loop: ControlLoop + SimJointInterface + an
-// ideal SimPlant with the same model as the controller, config/default.yaml unchanged.
+// ideal SimPlant with the same model as the controller, tests/e2e/configs/ideal_world.yaml
+// (config/default.yaml without friction compensation) unchanged.
 namespace cobot::pipeline::test {
 namespace {
 
