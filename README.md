@@ -78,6 +78,7 @@ thread and drains the log ring into a CSV file.
 | 6 | `ros2-controller` (Gazebo), `sensitivity` | done (#16, #17) |
 | 7 | `mvp-results`: tuning, reports, hardware requirement table | done |
 | 8 | Realism: friction compensation, armature, stick-slip plant friction, Gazebo with noise | done (#23–#28) |
+| 9 | Waypoints: multi-point trajectory, path validation, external command mode, `FollowWaypoints` action, RViz2 panel | done (#33–#39) |
 
 MVP acceptance (G3): track a fixed 10 s straight-line trajectory; at t = 12 s end-effector
 position error < 2 mm, orientation error < 1°, joint tracking RMS < 0.01 rad, desktop step
@@ -85,7 +86,8 @@ time p95 < 200 µs.
 
 ### Results
 
-Current report: [docs/results/realism](docs/results/realism/README.md). The MVP baseline stays in
+Current report: [docs/results/realism](docs/results/realism/README.md). Waypoint runs:
+[docs/results/waypoints](docs/results/waypoints/README.md). The MVP baseline stays in
 [docs/results/mvp](docs/results/mvp/README.md) for comparison.
 
 | Check | Threshold | MVP | Current |
@@ -97,6 +99,9 @@ Current report: [docs/results/realism](docs/results/realism/README.md). The MVP 
 | E2E-09 Gazebo, realistic profile | 5 mm / 2° / 0.02 rad | – | 0.071 mm / 0.014° / 2.3e-4 rad |
 | PF-01 control step, desktop | p95 < 200 µs | p95 4.9 µs | p95 5.3 µs |
 | E2E-08 arm64 Pi5-like image (QEMU) | ctest + E2E-01..04 | pass in CI | pass in CI |
+| E2E-10 bench, 4 waypoints, realistic | 5 mm / 2° / 0.02 rad, stops ≤ 5 mm | – | 0.067 mm / 0.0095° / 2.0e-4 rad, stops 0.11 mm |
+| E2E-11 Gazebo, waypoints through the action | 5 mm / 2° / 0.02 rad | – | 0.055 mm / 0.013° / 2.0e-4 rad |
+| E2E-11b Gazebo, cancel after 3 s | canceled, standby, at rest | – | pass, max \|q̇\| 0.016 rad/s |
 
 The main gain came from modelling the gearbox-reflected rotor inertia (armature, `J_in N²`):
 without it the wrist inertia was about 1300× too small and its effective stiffness
