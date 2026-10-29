@@ -130,8 +130,9 @@ tools/wsl/build.sh --asan          # Debug with ASan + UBSan
 tools/wsl/build.sh --target T      # one target
 tools/wsl/pytest.sh                # Python tests
 tools/wsl/lint.sh                  # clang-format, clang-tidy, ruff
-tools/wsl/sim.sh build             # colcon build of sim/, ros2_interfaces/ and ros2_node/
+tools/wsl/sim.sh build             # colcon build of sim/, ros2_interfaces/, ros2_node/, ros2_gui/
 tools/wsl/sim.sh check             # xacro + check_urdf + gz sdf, no Gazebo needed
+tools/wsl/sim.sh test              # colcon test of cobot_gui (panel data model)
 tools/wsl/sim.sh smoke             # headless Gazebo, 20 s
 source tools/wsl/env.sh            # ROS 2 + workspace, own ROS domain (42) and Gazebo partition
 ```
@@ -157,6 +158,32 @@ validated from the standby pose, and canceling it stops along the path. Client:
 ```bash
 ros2 run cobot_ros2 send_waypoints.py tests/e2e/waypoints/e2e_10.yaml [--preview] [--cancel-after 3]
 ```
+
+## Waypoint GUI
+
+An RViz2 panel (`cobot_gui/WaypointPanel`, package `ros2_gui/`) edits a waypoint list and drives
+the external command mode. After `sim.sh build` and `source tools/wsl/env.sh`:
+
+```bash
+ros2 launch cobot_sim sim.launch.py controller:=cobot_controller rviz:=true [gui:=true]
+```
+
+`rviz:=true` opens RViz2 with `sim/rviz/waypoints.rviz` (robot, TF, interactive markers, the
+preview and reference paths, the panel docked) and starts the controller with
+`command_source:=external` unless `command_source` is given. Workflow:
+
+1. Add: drag the 6-DOF marker and press **Add from marker**, or edit the table cells
+   (x, y, z in m; roll, pitch, yaw in degrees, `R = Rz(yaw) Ry(pitch) Rx(roll)`; duration in s,
+   0 = from the Cartesian limits; stop). Selecting a row puts the 6-DOF marker on it and dragging
+   moves that point; **Up**, **Down** and **Delete** reorder or remove it. **Load** and **Save**
+   read and write the waypoint file (`docs/conventions.md` "Waypoint file").
+2. Preview: validates the list from the current standby pose without moving; the path is drawn
+   (`/rviz/preview_path`) and points with issues turn red with the reason in a tooltip and in
+   the status area.
+3. Run: enabled only after an ok preview of the unchanged list; any edit disables it again.
+   The status area shows the mode, segment, time and tip errors, then the result.
+4. Stop: cancels the goal; the arm decelerates along the path and waits in standby.
+5. Reset: leaves the safety hold once its cause is gone (`/cobot_controller/reset`).
 
 ## Environment configuration
 

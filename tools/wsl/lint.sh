@@ -34,8 +34,8 @@ else
 fi
 
 build_dir="$(cobot_build_dir)"
-# ros2_node needs the ROS headers: `sim.sh tidy` checks it (gazebo CI job).
-mapfile -t changed < <(git diff --name-only --diff-filter=AM "$base"...HEAD -- '*.cpp' ':!ros2_node/**' 2>/dev/null || true)
+# ros2_node and ros2_gui need the ROS headers: `sim.sh tidy` checks them (gazebo CI job).
+mapfile -t changed < <(git diff --name-only --diff-filter=AM "$base"...HEAD -- '*.cpp' ':!ros2_node/**' ':!ros2_gui/**' 2>/dev/null || true)
 if [ "${#changed[@]}" -gt 0 ] && [ -f "$build_dir/compile_commands.json" ]; then
   clang-tidy-18 -p "$build_dir" --quiet --warnings-as-errors='*' "${changed[@]}"
 elif [ "${#changed[@]}" -gt 0 ]; then

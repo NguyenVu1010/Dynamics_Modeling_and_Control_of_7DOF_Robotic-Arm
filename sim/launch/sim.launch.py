@@ -2,7 +2,7 @@
 
 ros2 launch cobot_sim sim.launch.py [gui:=false] [controller:=effort_passthrough]
     [config_path:=YAML] [imperfections_path:=YAML] [seed:=INT] [log_path:=CSV]
-    [command_source:=config|external]
+    [command_source:=config|external] [rviz:=false]
 
 config_path, imperfections_path, seed, log_path and command_source, when given, become
 parameters of the spawned controller (cobot_controller) through a temporary parameter file,
@@ -14,6 +14,10 @@ The profile's friction (imperfections.friction: coulomb_nm, viscous_nm_s_rad, sc
 value per joint) goes into the physics: it becomes the xacro args joint_<i>_friction and
 joint_<i>_damping, i.e. each arm joint's <dynamics friction damping>, and the controller leaves
 friction out of its plant effects on this path (ADR-011).
+
+rviz:=true also starts RViz2 with sim/rviz/waypoints.rviz (the cobot_gui/WaypointPanel docked,
+interactive markers, preview and reference paths) and runs the controller with command_source
+external unless command_source is given.
 """
 
 import json
@@ -85,6 +89,9 @@ def _setup(context: object) -> list:
     }
     if seed := LaunchConfiguration("seed").perform(context):
         overrides["seed"] = int(seed)
+    rviz = LaunchConfiguration("rviz").perform(context) == "true"
+    if rviz:
+        overrides.setdefault("command_source", "external")  # the panel drives the arm
     param_args = []
     cleanup = []
     if overrides:
@@ -95,6 +102,18 @@ def _setup(context: object) -> list:
         cleanup = [
             RegisterEventHandler(
                 OnShutdown(on_shutdown=lambda _event, _context: param_file.unlink(missing_ok=True))
+            )
+        ]
+
+    rviz_nodes = []
+    if rviz:
+        rviz_nodes = [
+            Node(
+                package="rviz2",
+                executable="rviz2",
+                arguments=["-d", str(share / "rviz/waypoints.rviz")],
+                parameters=[{"use_sim_time": True}],
+                output="screen",
             )
         ]
 
@@ -133,6 +152,7 @@ def _setup(context: object) -> list:
             arguments=[controller, *param_args, "--controller-manager-timeout", "60"],
             output="screen",
         ),
+        *rviz_nodes,
     ]
 
 
@@ -147,6 +167,7 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("seed", default_value=""),
             DeclareLaunchArgument("log_path", default_value=""),
             DeclareLaunchArgument("command_source", default_value=""),
+            DeclareLaunchArgument("rviz", default_value="false"),
             OpaqueFunction(function=_setup),
         ]
     )

@@ -1,0 +1,5 @@
+<library path="cobot_gui">
+  <class name="cobot_gui/WaypointPanel" type="cobot_gui::WaypointPanel" base_class_type="rviz_common::Panel">
+    <description>Waypoint table with interactive markers: preview, run, stop and reset the controller's waypoint goal.</description>
+  </class>
+</library>
