@@ -1,5 +1,5 @@
-# controller_manager for gz_ros2_control (design 5.5). The real controller (cobot_ros2) is
-# added in feature `ros2-controller`; effort_passthrough serves the smoke test only.
+# controller_manager for gz_ros2_control (design 5.5). cobot_controller is the real controller
+# (package cobot_ros2); effort_passthrough serves the zero-effort smoke test only.
 controller_manager:
   ros__parameters:
     update_rate: 1000
@@ -8,7 +8,15 @@ controller_manager:
       type: joint_state_broadcaster/JointStateBroadcaster
     effort_passthrough:
       type: effort_controllers/JointGroupEffortController
+    cobot_controller:
+      type: cobot_ros2/CobotController
 
 effort_passthrough:
+  ros__parameters:
+    joints: [joint_1, joint_2, joint_3, joint_4, joint_5, joint_6, joint_7]
+
+# config_path, imperfections_path (default: the copies installed in share/cobot_ros2/config)
+# and log_path (default: <log.output_dir>/<run-id>/run.csv) come from sim.launch.py arguments.
+cobot_controller:
   ros__parameters:
     joints: [joint_1, joint_2, joint_3, joint_4, joint_5, joint_6, joint_7]

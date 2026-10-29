@@ -93,9 +93,16 @@ tools/wsl/build.sh --asan          # Debug with ASan + UBSan
 tools/wsl/build.sh --target T      # one target
 tools/wsl/pytest.sh                # Python tests
 tools/wsl/lint.sh                  # clang-format, clang-tidy, ruff
-tools/wsl/sim.sh build             # colcon build of sim/
+tools/wsl/sim.sh build             # colcon build of sim/ and ros2_node/ (cobot_ros2)
 tools/wsl/sim.sh check             # xacro + check_urdf + gz sdf, no Gazebo needed
 tools/wsl/sim.sh smoke             # headless Gazebo, 20 s
+```
+
+The real controller in Gazebo (after `sim.sh build` and sourcing its `install/setup.bash`):
+
+```bash
+ros2 launch cobot_sim sim.launch.py controller:=cobot_controller [gui:=true]   [config_path:=config/default.yaml] [imperfections_path:=config/imperfections/realistic.yaml]   [log_path:=results/<run-id>/run.csv]
+python tools/run_e2e.py --all --tag gazebo --out results/e2e-gazebo   # E2E-07
 ```
 
 ## Test levels

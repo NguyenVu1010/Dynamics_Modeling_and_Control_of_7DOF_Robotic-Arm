@@ -33,7 +33,8 @@ fi
 
 branch="$(git rev-parse --abbrev-ref HEAD)"
 build_dir="$HOME/cobot-build/${branch//\//-}"
-mapfile -t changed < <(git diff --name-only --diff-filter=AM "$base"...HEAD -- '*.cpp' 2>/dev/null || true)
+# ros2_node needs the ROS headers: it is built (with warnings) by sim.sh and the gazebo job.
+mapfile -t changed < <(git diff --name-only --diff-filter=AM "$base"...HEAD -- '*.cpp' ':!ros2_node/**' 2>/dev/null || true)
 if [ "${#changed[@]}" -gt 0 ] && [ -f "$build_dir/compile_commands.json" ]; then
   clang-tidy-18 -p "$build_dir" --quiet --warnings-as-errors='*' "${changed[@]}"
 elif [ "${#changed[@]}" -gt 0 ]; then

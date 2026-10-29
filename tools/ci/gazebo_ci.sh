@@ -11,6 +11,6 @@ bash "$repo/tools/wsl/sim.sh" smoke 90
 if ls "$repo"/tests/e2e/scenarios/*.yaml >/dev/null 2>&1 && grep -lq "runner: gazebo" "$repo"/tests/e2e/scenarios/*.yaml; then
   # shellcheck disable=SC1091
   set +u; source /tmp/colcon/install/setup.bash; set -u
-  python3 "$repo/tools/run_e2e.py" --all --tag gazebo --out /tmp/e2e-gazebo
+  python3 "$repo/tools/run_e2e.py" --all --tag gazebo --out /tmp/e2e-gazebo --no-report
 fi
 echo "GAZEBO CI OK"

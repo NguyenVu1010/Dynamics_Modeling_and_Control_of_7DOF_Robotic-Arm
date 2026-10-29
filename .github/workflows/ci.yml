@@ -31,7 +31,8 @@ jobs:
         if: github.event_name == 'pull_request'
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_BUILD_TYPE=Release
-          files=$(git diff --name-only --diff-filter=AM origin/${{ github.base_ref }}...HEAD -- '*.cpp')
+          # ros2_node needs the ROS headers: the gazebo job builds it.
+          files=$(git diff --name-only --diff-filter=AM origin/${{ github.base_ref }}...HEAD -- '*.cpp' ':!ros2_node/**')
           if [ -n "$files" ]; then clang-tidy-18 -p build --quiet --warnings-as-errors='*' $files; fi
 
   frozen-tests:

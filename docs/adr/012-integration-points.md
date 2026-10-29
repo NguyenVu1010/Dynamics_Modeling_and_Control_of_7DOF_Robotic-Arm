@@ -25,6 +25,21 @@ nối các bước qua topic ROS, gây jitter và bốn tần số khác nhau.
   `SimJointInterface`; plugin bọc state/command bằng cùng lớp (ADR-015).
 - Lõi không biết đường nào đang dùng.
 
+**Ghi chú hiện thực (feature `ros2-controller`):** gói `cobot_ros2` build lõi từ `../core` ngay
+trong gói (`add_subdirectory`), không cần cài lõi riêng, nên một lệnh `tools/wsl/sim.sh build`
+(và image `docker/ros.Dockerfile`) build đủ `sim/` và `ros2_node/`. Tham số: `config_path`,
+`imperfections_path` (mặc định là bản cài trong `share/cobot_ros2/config`, kèm bản URDF ở
+`share/cobot_ros2/sim/urdf` để `urdf_path` tương đối vẫn đúng), `joints`, `log_path` (mặc định
+`<log.output_dir>/<run-id>/run.csv`). `sim.launch.py` nhận `config_path`, `imperfections_path`,
+`log_path` và chuyển cho spawner bằng `--param-file`. Quỹ đạo bắt đầu ở lần `update()` đầu tiên
+sau khi kích hoạt; trước đó `gz_ros2_control` giữ khớp ở tư thế home (`hold_joints`). Stamp của
+trạng thái = thời điểm lần `update()` đó + số chu kỳ × chu kỳ điều khiển, không lấy tham số
+`time`: `time` theo đồng hồ ROS (`/clock` khi mô phỏng), có lúc đứng yên hàng trăm chu kỳ trong
+khi interface vẫn được đọc mỗi chu kỳ, và `ControlLoop` sẽ vào chế độ giữ vì stamp cũ. Vì thế
+`cobot.control_rate_hz` phải bằng `update_rate` của `controller_manager` (kiểm tra lúc configure). Trạng thái (`~/status`,
+`std_msgs/String` là chế độ vòng) publish 10 Hz qua realtime publisher. Luồng ghi CSV flush sau
+mỗi lô để dữ liệu còn nguyên khi Gazebo bị dừng.
+
 **Câu hỏi mở cho chủ dự án:** trên Pi5, chạy qua đường nào? Chưa chọn cho tới khi có phần cứng
 (ADR-014); cả hai đường được giữ để không đóng lựa chọn nào.
 

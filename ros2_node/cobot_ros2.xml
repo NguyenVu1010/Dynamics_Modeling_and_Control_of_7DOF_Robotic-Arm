@@ -1,0 +1,6 @@
+<library path="cobot_ros2">
+  <class name="cobot_ros2/CobotController" type="cobot_ros2::CobotController"
+         base_class_type="controller_interface::ControllerInterface">
+    <description>Cartesian trajectory, CLIK and computed torque of the 7-DOF arm (ControlLoop).</description>
+  </class>
+</library>

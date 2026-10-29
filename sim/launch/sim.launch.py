@@ -1,8 +1,14 @@
 """Gazebo Harmonic + gz_ros2_control for the 7-DOF arm.
 
 ros2 launch cobot_sim sim.launch.py [gui:=false] [controller:=effort_passthrough]
+    [config_path:=YAML] [imperfections_path:=YAML] [log_path:=CSV]
+
+config_path, imperfections_path and log_path, when given, become parameters of the spawned
+controller (cobot_controller); unset, the controller's defaults apply.
 """
 
+import json
+import tempfile
 from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
@@ -26,6 +32,17 @@ def _setup(context: object) -> list:
     robot_description = xacro.process_file(
         str(xacro_file), mappings={"controllers_yaml": controllers_yaml}
     ).toxml()
+
+    overrides = {
+        name: value
+        for name in ("config_path", "imperfections_path", "log_path")
+        if (value := LaunchConfiguration(name).perform(context))
+    }
+    param_args = []
+    if overrides:
+        with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
+            json.dump({controller: {"ros__parameters": overrides}}, f)  # JSON is valid YAML
+        param_args = ["--param-file", f.name]
 
     world = str(share / "worlds/empty.sdf")
     gz_args = ["gz", "sim", "-r", world] if gui else ["gz", "sim", "-r", "-s", world]
@@ -58,7 +75,7 @@ def _setup(context: object) -> list:
         Node(
             package="controller_manager",
             executable="spawner",
-            arguments=[controller, "--controller-manager-timeout", "60"],
+            arguments=[controller, *param_args, "--controller-manager-timeout", "60"],
             output="screen",
         ),
     ]
@@ -70,6 +87,9 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("gui", default_value="false"),
             DeclareLaunchArgument("controller", default_value="effort_passthrough"),
             DeclareLaunchArgument("controllers_yaml", default_value=""),
+            DeclareLaunchArgument("config_path", default_value=""),
+            DeclareLaunchArgument("imperfections_path", default_value=""),
+            DeclareLaunchArgument("log_path", default_value=""),
             OpaqueFunction(function=_setup),
         ]
     )
