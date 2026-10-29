@@ -34,16 +34,14 @@ struct WaypointIssue {
   double limit = 0.0;
 };
 
-inline constexpr double kDegToRad = 3.14159265358979323846 / 180.0;
-
 struct ValidationLimits {  // all > 0 and finite
   double reach_pos_m = 1e-3;
-  double reach_rot_rad = 0.5 * kDegToRad;
-  double joint_margin_rad = 2.0 * kDegToRad;  // distance to a URDF position limit
-  double torque_ratio = 0.9;                  // of model tau_max
-  double max_stretch = 3.0;                   // factor on an auto segment's duration
-  double dt_s = 1e-3;                         // CLIK step for the offline run
-  double path_sample_dt_s = 0.01;             // spacing of the returned path samples
+  double reach_rot_rad = 0.5 * 3.14159265358979323846 / 180.0;
+  double joint_margin_rad = 2.0 * 3.14159265358979323846 / 180.0;  // distance to a URDF limit
+  double torque_ratio = 0.9;                                       // of model tau_max
+  double max_stretch = 3.0;        // factor on an auto segment's duration
+  double dt_s = 1e-3;              // CLIK step for the offline run
+  double path_sample_dt_s = 0.01;  // spacing of the returned path samples
 };
 
 template <int N>
@@ -66,6 +64,9 @@ struct PathValidation {
 // An issue during segment i or at node i belongs to waypoint i; one issue per (waypoint, kind),
 // the worst kept. A waypoint with an auto duration and only joint_velocity/torque issues gets its
 // duration multiplied by 1.25 and the run is repeated, while the factor stays <= max_stretch.
+// A stretched segment is passed to create() as a fixed duration (so the returned trajectory
+// reports user_duration() == true for it); the other auto segments stay auto and keep the
+// Cartesian limits. If no auto duration fits next to a stretch, the last run is reported.
 // Error (Result) for invalid input: create() fails (its message), non-finite q_start, any
 // ValidationLimits value <= 0 or non-finite (message names the field). Otherwise a value, ok or
 // not.

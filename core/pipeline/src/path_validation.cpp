@@ -112,6 +112,19 @@ void check_joints(const model::Model<N>& model,
   }
 }
 
+// Waypoint a state at time t_s belongs to: the first i with t_s <= node_time_s(i), so a state
+// exactly at a node time belongs to that node's waypoint (segment_at() would give the next one).
+// Clamped to the last waypoint after the end.
+std::size_t waypoint_of(const WaypointTrajectory& traj, double t_s) {
+  const std::size_t n = traj.size();
+  for (std::size_t i = 0; i < n; ++i) {
+    if (t_s <= traj.node_time_s(i)) {
+      return i;
+    }
+  }
+  return n - 1;
+}
+
 // One CLIK run along `traj` at limits.dt_s; the worst issue of each kind per waypoint.
 template <int N>
 std::vector<WaypointWorst> run_clik(const model::Model<N>& model,
@@ -137,8 +150,10 @@ std::vector<WaypointWorst> run_clik(const model::Model<N>& model,
   std::size_t next_node = 0;
   for (long long k = 0; k <= last_step; ++k) {
     const double t = static_cast<double>(k) * dt;
-    const std::size_t seg = std::min(traj.segment_at(t), n - 1);
     const planning::JointReference<N>& ref = clik.step(traj.sample(t), dt);
+    // step() returns q_ref and qd_ref at t + dt, so the joint checks belong to the waypoint of
+    // t + dt (a state at exactly node_time_s(i) counts for waypoint i).
+    const std::size_t seg = waypoint_of(traj, t + dt);
 
     for (; next_node < n && node_step[next_node] <= k; ++next_node) {
       const double pos_err = ref.task_error.template head<3>().norm();
@@ -229,11 +244,12 @@ common::Result<PathValidation<N>> validate_path(
 
   const std::size_t n = waypoints.size();
   std::optional<WaypointTrajectory> traj(std::move(built).value());
+  // base_s[i]: the auto duration create() chose for segment i before it was first stretched.
   std::vector<double> base_s(n);
   std::vector<bool> is_auto(n);
   for (std::size_t i = 0; i < n; ++i) {
     base_s[i] = traj->segment_duration_s(i);
-    is_auto[i] = !traj->user_duration(i);
+    is_auto[i] = !(waypoints[i].duration_s > 0.0);  // the caller's flags, never the rebuilt ones
   }
   std::vector<double> factor(n, 1.0);  // 1.25^k, exact in binary
   const control::FrictionCompensation<N> friction_ff(friction);
@@ -241,6 +257,7 @@ common::Result<PathValidation<N>> validate_path(
   std::vector<WaypointWorst> worst;
   for (;;) {
     worst = run_clik<N>(model, clik, friction_ff, q_start, *traj, limits);
+    const std::vector<double> previous = factor;
     bool stretched = false;
     for (std::size_t i = 0; i < n; ++i) {
       if (is_auto[i] && stretchable(worst[i]) && factor[i] * kStretchStep <= limits.max_stretch) {
@@ -251,17 +268,30 @@ common::Result<PathValidation<N>> validate_path(
     if (!stretched) {
       break;
     }
-    // Every duration pinned, so the rerun keeps the unstretched segments exactly as they were.
+    // Only the stretched segments are pinned. The other auto segments keep duration_s = 0, so
+    // create() recomputes them and still enforces the Cartesian limits on them: their node rates
+    // depend on the neighbouring durations, so a stretched neighbour can change their peaks.
+    // User durations are passed through unchanged.
     std::vector<planning::Waypoint> pinned = waypoints;
     for (std::size_t i = 0; i < n; ++i) {
-      pinned[i].duration_s = base_s[i] * factor[i];
+      if (factor[i] > 1.0) {
+        pinned[i].duration_s = base_s[i] * factor[i];
+      }
     }
     common::Result<WaypointTrajectory> rebuilt =
         WaypointTrajectory::create(T_b_start, pinned, cartesian);
     if (!rebuilt.is_ok()) {
-      return Out::error(rebuilt.reason());
+      // No auto duration fits the Cartesian limits next to this stretch: keep the last run
+      // (its trajectory and its issues) and report.
+      factor = previous;
+      break;
     }
     traj.emplace(std::move(rebuilt).value());
+    for (std::size_t i = 0; i < n; ++i) {
+      if (is_auto[i] && !(factor[i] > 1.0)) {  // not stretched yet
+        base_s[i] = traj->segment_duration_s(i);
+      }
+    }
   }
 
   PathValidation<N> out;
@@ -284,6 +314,7 @@ common::Result<PathValidation<N>> validate_path(
   return Out::ok(std::move(out));
 }
 
+// NOLINTBEGIN(bugprone-macro-parentheses): N is a template argument
 #define INSTANTIATE(N)                                         \
   template common::Result<PathValidation<N>> validate_path<N>( \
       const model::Model<N>&,                                  \
@@ -296,5 +327,6 @@ common::Result<PathValidation<N>> validate_path(
       const ValidationLimits&);
 COBOT_INSTANTIATE_DOF(INSTANTIATE)
 #undef INSTANTIATE
+// NOLINTEND(bugprone-macro-parentheses)
 
 }  // namespace cobot::pipeline
