@@ -174,16 +174,17 @@ def test_safety_checks_mode_and_torque(tmp_path, bench, mode, expected):
     assert code == expected, out
 
 
-@pytest.mark.parametrize(("tag", "runs", "timings"), [("arm64", 5, 0), ("pr", 5, 1), (None, 5, 1)])
+@pytest.mark.parametrize(("tag", "runs", "timings"), [("arm64", 6, 0), ("pr", 6, 1), (None, 6, 1)])
 def test_all_filters_by_tag(tmp_path, bench, tag, runs, timings):
-    # E2E-01, E2E-02, E2E-03 (two runs), E2E-04 -> 5 runs; PF-01 (tags [pr]) -> one timing.
+    # E2E-01, E2E-02, E2E-03 (two runs), E2E-04, E2E-10 -> 6 runs; PF-01 (tags [pr]) -> one
+    # timing.
     args = ["--all"] + (["--tag", tag] if tag else [])
     code, out, calls = run_e2e(tmp_path, bench, args)
     assert code == 0, out
     kinds = [c[0] for c in calls]
     assert kinds.count("run") == runs and kinds.count("timing") == timings
     assert any(c[0] == "run" and flag(c, "--seed") == "7" for c in calls)
-    assert all(sid in out for sid in ("E2E-01", "E2E-02", "E2E-03", "E2E-04"))
+    assert all(sid in out for sid in ("E2E-01", "E2E-02", "E2E-03", "E2E-04", "E2E-10"))
     assert ("PF-01" in out) == (timings == 1)
 
 

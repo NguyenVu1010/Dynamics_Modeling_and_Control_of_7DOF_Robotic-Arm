@@ -1,0 +1,5 @@
+# Invalid: waypoints[1].position_m has two values instead of three.
+frame: base_link
+waypoints:
+  - {position_m: [-0.0730, -0.7449, 0.5424], rpy_deg: [0.0, -63.0, 90.0]}
+  - {position_m: [-0.2255, -0.6931], rpy_deg: [0.0, -40.5, 90.0], stop: true}

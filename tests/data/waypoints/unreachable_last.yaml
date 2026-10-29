@@ -1,0 +1,7 @@
+# Two reachable points of E2E-10 (tests/e2e/waypoints/e2e_10.yaml), then a point 2 m beyond the
+# MVP goal in -y: |p| ~ 2.8 m from base_link, beyond the ~1.4 m reach of the arm.
+frame: base_link
+waypoints:
+  - {position_m: [-0.0730, -0.7449, 0.5424], rpy_deg: [0.0, -63.0, 90.0]}
+  - {position_m: [-0.2255, -0.6931, 0.6701], rpy_deg: [0.0, -40.5, 90.0], stop: true}
+  - {position_m: [-0.5000, -2.6000, 0.9000], rpy_deg: [0.0, 0.0, 90.0], stop: true}
