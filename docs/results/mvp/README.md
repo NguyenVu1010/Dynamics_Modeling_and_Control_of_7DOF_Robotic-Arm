@@ -1,5 +1,9 @@
 # Kết quả MVP
 
+> Đây là mốc so sánh. Kết quả hiện tại nằm ở [docs/results/realism](../realism/README.md).
+> Các số liên quan tới ma sát ở trang này là lạc quan, vì plant lúc đó làm mất ma sát Coulomb
+> do lỗi số, và URDF chưa có armature.
+
 Thời điểm chạy: 2026-10-29, trên desktop (WSL Ubuntu 24.04, GCC 13, bản Release). Gain lấy theo
 `config/default.yaml`; lý do chỉnh gain ghi trong `docs/derivations/control.md`. CSV gốc không
 commit, vì có thể tạo lại bằng các lệnh ở cuối trang.

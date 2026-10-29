@@ -104,6 +104,13 @@ hằng số thời gian động cơ 1 ms). Ở tần số cắt cỡ `k_d = 160 
 | **80** | **0.17 mm / 0.31° / 0.010 rad: đạt** |
 | 100 | 0.11 mm / 0.19° / 0.007 rad: đạt, ít biên pha hơn |
 
+Bảng trên đo khi URDF còn thiếu armature, nên `M_77` chỉ khoảng 1.8e-4 kg·m². Đó là lý do
+thật khiến cổ tay nhạy với nhiễu tới mức cần `ω` cao. Sau khi thêm armature (`M_77` khoảng
+0.23 kg·m², ADR-005), độ cứng cổ tay tăng khoảng 1300 lần, và E2E-02 với `ω = 80` còn 0.060 mm
+/ 1.8e-4 rad (docs/results/realism/README.md). Gain vẫn giữ `ω = 80`: biên pha đã kiểm ở trên
+không phụ thuộc quán tính, vì computed torque nhân `M(q)` vào luật điều khiển. Nếu muốn giảm
+gain, chạy lại sweep để có số liệu.
+
 ## Bù ma sát
 
 Ma sát khớp của plant (profile realistic) là Coulomb cộng nhớt, `τ_f = c ⊙ sign(q̇) + b ⊙ q̇`.

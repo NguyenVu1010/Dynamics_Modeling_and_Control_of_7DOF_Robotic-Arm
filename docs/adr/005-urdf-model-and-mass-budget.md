@@ -86,3 +86,16 @@ sinh lại URDF và fixture KDL (ADR-004).
 ## Kết quả MVP (2026-10-29)
 
 Khối lượng chuyển động sau khi sửa là 17.05 kg (bản cũ 6.06 kg). Với mô hình này, mô-men trọng trường lớn nhất bằng 0.889 lần mô-men định mức ở khớp 2. Mô-men đỉnh khi bám quỹ đạo MVP là 52 % τ_max ở kịch bản lý tưởng, và tối đa 76 % trong Monte Carlo realistic. Sweep cho thấy sai số khối lượng link tới 20 % vẫn đạt, nhưng tải đầu cuối không khai báo 1 kg thì trượt. Còn chờ bàn: số liệu eRob và vật liệu ống nhôm cần chủ dự án xác nhận theo bản vẽ thật.
+
+## Cập nhật (2026-10-29): armature
+
+URDF thiếu quán tính rotor quy đổi qua hộp số. Với robot thật, phần `J_in N²` chiếm chủ đạo ở
+các khớp cổ tay, nên thiếu nó thì quán tính khớp 7 chỉ khoảng 1.8e-4 kg·m² và độ cứng thực tế
+`M_77 k_p` khoảng 1 N·m/rad. `mass_budget.yaml` thêm mục `armature` (tỉ số truyền 100; `J_in`
+của eRob110I 308632 g·mm², eRob70I 22674 g·mm², eRob90 nội suy 100000 g·mm²). Kết quả: 3.086
+kg·m² cho khớp 1–2, 1.0 cho khớp 3–4, 0.2267 cho khớp 5–7. `tools/fix_urdf_inertia.py` ghi
+`<cobot_armature>` vào URDF; mô hình cộng `diag(armature)` vào `M` và `armature ⊙ q̈` vào RNEA.
+Gazebo không có armature, nên bản URDF cho Gazebo gộp nó vào quán tính link con (xấp xỉ, ghi
+trong docstring của công cụ). Sau thay đổi này, E2E-02 giảm từ 0.17 mm / 0.0105 rad xuống
+0.060 mm / 1.8e-4 rad (docs/results/realism/README.md). Còn chờ bàn: các giá trị là **giả
+định** cho tới khi có datasheet eRob dòng H và tỉ số truyền thật.
