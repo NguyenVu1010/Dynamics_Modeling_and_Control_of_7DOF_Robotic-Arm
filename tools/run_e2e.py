@@ -1,20 +1,28 @@
 """End-to-end scenario runner (design 11.3): runs cobot_bench and judges the result.
 
-Usage: python tools/run_e2e.py (--scenario YAML | --all [--tag T]) --bench PATH --out DIR
+Usage: python tools/run_e2e.py (--scenario YAML | --all [--tag T]) [--bench PATH] --out DIR
        [--no-report]
 Scenario paths are relative to the repository root. kind: run (thresholds on the Run CSV),
 determinism (two runs, identical bytes), safety (expect.mode_reached, |tau| <= tau_max and
 finite), timing (p95 of `cobot_bench timing` <= thresholds.p95_step_us), montecarlo (share of
 runs in the summary meeting the thresholds >= thresholds.pass_rate), sweep (bench completes and
-the sensitivity report with hardware_requirements.md is produced). runner: gazebo scenarios are
-skipped unless --tag gazebo; scenarios tagged nightly run only with --tag nightly or --scenario.
-Exit 0 all pass, 1 any fails, 2 bad arguments.
+the sensitivity report with hardware_requirements.md is produced). --bench is needed only by
+bench scenarios. runner: gazebo scenarios (kind run) launch headless Gazebo with
+cobot_controller (needs a sourced colcon install of cobot_sim and cobot_ros2), wait at least
+duration_s + hold_s + 5 s after the controller created its CSV (or after launching, if it never
+does), then keep waiting until the CSV covers duration_s + hold_s of sim time (Gazebo may run
+slower than real time), at most 3x that minimum wait after the CSV appeared, stop the launch
+and judge the CSV; they are skipped unless --tag gazebo. Scenarios tagged nightly run only with
+--tag nightly or --scenario. Exit 0 all pass, 1 any fails, 2 bad arguments.
 """
 
 import argparse
+import os
 import re
+import signal
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -35,6 +43,11 @@ from cobot_eval.metrics import (  # noqa: E402
 
 SCENARIO_DIR = REPO / "tests/e2e/scenarios"
 THRESHOLD_KEYS = ("final_pos_err_m", "final_rot_err_deg", "rms_joint_err_rad")
+GAZEBO_MARGIN_S = 5.0  # real-time factor below 1 and shutdown, on top of the trajectory time
+GAZEBO_POLL_S = 0.1
+GAZEBO_CAP = 3.0  # overall wait cap, as a multiple of the minimum wait
+GAZEBO_TAIL_BYTES = 8192  # enough for the last complete CSV row
+GAZEBO_STOP_S = 30.0  # graceful shutdown of the launch before it is killed
 
 
 def repo_path(value: str) -> Path:
@@ -53,6 +66,8 @@ def tau_max_of(s: dict) -> np.ndarray:
 
 
 def bench(args: argparse.Namespace, *cmd: str) -> subprocess.CompletedProcess:
+    if args.bench is None:
+        raise RuntimeError("--bench is required for bench scenarios")
     proc = subprocess.run([str(args.bench), *cmd], capture_output=True, text=True)
     if proc.returncode != 0:
         raise RuntimeError(f"bench exit {proc.returncode}: {proc.stderr.strip()}")
@@ -138,9 +153,97 @@ def judge_safety(s: dict, csv: Path) -> tuple[bool, str]:
     return not problems, "; ".join(problems) or f"{want} reached, torque within limits"
 
 
+def stop_launch(proc: subprocess.Popen) -> None:
+    """SIGINT (as Ctrl-C) so the controller flushes its CSV, then kill what is left."""
+    if proc.poll() is None:
+        proc.send_signal(signal.SIGINT)
+        try:
+            proc.wait(timeout=GAZEBO_STOP_S)
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.wait()
+    try:
+        os.killpg(proc.pid, signal.SIGKILL)  # stragglers of the launch's process group
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def csv_t_ns(line: bytes) -> int | None:
+    """t_ns (first column) of a complete data row, None for the header or a partial row."""
+    try:
+        return int(line.split(b",", 1)[0])
+    except ValueError:
+        return None
+
+
+def csv_span_ns(csv: Path) -> int:
+    """Last row's t_ns minus the first row's t_ns of a CSV being written (0 if too short)."""
+    try:
+        with csv.open("rb") as f:
+            lines = f.read(GAZEBO_TAIL_BYTES).split(b"\n")
+            first = csv_t_ns(lines[1]) if len(lines) > 2 else None
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - GAZEBO_TAIL_BYTES))
+            tail = f.read().split(b"\n")[:-1]  # rows end with a newline: drop the partial one
+    except OSError:
+        return 0
+    last = csv_t_ns(tail[-1]) if tail else None
+    return 0 if first is None or last is None else last - first
+
+
+def wait_run(proc: subprocess.Popen, csv: Path, wait_s: float, run_ns: int) -> int | None:
+    """Exit code if the launch ends early, else None once wait_s has passed since the CSV
+    appeared (the controller is active from then on) and the CSV covers run_ns of sim time,
+    or GAZEBO_CAP * wait_s has passed since then. Without a CSV the clock runs from the start
+    and the launch is stopped after wait_s."""
+    base = time.monotonic()
+    csv_seen = False
+    while True:
+        if (code := proc.poll()) is not None:
+            return code
+        now = time.monotonic()
+        if not csv_seen and csv.exists():
+            csv_seen, base = True, now
+        if not csv_seen:
+            if now >= base + wait_s:
+                return None
+        elif now >= base + GAZEBO_CAP * wait_s:
+            return None
+        elif now >= base + wait_s and csv_span_ns(csv) >= run_ns:
+            return None
+        time.sleep(GAZEBO_POLL_S)
+
+
+def run_gazebo(s: dict, out: Path, report: bool) -> tuple[bool, str]:
+    if s["kind"] != "run":
+        return False, f"gazebo runner supports kind run only, got {s['kind']}"
+    config = repo_path(s["config"])
+    traj = yaml.safe_load(config.read_text(encoding="utf-8"))["cobot"]["trajectory"]
+    run_s = float(traj["duration_s"]) + float(traj["hold_s"])
+    wait_s = run_s + GAZEBO_MARGIN_S
+    csv = out / "run.csv"
+    csv.unlink(missing_ok=True)
+    cmd = ["ros2", "launch", "cobot_sim", "sim.launch.py", "gui:=false"]
+    cmd += ["controller:=cobot_controller", f"config_path:={config}"]
+    cmd += [f"imperfections_path:={repo_path(s['imperfections'])}", f"log_path:={csv}"]
+    with (out / "launch.log").open("w", encoding="utf-8") as log:
+        proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+        try:
+            code = wait_run(proc, csv, wait_s, round(run_s * 1e9))
+        finally:
+            stop_launch(proc)
+    if code is not None:
+        return False, f"launch exited with {code} before the run ended (see {out / 'launch.log'})"
+    if not csv.is_file():
+        return False, f"no CSV at {csv}"
+    return judge_run(s, csv, out, report)
+
+
 def run_scenario(s: dict, args: argparse.Namespace) -> tuple[bool, str]:
     out = args.out / str(s["id"])
     out.mkdir(parents=True, exist_ok=True)
+    if s.get("runner") == "gazebo":
+        return run_gazebo(s, out, not args.no_report)
     config = str(repo_path(s["config"]))
     if s["kind"] == "timing":
         text = bench(args, "timing", "--config", config, "--steps", str(s["steps"])).stdout
@@ -167,10 +270,8 @@ def run_scenario(s: dict, args: argparse.Namespace) -> tuple[bool, str]:
 
 
 def evaluate(s: dict, args: argparse.Namespace) -> str:
-    if s.get("runner") == "gazebo":
-        if args.tag != "gazebo":
-            return "SKIP   gazebo runner (use --tag gazebo)"
-        return "FAIL   gazebo runner not available yet"
+    if s.get("runner") == "gazebo" and args.all and args.tag != "gazebo":
+        return "SKIP   gazebo runner (use --tag gazebo)"
     try:
         ok, detail = run_scenario(s, args)
     except (OSError, ValueError, KeyError, TypeError, RuntimeError, yaml.YAMLError) as err:
@@ -184,11 +285,12 @@ def main(argv: list[str] | None = None) -> int:
     which.add_argument("--scenario", type=Path)
     which.add_argument("--all", action="store_true")
     parser.add_argument("--tag", default=None)
-    parser.add_argument("--bench", type=Path, required=True)
+    parser.add_argument("--bench", type=Path, default=None)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--no-report", action="store_true")
     args = parser.parse_args(argv)
-    args.bench, args.out = args.bench.resolve(), args.out.resolve()
+    args.bench = args.bench.resolve() if args.bench else None
+    args.out = args.out.resolve()
 
     paths = [args.scenario] if args.scenario else sorted(SCENARIO_DIR.glob("*.yaml"))
     try:

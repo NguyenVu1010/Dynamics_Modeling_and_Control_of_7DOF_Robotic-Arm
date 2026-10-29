@@ -25,6 +25,28 @@ nối các bước qua topic ROS, gây jitter và bốn tần số khác nhau.
   `SimJointInterface`; plugin bọc state/command bằng cùng lớp (ADR-015).
 - Lõi không biết đường nào đang dùng.
 
+**Ghi chú hiện thực (feature `ros2-controller`):** gói `cobot_ros2` build lõi từ `../core` ngay
+trong gói (`add_subdirectory`), không cần cài lõi riêng, nên một lệnh `tools/wsl/sim.sh build`
+(và image `docker/ros.Dockerfile`) build đủ `sim/` và `ros2_node/`; `sim.sh tidy` chạy clang-tidy
+trên `ros2_node/src` (job `gazebo`, vì job `lint` không có header ROS). Tham số: `config_path`,
+`imperfections_path` (mặc định là bản cài trong `share/cobot_ros2/config`, kèm bản URDF ở
+`share/cobot_ros2/sim/urdf` để `urdf_path` tương đối vẫn đúng), `joints`, `log_path` (để trống:
+`results/<run-id>/run.csv` dưới thư mục làm việc của tiến trình controller manager, không dùng
+`log.output_dir` vì đường đó tính theo thư mục của file config, tức nằm trong cây cài đặt colcon).
+`sim.launch.py` nhận `config_path`, `imperfections_path`, `log_path` và chuyển cho spawner bằng
+`--param-file` (file tạm, xoá khi launch tắt). `on_activate` đọc trạng thái đo được qua
+`ImperfectJointInterface` rồi gọi `ControlLoop::start`; đọc lỗi thì kích hoạt thất bại, nên quỹ
+đạo luôn bắt đầu từ tư thế thật; trước đó `gz_ros2_control` giữ khớp ở tư thế home
+(`hold_joints`). Stamp của trạng thái = thời điểm kích hoạt (`get_node()->now()`) + số chu kỳ ×
+chu kỳ điều khiển, không lấy tham số `time` của `update()`: `time` theo đồng hồ ROS (`/clock` khi
+mô phỏng), có lúc đứng yên hàng trăm chu kỳ trong khi interface vẫn được đọc mỗi chu kỳ, và
+`ControlLoop` sẽ vào chế độ giữ vì stamp cũ. Vì thế `cobot.control_rate_hz` phải bằng
+`update_rate` của `controller_manager` (kiểm tra lúc configure). Trạng thái (`~/status`,
+`std_msgs/String` là chế độ vòng) publish 10 Hz qua realtime publisher. Luồng ghi CSV flush sau
+mỗi lô để dữ liệu còn nguyên khi Gazebo bị dừng. `tools/run_e2e.py` chờ ít nhất duration + hold +
+5 s (đồng hồ thật) sau khi CSV xuất hiện, rồi chờ tiếp tới khi CSV phủ đủ duration + hold theo
+thời gian mô phỏng (Gazebo có thể chạy chậm hơn thời gian thực), tối đa 3 lần mức chờ tối thiểu.
+
 **Câu hỏi mở cho chủ dự án:** trên Pi5, chạy qua đường nào? Chưa chọn cho tới khi có phần cứng
 (ADR-014); cả hai đường được giữ để không đóng lựa chọn nào.
 
