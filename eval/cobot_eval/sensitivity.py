@@ -8,8 +8,10 @@ Exit 0 when the report is written (failing levels are results), 2 on bad input.
 
 A level passes when every seed meets every threshold. A param's levels are walked in severity
 order: ascending, unless the smallest level fails and the largest passes (fewer encoder bits is
-worse). The worst passing level is the last one before the first failure; a passing level after
-it does not count.
+worse). When both ends pass or both fail, the end with the larger error (sum of metric/threshold
+ratios, mean over seeds) is the worse one, if it is larger by more than REVERSE_MARGIN. The
+worst passing level is the last one before the first failure; a passing level after it does not
+count.
 """
 
 import argparse
@@ -38,6 +40,7 @@ METRICS = COLUMNS[4:9]
 CHECKED = ("final_pos_err_m", "final_rot_err_rad", "rms_joint_err_rad")
 FAIL_ORDER = ("final_pos_err_m", "final_rot_err_deg", "rms_joint_err_rad")
 MONTECARLO = "none"
+REVERSE_MARGIN = 0.05  # relative; smaller error differences are noise, not a direction
 EXIT_OK, EXIT_BAD_INPUT = 0, 2
 
 
@@ -69,12 +72,31 @@ def passes(df: pd.DataFrame, th: Thresholds | None) -> pd.Series:
     return pd.Series([not failing(r, th) for _, r in df.iterrows()], index=df.index, dtype=bool)
 
 
+def error_score(df: pd.DataFrame, th: Thresholds | None) -> pd.Series:
+    """Per-row sum of checked metric / threshold ratios (raw metric sum without thresholds)."""
+    if th is None:
+        return df[list(CHECKED)].sum(axis=1)
+    ratios = pd.concat(
+        [
+            df["final_pos_err_m"] / th.final_pos_err_m,
+            np.degrees(df["final_rot_err_rad"]) / th.final_rot_err_deg,
+            df["rms_joint_err_rad"] / th.rms_joint_err_rad,
+        ],
+        axis=1,
+    )
+    return ratios.sum(axis=1)
+
+
 def severity_order(df: pd.DataFrame, th: Thresholds | None) -> tuple[list[float], dict]:
     """Levels of one param from best to worst, and level -> every seed passes."""
     ok = df.assign(ok=passes(df, th)).groupby("level")["ok"].all().to_dict()
     levels = sorted(ok)
     if not ok[levels[0]] and ok[levels[-1]]:
         levels.reverse()
+    elif ok[levels[0]] == ok[levels[-1]]:
+        score = df.assign(score=error_score(df, th)).groupby("level")["score"].mean()
+        if score[levels[0]] > (1.0 + REVERSE_MARGIN) * score[levels[-1]]:
+            levels.reverse()
     return levels, ok
 
 
