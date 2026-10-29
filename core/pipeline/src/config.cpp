@@ -12,10 +12,12 @@
 #include <utility>
 #include <vector>
 
+#include <Eigen/Geometry>
 #include <yaml-cpp/yaml.h>
 
 #include "cobot/common/dof.hpp"
 #include "cobot/pipeline/sweep_config.hpp"
+#include "cobot/pipeline/waypoint_file.hpp"
 
 // Strict YAML reading: every problem becomes one line "<full.key.path>: <reason>" and all
 // lines are returned together, so a config file is fixed in one pass.
@@ -244,6 +246,97 @@ Result<T> load(const fs::path& yaml, ReadFn read, EditFn edit = keep) {
   return Result<T>::error(msg);
 }
 
+// R = Rz(yaw) Ry(pitch) Rx(roll) of rpy = (roll, pitch, yaw) in rad.
+common::Mat3 rpy_matrix(const Vec3& rpy) {
+  const common::Mat3 r = Eigen::AngleAxisd(rpy.z(), Vec3::UnitZ()).toRotationMatrix() *
+                         Eigen::AngleAxisd(rpy.y(), Vec3::UnitY()).toRotationMatrix() *
+                         Eigen::AngleAxisd(rpy.x(), Vec3::UnitX()).toRotationMatrix();
+  return r;
+}
+
+// {position_m: [3], rpy_deg: [3]} of `r`; `out` is set only when both are valid.
+void read_pose(Reader& r, common::Pose& out) {
+  Vec3 p = Vec3::Constant(std::nan(""));
+  Vec3 rpy = Vec3::Constant(std::nan(""));
+  r.vector<3>("position_m", kAny, false, p);
+  r.vector<3>("rpy_deg", kAny, false, rpy);
+  if (p.allFinite() && rpy.allFinite()) {
+    out = common::Pose{rpy_matrix(rpy * kDegToRad), p};
+  }
+}
+
+// Reads `key` of `r` into `out` only when present (and not null); otherwise `out` keeps its
+// default.
+void optional_number(Reader& r, const std::string& key, const Rule& rule, double& out) {
+  if (r.has(key)) {
+    r.number(key, rule, out);
+  }
+}
+
+// An angle given in degrees under `key`, stored in rad; absent keeps the default.
+void optional_degrees(Reader& r, const std::string& key, double& out_rad) {
+  if (r.has(key)) {
+    double deg = 0.0;  // stays 0 (not > 0) when the value is rejected
+    r.number(key, kPositive, deg);
+    out_rad = deg > 0.0 ? deg * kDegToRad : out_rad;
+  }
+}
+
+// The optional sections of feature `loop-external`: a missing (or null) section or sub-key keeps
+// its default.
+template <int N>
+void read_external(Reader& m, Config<N>& c) {
+  if (m.has("command_source")) {
+    const YAML::Node n = m.node("command_source");
+    const std::string v = n.IsScalar() ? n.Scalar() : std::string();
+    if (v == "config" || v == "external") {
+      c.command_source = v == "config" ? CommandSource::kConfig : CommandSource::kExternal;
+    } else {
+      m.fail("command_source", "expected config or external, got '" + YAML::Dump(n) + "'");
+    }
+  }
+  if (m.has("cartesian_limits")) {
+    Reader l = m.map("cartesian_limits");
+    optional_number(l, "v_max_m_s", kPositive, c.cartesian_limits.v_max_m_s);
+    optional_number(l, "a_max_m_s2", kPositive, c.cartesian_limits.a_max_m_s2);
+    optional_number(l, "w_max_rad_s", kPositive, c.cartesian_limits.w_max_rad_s);
+    optional_number(l, "alpha_max_rad_s2", kPositive, c.cartesian_limits.alpha_max_rad_s2);
+    l.finish();
+  }
+  if (m.has("stop_time_s")) {
+    m.number("stop_time_s", kPositive, c.stop_time_s);
+  }
+  if (m.has("tcp_offset")) {
+    Reader t = m.map("tcp_offset");
+    common::Pose& tcp = c.tcp_offset.T_tip_tcp;
+    if (t.has("position_m")) {
+      Vec3 p = Vec3::Constant(std::nan(""));
+      t.vector<3>("position_m", kAny, false, p);
+      if (p.allFinite()) {
+        tcp.p = p;
+      }
+    }
+    if (t.has("rpy_deg")) {
+      Vec3 rpy = Vec3::Constant(std::nan(""));
+      t.vector<3>("rpy_deg", kAny, false, rpy);
+      if (rpy.allFinite()) {
+        tcp.R = rpy_matrix(rpy * kDegToRad);
+      }
+    }
+    t.finish();
+  }
+  if (m.has("path_validation")) {
+    Reader v = m.map("path_validation");
+    ValidationLimits& pv = c.path_validation;
+    optional_number(v, "reach_pos_m", kPositive, pv.reach_pos_m);
+    optional_degrees(v, "reach_rot_deg", pv.reach_rot_rad);
+    optional_degrees(v, "joint_margin_deg", pv.joint_margin_rad);
+    optional_number(v, "torque_ratio", kPositive, pv.torque_ratio);
+    optional_number(v, "max_stretch", kPositive, pv.max_stretch);
+    v.finish();
+  }
+}
+
 template <int N>
 void read_config(Reader& root, const fs::path& dir, Config<N>& c) {
   Reader m = root.map("cobot");
@@ -299,6 +392,7 @@ void read_config(Reader& root, const fs::path& dir, Config<N>& c) {
   Reader l = m.map("log");
   l.scalar("output_dir", text);
   c.log_output_dir = (dir / text).lexically_normal();
+  read_external<N>(m, c);
   for (Reader* r : {&t, &k, &g, &s, &l, &m}) {
     r->finish();
   }
@@ -448,6 +542,36 @@ Result<Config<N>> load_config(const fs::path& yaml) {
   std::error_code ec;
   const fs::path dir = fs::absolute(yaml, ec).parent_path();
   return load<Config<N>>(yaml, [&dir](Reader& r, Config<N>& c) { read_config<N>(r, dir, c); });
+}
+
+// Declared in waypoint_file.hpp; parsed here with the strict reader of the config files.
+Result<std::vector<planning::Waypoint>> load_waypoints(const fs::path& yaml,
+                                                       const std::string& base_link,
+                                                       const TcpOffset& tcp) {
+  const common::Mat3 r_tcp_tip = tcp.T_tip_tcp.R.transpose();
+  const common::Pose T_tcp_tip{r_tcp_tip, -(r_tcp_tip * tcp.T_tip_tcp.p)};
+  const auto read = [&](Reader& root, std::vector<planning::Waypoint>& out) {
+    std::string frame;
+    if (root.scalar("frame", frame) && frame != base_link) {
+      root.fail("frame", "expected " + base_link + ", got " + frame);
+    }
+    list(root, "waypoints", [&](const std::string& label, const YAML::Node& n) {
+      Reader w = root.child(n, label);
+      planning::Waypoint wp;
+      common::Pose T_b_tcp;
+      read_pose(w, T_b_tcp);
+      wp.T_b_goal = common::compose(T_b_tcp, T_tcp_tip);
+      if (w.has("duration_s")) {
+        w.number("duration_s", kNonNegative, wp.duration_s);
+      }
+      if (w.has("stop")) {
+        w.scalar("stop", wp.stop);
+      }
+      w.finish();
+      out.push_back(wp);
+    });
+  };
+  return load<std::vector<planning::Waypoint>>(yaml, read);
 }
 
 template <int N>

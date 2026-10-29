@@ -42,3 +42,20 @@ cobot:
     hal_timeout_ms: 5.0                # hold when no fresh state arrives for this long
   log:
     output_dir: ../results
+  # Optional sections below (feature loop-external); a missing one keeps the value shown.
+  command_source: config               # config: run `trajectory`; external: standby + load()
+  cartesian_limits:                    # auto durations of waypoint segments
+    v_max_m_s: 0.25                    # m/s, > 0
+    a_max_m_s2: 0.5                    # m/s^2, > 0
+    w_max_rad_s: 0.8                   # rad/s, > 0
+    alpha_max_rad_s2: 1.6              # rad/s^2, > 0
+  stop_time_s: 0.5                     # s, > 0, request_stop(): ramp to rest along the path
+  tcp_offset:                          # tool centre point in the link_7 frame (none: zero)
+    position_m: [0.0, 0.0, 0.0]
+    rpy_deg: [0.0, 0.0, 0.0]           # R = Rz(yaw) Ry(pitch) Rx(roll)
+  path_validation:                     # offline check before a waypoint run, all > 0
+    reach_pos_m: 0.001                 # m, task error allowed at a waypoint
+    reach_rot_deg: 0.5                 # deg, same for the orientation
+    joint_margin_deg: 2.0              # deg, closest approach to a URDF joint limit
+    torque_ratio: 0.9                  # of tau_max
+    max_stretch: 3.0                   # largest factor on an auto segment's duration

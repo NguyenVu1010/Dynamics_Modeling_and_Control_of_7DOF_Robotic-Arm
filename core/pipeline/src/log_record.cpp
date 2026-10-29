@@ -48,8 +48,8 @@ Vec3 rotation_vector(const Mat3& R) {
 }  // namespace
 
 const char* to_string(LoopMode mode) {
-  constexpr std::array<const char*, 5> kNames = {
-      "idle", "tracking", "holding", "finished", "fault"};
+  constexpr std::array<const char*, 6> kNames = {
+      "idle", "tracking", "holding", "finished", "fault", "standby"};
   return kNames[static_cast<std::size_t>(mode)];
 }
 

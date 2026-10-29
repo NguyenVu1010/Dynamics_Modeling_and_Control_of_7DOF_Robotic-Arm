@@ -34,3 +34,19 @@ cobot:
     hal_timeout_ms: 5.0
   log:
     output_dir: ../../../results
+  command_source: config
+  cartesian_limits:
+    v_max_m_s: 0.25
+    a_max_m_s2: 0.5
+    w_max_rad_s: 0.8
+    alpha_max_rad_s2: 1.6
+  stop_time_s: 0.5
+  tcp_offset:
+    position_m: [0.0, 0.0, 0.0]
+    rpy_deg: [0.0, 0.0, 0.0]
+  path_validation:
+    reach_pos_m: 0.001
+    reach_rot_deg: 0.5
+    joint_margin_deg: 2.0
+    torque_ratio: 0.9
+    max_stretch: 3.0
