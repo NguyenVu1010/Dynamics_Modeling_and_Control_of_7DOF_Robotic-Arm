@@ -49,6 +49,23 @@ double* field(WaypointRow& r, int column) {
   return column >= 0 && column < kStopColumn ? fields[column] : nullptr;
 }
 
+// Puts each path validation finding on its row (issues, one entry per row) and returns the
+// "point N: ..." lines for the status area.
+QString apply_issues(const std::vector<cobot_interfaces::msg::WaypointIssue>& found,
+                     std::vector<std::string>& issues) {
+  QString text;
+  for (const cobot_interfaces::msg::WaypointIssue& issue : found) {
+    const std::string what =
+        issue.issue + (issue.joint >= 0 ? " joint " + std::to_string(issue.joint + 1) : "") + " " +
+        std::to_string(issue.value) + " > " + std::to_string(issue.limit);
+    if (issue.waypoint < issues.size()) {
+      issues[issue.waypoint] += (issues[issue.waypoint].empty() ? "" : "; ") + what;
+    }
+    text += QString("\npoint %1: %2").arg(issue.waypoint + 1).arg(QString::fromStdString(what));
+  }
+  return text;
+}
+
 Marker point_marker(std::size_t index, bool has_issue) {
   Marker m;
   m.type = Marker::TEXT_VIEW_FACING;
@@ -208,23 +225,16 @@ void WaypointPanel::preview() {
   // NOLINTNEXTLINE(performance-unnecessary-value-param)
   auto on_answer = [this, revision](rclcpp::Client<Preview>::SharedFuture future) {
     const Preview::Response::SharedPtr& response = future.get();
-    table_.set_preview_result(revision, response->ok);
     if (revision != table_.revision()) {
       return;  // the list changed while the preview ran
     }
+    table_.set_preview_result(revision, response->ok);
+    issues_.assign(table_.size(), std::string());
     QString text = response->ok ? "Preview ok:" : "Preview found issues:";
     for (const double d : response->segment_durations_s) {
       text += QString(" %1 s").arg(d, 0, 'f', 2);
     }
-    for (const cobot_interfaces::msg::WaypointIssue& issue : response->issues) {
-      const std::string what =
-          issue.issue + (issue.joint >= 0 ? " joint " + std::to_string(issue.joint + 1) : "") +
-          " " + std::to_string(issue.value) + " > " + std::to_string(issue.limit);
-      if (issue.waypoint < issues_.size()) {
-        issues_[issue.waypoint] += (issues_[issue.waypoint].empty() ? "" : "; ") + what;
-      }
-      text += QString("\npoint %1: %2").arg(issue.waypoint + 1).arg(QString::fromStdString(what));
-    }
+    text += apply_issues(response->issues, issues_);
     if (!response->ok && response->issues.empty()) {
       text += " the controller refused the list (see its log)";
     }
@@ -246,6 +256,7 @@ void WaypointPanel::run() {
   Follow::Goal goal;
   goal.waypoints = table_.to_msg();
   goal_size_ = table_.size();
+  const std::uint64_t revision = table_.revision();
   rclcpp_action::Client<Follow>::SendGoalOptions options;
   options.goal_response_callback =
       [this](const rclcpp_action::ClientGoalHandle<Follow>::SharedPtr& handle) {
@@ -269,21 +280,36 @@ void WaypointPanel::run() {
             .arg(f->rot_err_deg, 0, 'f', 3));
   };
   options.result_callback =
-      [this](const rclcpp_action::ClientGoalHandle<Follow>::WrappedResult& r) {
+      [this, revision](const rclcpp_action::ClientGoalHandle<Follow>::WrappedResult& r) {
         goal_.reset();
-        refresh_buttons();
         const char* code = r.code == rclcpp_action::ResultCode::SUCCEEDED  ? "succeeded"
                            : r.code == rclcpp_action::ResultCode::CANCELED ? "stopped"
                                                                            : "aborted";
-        show_status(
-            QString("Last result: %1 (%2)\nfinal position error %3 mm, orientation error %4 deg, "
-                    "RMS joint error %5 rad, peak torque ratio %6")
+        QString text =
+            QString(
+                "Last result: %1 (%2)\nfinal position error %3 mm, orientation error %4 deg, "
+                "RMS joint error %5 rad, peak torque ratio %6")
                 .arg(code)
                 .arg(QString::fromStdString(r.result->message))
                 .arg(r.result->final_pos_err_m * 1e3, 0, 'f', 2)
                 .arg(r.result->final_rot_err_deg, 0, 'f', 3)
                 .arg(r.result->rms_joint_err_rad, 0, 'g', 3)
-                .arg(r.result->peak_tau_ratio, 0, 'f', 2));
+                .arg(r.result->peak_tau_ratio, 0, 'f', 2);
+        if (!r.result->issues.empty()) {
+          // The controller refused the list for path issues: list them, and when the list is
+          // still the one that was sent, mark its rows and keep Run off until a new preview.
+          const bool current = revision == table_.revision();
+          std::vector<std::string> rows(goal_size_);
+          text += apply_issues(r.result->issues, rows);
+          if (current) {
+            issues_ = std::move(rows);
+            table_.set_preview_result(revision, false);
+            refresh_table(selected());
+            refresh_markers();
+          }
+        }
+        refresh_buttons();
+        show_status(text);
       };
   follow_->async_send_goal(goal, options);
   show_status("Goal sent");

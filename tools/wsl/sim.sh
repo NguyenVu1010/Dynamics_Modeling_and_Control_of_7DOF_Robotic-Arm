@@ -34,7 +34,8 @@ case "$cmd" in
     gui="$ws/build/cobot_gui"
     if [ -f "$gui/compile_commands.json" ]; then
       # OGRE (via rviz_common) forward-declares its own Pose next to cobot::common::Pose.
-      clang-tidy-18 -p "$gui" --quiet --warnings-as-errors='*'         --checks=-bugprone-forward-declaration-namespace "$repo"/ros2_gui/src/*.cpp
+      clang-tidy-18 -p "$gui" --quiet --warnings-as-errors='*' \
+        --checks=-bugprone-forward-declaration-namespace "$repo"/ros2_gui/src/*.cpp
     fi
     echo "TIDY OK"
     ;;
@@ -44,7 +45,8 @@ case "$cmd" in
     # shellcheck disable=SC1091
     source "$ws/install/setup.bash"
     set -u
-    colcon --log-base "$ws/log" test --paths "${paths[@]}" --packages-select cobot_gui       --build-base "$ws/build" --install-base "$ws/install"
+    colcon --log-base "$ws/log" test --paths "${paths[@]}" --packages-select cobot_gui \
+      --build-base "$ws/build" --install-base "$ws/install"
     colcon test-result --test-result-base "$ws/build/cobot_gui" --verbose
     echo "TEST OK"
     ;;
