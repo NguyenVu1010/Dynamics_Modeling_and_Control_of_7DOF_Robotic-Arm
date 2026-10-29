@@ -66,13 +66,13 @@ Do đó
 với `ȧ = (a'(θ)/θ)(φ·φ̇)`, `ḃ = (b'(θ)/θ)(φ·φ̇)` và
 
 ```
-a'(θ)/θ = (θ sin θ - 2(1 - cos θ)) / θ⁴        ≈ -1/12 + θ²/180 - θ⁴/6720
-b'(θ)/θ = (3 sin θ - 2θ - θ cos θ) / θ⁵        ≈ -1/60 + θ²/1260 - θ⁴/60480
+a'(θ)/θ = (θ sin θ - 2(1 - cos θ)) / θ⁴        ≈ -1/12 + θ²/180 - θ⁴/6720 + θ⁶/453600
+b'(θ)/θ = (3 sin θ - 2θ - θ cos θ) / θ⁵        ≈ -1/60 + θ²/1260 - θ⁴/60480 + θ⁶/4989600
 ```
 
-Dưới `θ = 0.1` rad dùng chuỗi Taylor (sai số cắt cỡ `1e-13`) để tránh triệt tiêu. Khi `φ̇ ∥ φ`
-(mọi đoạn đứng yên hai đầu) các tích có hướng bằng 0 và `ω = R_i φ̇`, đúng như
-`CartesianTrajectory`.
+Dưới `θ = 0.1` rad dùng chuỗi Taylor tới số hạng `θ⁶` (sai số cắt cỡ `1e-15`) để tránh triệt
+tiêu. Khi `φ̇ ∥ φ` (mọi đoạn đứng yên hai đầu) các tích có hướng bằng 0 và `ω = R_i φ̇`, đúng
+như `CartesianTrajectory`.
 
 ## Tốc độ tại nút
 
@@ -89,7 +89,7 @@ v_k = (Δp_i + Δp_{i+1}) / (T_i + T_{i+1})                    (0 nếu một tr
 ```
 u_b (cuối đoạn i)    = J_l(φ_i)^{-1} R_i^T ω_k
 u_a (đầu đoạn i + 1) = R_k^T ω_k                             (J_l(0) = I)
-J_l(φ)^{-1} y = y - ½ φ×y + c φ×(φ×y),   c = (1 - (θ/2) cot(θ/2)) / θ²  ≈ 1/12 + θ²/720 + θ⁴/30240
+J_l(φ)^{-1} y = y - ½ φ×y + c φ×(φ×y),   c = (1 - (θ/2) cot(θ/2)) / θ²  ≈ 1/12 + θ²/720 + θ⁴/30240 + θ⁶/1209600
 ```
 
 `J_l^{-1}` hữu hạn với mọi `θ ≤ π` (`cot(π/2) = 0`), nên đoạn gần 180° vẫn hữu hạn. Hai phía
@@ -112,7 +112,10 @@ T = max(0.1, 15/8 · |Δp|/v_max, √(10/√3 · |Δp|/a_max), 15/8 · θ/w_max,
 r = max(|v|/v_max, √(|a|/a_max), |ω|/w_max, √(|α|/α_max))
 ```
 
-và nếu `r > 0.999` thì `T ← T (r/0.999 + 1e-3)`. Kéo dài một đoạn chỉ làm giảm tốc độ nút (mẫu
-số `T_i + T_{i+1}` tăng), nên vòng lặp dừng; giới hạn 200 vòng. Biên 0.1 % chừa cho đỉnh nằm giữa
-hai điểm lưới (sai số lưới cỡ `1e-4`). Thời lượng người dùng nhập dùng nguyên, không kiểm giới
+và nếu `r > 0.999` thì `T ← T (r/0.999 + 1e-3)`. Kéo dài một đoạn làm giảm tốc độ nút (mẫu số
+`T_i + T_{i+1}` tăng), nhưng tốc độ nút nhỏ hơn có thể làm tăng đỉnh gia tốc của đoạn bên cạnh,
+nên điều này không chứng minh vòng lặp hội tụ. Vì vậy vòng lặp giới hạn 200 vòng, rồi tính lại
+`r` cho mọi đoạn tự tính; nếu còn đoạn có `r > 1` thì `create` trả lỗi
+`waypoints[i].duration_s: auto duration did not converge`, nên quỹ đạo trả về luôn nằm trong
+giới hạn. Biên 0.1 % chừa cho đỉnh nằm giữa hai điểm lưới (sai số lưới cỡ `1e-4`). Thời lượng người dùng nhập dùng nguyên, không kiểm giới
 hạn ở đây (`validate_path` phán xét).

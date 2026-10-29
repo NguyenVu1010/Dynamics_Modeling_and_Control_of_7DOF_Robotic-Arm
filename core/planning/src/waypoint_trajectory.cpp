@@ -58,10 +58,11 @@ JlCoeffs jl_coeffs(double theta) {
   const double t2 = theta * theta;
   if (theta < kSeriesAngleRad) {
     const double t4 = t2 * t2;
-    c.a = 0.5 - t2 / 24.0 + t4 / 720.0;
-    c.b = 1.0 / 6.0 - t2 / 120.0 + t4 / 5040.0;
-    c.ca = -1.0 / 12.0 + t2 / 180.0 - t4 / 6720.0;
-    c.cb = -1.0 / 60.0 + t2 / 1260.0 - t4 / 60480.0;
+    const double t6 = t4 * t2;
+    c.a = 0.5 - t2 / 24.0 + t4 / 720.0 - t6 / 40320.0;
+    c.b = 1.0 / 6.0 - t2 / 120.0 + t4 / 5040.0 - t6 / 362880.0;
+    c.ca = -1.0 / 12.0 + t2 / 180.0 - t4 / 6720.0 + t6 / 453600.0;
+    c.cb = -1.0 / 60.0 + t2 / 1260.0 - t4 / 60480.0 + t6 / 4989600.0;
     return c;
   }
   const double sin_t = std::sin(theta);
@@ -78,7 +79,7 @@ JlCoeffs jl_coeffs(double theta) {
 Vec3 jl_inverse_times(const Vec3& phi, const Vec3& y) {
   const double theta = phi.norm();
   const double t2 = theta * theta;
-  double c = 1.0 / 12.0 + t2 / 720.0 + t2 * t2 / 30240.0;
+  double c = 1.0 / 12.0 + t2 / 720.0 + t2 * t2 / 30240.0 + t2 * t2 * t2 / 1209600.0;
   if (theta >= kSeriesAngleRad) {
     const double half = 0.5 * theta;
     c = (1.0 - half * std::cos(half) / std::sin(half)) / t2;
@@ -169,7 +170,8 @@ common::Result<WaypointTrajectory> WaypointTrajectory::create(
   }
 
   // Node rates depend on the durations, so stretch the auto segments until their sampled peaks
-  // fit. A longer segment only lowers the node rates, so the loop settles.
+  // fit. A longer segment usually lowers the node rates, but a lower node rate can raise a
+  // neighbour's acceleration peak, so the result is checked again after the loop.
   for (int iter = 0; iter < kMaxStretchIterations; ++iter) {
     traj.set_node_rates();
     bool stretched = false;
@@ -188,6 +190,11 @@ common::Result<WaypointTrajectory> WaypointTrajectory::create(
     }
   }
   traj.set_node_rates();
+  for (std::size_t i = 0; i < traj.count_; ++i) {
+    if (!traj.user_duration_[i] && traj.peak_ratio(i, limits) > 1.0) {
+      return Built::error(at(i) + ".duration_s: auto duration did not converge");
+    }
+  }
 
   double t = 0.0;
   for (std::size_t i = 0; i < traj.count_; ++i) {
