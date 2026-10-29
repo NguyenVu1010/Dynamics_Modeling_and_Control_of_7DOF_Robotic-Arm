@@ -41,3 +41,4 @@ thiết kế đó thành từng quyết định riêng.
 | [015](015-imperfections-and-sim-to-real.md) | Mô hình không hoàn hảo cấu hình được và phân tích độ nhạy sim-to-real | đề xuất |
 | [016](016-frozen-tests-and-cicd.md) | Quy trình test trước, test bị khoá, CI/CD và bảo vệ `main` | đề xuất |
 | [017](017-pi5-container.md) | Container arm64 sát Pi5: build, test dưới QEMU, image runtime trên GHCR | đề xuất |
+| [018](018-external-commands-and-waypoints.md) | Lệnh ngoài và quỹ đạo nhiều điểm: action trong controller, panel RViz2 | chấp nhận |
