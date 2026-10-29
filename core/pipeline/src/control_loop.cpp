@@ -259,8 +259,8 @@ Status ControlLoop<N>::load(const planning::WaypointTrajectory& trajectory) {
   }
   const common::Pose& start = trajectory.start_pose();
   const double dp = (start.p - reference_.T_b_d.p).norm();
-  const common::Mat3 dR = start.R * reference_.T_b_d.R.transpose();
-  const double dr = common::so3_log(dR).norm();
+  const common::Mat3 r_delta = start.R * reference_.T_b_d.R.transpose();
+  const double dr = common::so3_log(r_delta).norm();
   if (dp > kLoadPosTolM || dr > kLoadRotTolRad) {
     std::array<char, kMessageChars> text{};
     std::snprintf(text.data(),
