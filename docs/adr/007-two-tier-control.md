@@ -62,3 +62,13 @@ lấy từ bản cũ và ghi lại cách chỉnh ở giai đoạn `mvp-results`.
 ## Kết quả MVP (2026-10-29)
 
 Kiến trúc hai tầng đạt G3 trong bench và Gazebo (xem docs/results/mvp/README.md). Gain computed torque của bản Python cũ không chịu được nhiễu realistic, nên đã chỉnh thành tắt dần tới hạn ở ω = 80 rad/s; lý do và bảng so sánh nằm trong docs/derivations/control.md. Ma sát Coulomb và độ phân giải lệnh mô-men là hai yếu tố nhạy nhất. Hướng tiếp theo cần bàn là bù ma sát feedforward, hoặc khâu tích phân, trước khi lên phần cứng.
+
+## Cập nhật (2026-10-29): bù ma sát
+
+Đã thêm bù ma sát feed-forward trên vận tốc tham chiếu, `τ_ff = c ⊙ tanh(q̇_ref/ε) + b ⊙
+q̇_ref`, với giá trị danh định bằng 80 % profile realistic và cấu hình trong
+`cobot.friction_compensation` (docs/derivations/control.md, mục "Bù ma sát"). Bù chỉ có ý nghĩa
+sau khi SimPlant áp ma sát Coulomb ổn định (dính-trượt). Cùng với armature (ADR-005), E2E-02
+còn 1.8e-4 rad RMS khớp, Monte Carlo đạt 50/50, và trong sweep ma sát Coulomb tới 8 N·m cùng
+độ phân giải lệnh mô-men tới 2 N·m vẫn đạt. Gain giữ nguyên `ω = 80 rad/s`. Khâu tích phân
+chưa cần, nhưng nên cân nhắc lại khi có số ma sát nhận dạng trên phần cứng.

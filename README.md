@@ -76,28 +76,42 @@ thread and drains the log ring into a CSV file.
 | 5 | `control-loop`, `bench-e2e` | done (#14, #15) |
 | 6 | `ros2-controller` (Gazebo), `sensitivity` | done (#16, #17) |
 | 7 | `mvp-results`: tuning, reports, hardware requirement table | done |
+| 8 | Realism: friction compensation, armature, stick-slip plant friction, Gazebo with noise | done (#23–#28) |
 
 MVP acceptance (G3): track a fixed 10 s straight-line trajectory; at t = 12 s end-effector
 position error < 2 mm, orientation error < 1°, joint tracking RMS < 0.01 rad, desktop step
 time p95 < 200 µs.
 
-### MVP results
+### Results
 
-Full report: [docs/results/mvp](docs/results/mvp/README.md).
+Current report: [docs/results/realism](docs/results/realism/README.md). The MVP baseline stays in
+[docs/results/mvp](docs/results/mvp/README.md) for comparison.
 
-| Check | Threshold | Result |
-| --- | --- | --- |
-| E2E-01 bench, ideal | 2 mm / 1° / 0.01 rad | 2.6e-7 mm / 1e-8° / 9.8e-7 rad |
-| E2E-02 bench, realistic sensors and motors | 5 mm / 2° / 0.02 rad | 0.17 mm / 0.31° / 0.0105 rad |
-| E2E-05 Monte Carlo, 50 seeds realistic | ≥ 95 % pass | 96 % |
-| E2E-07 Gazebo Harmonic | 2 mm / 1° / 0.01 rad | 0.000 mm / 0.000° / 3.7e-6 rad |
-| PF-01 control step, desktop | p95 < 200 µs | p95 4.9 µs |
-| E2E-08 arm64 Pi5-like image (QEMU) | ctest + E2E-01..04 | pass in CI |
+| Check | Threshold | MVP | Current |
+| --- | --- | --- | --- |
+| E2E-01 bench, ideal | 2 mm / 1° / 0.01 rad | 2.6e-7 mm / 9.8e-7 rad | 6.7e-8 mm / 6.7e-7 rad |
+| E2E-02 bench, realistic sensors, motors and friction | 5 mm / 2° / 0.02 rad | 0.17 mm / 0.31° / 0.0105 rad | 0.060 mm / 0.0075° / 1.8e-4 rad |
+| E2E-05 Monte Carlo, 50 seeds realistic | ≥ 95 % pass | 96 % | 100 % |
+| E2E-07 Gazebo Harmonic, ideal | 2 mm / 1° / 0.01 rad | 0.000 mm / 3.7e-6 rad | 0.000 mm / 4.8e-6 rad |
+| E2E-09 Gazebo, realistic profile | 5 mm / 2° / 0.02 rad | – | 0.071 mm / 0.014° / 2.3e-4 rad |
+| PF-01 control step, desktop | p95 < 200 µs | p95 4.9 µs | p95 5.3 µs |
+| E2E-08 arm64 Pi5-like image (QEMU) | ctest + E2E-01..04 | pass in CI | pass in CI |
 
-The sweep over 12 sensor, motor, model and timing parameters turns into a
-[hardware requirement table](docs/results/mvp/hardware_requirements.md): encoder ≥ 12 bit,
-sensor and command delay ≤ 4 cycles each, torque constant error ≤ 10 %. Coulomb friction and
-torque command resolution are the most sensitive parameters.
+The main gain came from modelling the gearbox-reflected rotor inertia (armature, `J_in N²`):
+without it the wrist inertia was about 1300× too small and its effective stiffness
+`M_ii k_p` about 1 N·m/rad. The MVP friction numbers were also optimistic, because the old plant
+lost Coulomb friction numerically. Armature values are assumed until the eRob H-series datasheet
+is confirmed (`sim/urdf/mass_budget.yaml`).
+
+The sweep over 12 sensor, motor, model and timing parameters gives a
+[hardware requirement table](docs/results/realism/hardware_requirements.md): sensor delay
+≤ 4 cycles and torque constant error ≤ 20 % are the binding limits. Peak torque now reaches
+89 % of `τ_max` in Monte Carlo, so faster trajectories need a torque check.
+
+Environment parameters are edited in config files, not code: `config/imperfections/*.yaml`
+(sensor, motor, friction, model mismatch, timing, seed), `config/default.yaml` (gains, friction
+compensation) and `sim/urdf/mass_budget.yaml` (masses, armature). Gazebo takes the profile with
+`imperfections_path:=` and `seed:=`.
 
 ## Build
 

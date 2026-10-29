@@ -76,3 +76,7 @@ realistic, seed 7, ngưỡng như E2E-02.
   nêu `imperfections.model.payload_kg` và "not supported on the Gazebo path".
 - Jitter chu kỳ: không có nghĩa trên đồng hồ mô phỏng; `timing.period_jitter_std_us != 0` chỉ
   sinh một cảnh báo lúc configure và bị bỏ qua.
+
+Kết quả: E2E-09 (Gazebo, profile realistic, seed 7) đạt 0.071 mm / 0.014° / 2.3e-4 rad,
+cùng bậc với E2E-02 trên bench (0.060 mm / 1.8e-4 rad). Hai môi trường độc lập cho cùng kết
+luận, nên bench vẫn là nơi chạy sweep và Monte Carlo (nhanh hơn nhiều).
