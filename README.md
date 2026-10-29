@@ -128,9 +128,14 @@ tools/wsl/lint.sh                  # clang-format, clang-tidy, ruff
 tools/wsl/sim.sh build             # colcon build of sim/ and ros2_node/ (cobot_ros2)
 tools/wsl/sim.sh check             # xacro + check_urdf + gz sdf, no Gazebo needed
 tools/wsl/sim.sh smoke             # headless Gazebo, 20 s
+source tools/wsl/env.sh            # ROS 2 + workspace, own ROS domain (42) and Gazebo partition
 ```
 
-The real controller in Gazebo (after `sim.sh build` and sourcing its `install/setup.bash`):
+`env.sh` keeps this project apart from other ROS 2 projects in the same WSL, which use the
+default domain 0: override with `COBOT_ROS_DOMAIN_ID` / `COBOT_GZ_PARTITION`. `sim.sh build`
+wipes the colcon workspace when it was built from another source directory (a deleted worktree).
+
+The real controller in Gazebo (after `sim.sh build` and `source tools/wsl/env.sh`):
 
 ```bash
 ros2 launch cobot_sim sim.launch.py controller:=cobot_controller [gui:=true]   [config_path:=config/default.yaml] [imperfections_path:=config/imperfections/realistic.yaml]   [seed:=7] [log_path:=results/<run-id>/run.csv]
