@@ -1,0 +1,18 @@
+# Run a waypoint list from the controller's standby pose (design 6.4). Canceling = stop along
+# the path; the result then comes once the loop is back in standby.
+Waypoint[] waypoints
+---
+bool success
+string message
+WaypointIssue[] issues        # path validation findings when the goal was refused for them
+float64 final_pos_err_m       # tip error when the trajectory ended
+float64 final_rot_err_deg
+float64 rms_joint_err_rad     # largest per-joint RMS of q_ref - q over the tracking steps
+float64 peak_tau_ratio        # peak |tau| / tau_max over the goal
+---
+uint32 segment                # index of the waypoint being approached
+float64 t_s                   # trajectory time
+float64 duration_s            # trajectory duration
+float64 pos_err_m             # current tip errors
+float64 rot_err_deg
+string mode                   # loop mode (idle, tracking, holding, fault, standby)

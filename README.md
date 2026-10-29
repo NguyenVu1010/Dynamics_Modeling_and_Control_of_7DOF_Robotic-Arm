@@ -26,6 +26,7 @@ core/         C++17, no ROS; one target cobot::<module> per directory
   imperfect/    sensor/actuator/model imperfections
   pipeline/     ControlLoop, YAML config, SPSC ring, CSV
 ros2_node/    ros2_control controller plugin around ControlLoop
+ros2_interfaces/ cobot_interfaces: FollowWaypoints action, PreviewWaypoints service
 bench/        cobot_bench: ControlLoop + SimPlant, run / montecarlo / sweep / timing
 sim/          cobot_sim: URDF/xacro, meshes, world, controllers, launch
 eval/         Python reports and sensitivity analysis (reads CSV only)
@@ -129,7 +130,7 @@ tools/wsl/build.sh --asan          # Debug with ASan + UBSan
 tools/wsl/build.sh --target T      # one target
 tools/wsl/pytest.sh                # Python tests
 tools/wsl/lint.sh                  # clang-format, clang-tidy, ruff
-tools/wsl/sim.sh build             # colcon build of sim/ and ros2_node/ (cobot_ros2)
+tools/wsl/sim.sh build             # colcon build of sim/, ros2_interfaces/ and ros2_node/
 tools/wsl/sim.sh check             # xacro + check_urdf + gz sdf, no Gazebo needed
 tools/wsl/sim.sh smoke             # headless Gazebo, 20 s
 source tools/wsl/env.sh            # ROS 2 + workspace, own ROS domain (42) and Gazebo partition
@@ -143,7 +144,18 @@ The real controller in Gazebo (after `sim.sh build` and `source tools/wsl/env.sh
 
 ```bash
 ros2 launch cobot_sim sim.launch.py controller:=cobot_controller [gui:=true]   [config_path:=config/default.yaml] [imperfections_path:=config/imperfections/realistic.yaml]   [seed:=7] [log_path:=results/<run-id>/run.csv]
-python tools/run_e2e.py --all --tag gazebo --out results/e2e-gazebo   # E2E-07, E2E-09
+python tools/run_e2e.py --all --tag gazebo --out results/e2e-gazebo   # E2E-07, 09, 11, 11b
+```
+
+External command mode: `command_source:=external` (default: the config file's
+`cobot.command_source`) starts the arm in standby at the measured pose and offers, under
+`/cobot_controller/`, the action `follow_waypoints`, the services `preview_waypoints` (validation
+only, no motion) and `reset` (std_srvs/Trigger, leaves the safety hold once its cause is gone),
+and the latched `reference_path` of the running goal. A goal is accepted only in standby; it is
+validated from the standby pose, and canceling it stops along the path. Client:
+
+```bash
+ros2 run cobot_ros2 send_waypoints.py tests/e2e/waypoints/e2e_10.yaml [--preview] [--cancel-after 3]
 ```
 
 ## Environment configuration
@@ -185,6 +197,8 @@ Unit and known-answer component tests cover every module. End-to-end scenarios l
 | E2E-07 | headless Gazebo, real controller through `gz_ros2_control`, `ideal` | G3 | every PR |
 | E2E-08 | arm64 (Pi 5) container under QEMU: build, unit, E2E-01..04 | pass | every PR |
 | E2E-09 | headless Gazebo, real controller, `realistic`, seed 7 (friction in the physics) | 5 mm, 2°, 0.02 rad | every PR |
+| E2E-11 | headless Gazebo, E2E-10 waypoints sent through `follow_waypoints`, `realistic`, seed 7 | 5 mm, 2°, 0.02 rad | every PR |
+| E2E-11b | as E2E-11, goal canceled after 3 s | canceled, ends in standby at rest, torque in limits | every PR |
 | PF-01 | `ControlLoop` step time | p50/p95 reported; p95 < 1 ms on CI, 200 µs measured on desktop | every PR |
 
 ## Documentation

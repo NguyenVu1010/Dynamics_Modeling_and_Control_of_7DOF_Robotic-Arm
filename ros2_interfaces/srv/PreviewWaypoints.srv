@@ -1,0 +1,7 @@
+# Validate a waypoint list from the latest standby pose without running it (design 6.2, 6.4).
+Waypoint[] waypoints
+---
+bool ok
+WaypointIssue[] issues
+nav_msgs/Path path               # TCP poses in base_link along the trajectory
+float64[] segment_durations_s    # one per waypoint, after stretching

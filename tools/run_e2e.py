@@ -14,7 +14,14 @@ cobot_controller, the scenario's profile and seed (needs a sourced colcon instal
 and cobot_ros2), wait at least duration_s + hold_s + 5 s after the controller created its CSV
 (or after launching, if it never does), then keep waiting until the CSV covers duration_s +
 hold_s of sim time (Gazebo may run slower than real time), at most 3x that minimum wait after
-the CSV appeared, stop the launch and judge the CSV; they are skipped unless --tag gazebo.
+the CSV appeared, stop the launch and judge the CSV; they are skipped unless --tag gazebo. A
+gazebo scenario with `waypoints: FILE` launches with command_source:=external instead, waits for
+`standby` on /cobot_controller/status, runs `ros2 run cobot_ros2 send_waypoints.py FILE
+[--cancel-after cancel_after_s]`, lets the CSV cover hold_s more of sim time and stops the launch.
+Without cancel_after_s it passes on client exit 0 and the thresholds; with it, on client exit 3
+(canceled as requested), last row in standby, max |qd| over the last rest_window_s (0.5 s) <
+rest_qd_max_rad_s (0.01 rad/s) and peak |tau| / tau_max <= peak_tau_ratio (1); these optional
+thresholds keep the defaults in parentheses. cancel_after_s without waypoints fails.
 Scenarios tagged nightly run only with --tag nightly or --scenario. Exit 0 all pass, 1 any
 fails, 2 bad arguments.
 """
@@ -53,6 +60,14 @@ GAZEBO_POLL_S = 0.1
 GAZEBO_CAP = 3.0  # overall wait cap, as a multiple of the minimum wait
 GAZEBO_TAIL_BYTES = 8192  # enough for the last complete CSV row
 GAZEBO_STOP_S = 30.0  # graceful shutdown of the launch before it is killed
+GAZEBO_STANDBY_S = 180.0  # launch until the controller reports standby
+GAZEBO_ECHO_S = 10.0  # one `ros2 topic echo --once` call
+GAZEBO_CLIENT_S = 600.0  # send_waypoints.py run, goal included
+STATUS_TOPIC = "/cobot_controller/status"
+STATUS_TYPE = "std_msgs/msg/String"
+# Canceled waypoint run (E2E-11b, design 2026-10-29 section 7): at rest and within the limits.
+# Defaults of the optional scenario thresholds rest_window_s, rest_qd_max_rad_s, peak_tau_ratio.
+CANCEL_DEFAULTS = {"rest_window_s": 0.5, "rest_qd_max_rad_s": 0.01, "peak_tau_ratio": 1.0}
 
 
 def repo_path(value: str) -> Path:
@@ -228,9 +243,73 @@ def wait_run(proc: subprocess.Popen, csv: Path, wait_s: float, run_ns: int) -> i
         time.sleep(GAZEBO_POLL_S)
 
 
+def wait_standby(proc: subprocess.Popen) -> str | None:
+    """None once the controller's ~/status reads standby, else why it never did."""
+    echo = ["ros2", "topic", "echo", "--once", "--field", "data", STATUS_TOPIC, STATUS_TYPE]
+    deadline = time.monotonic() + GAZEBO_STANDBY_S
+    while time.monotonic() < deadline:
+        if (code := proc.poll()) is not None:
+            return f"launch exited with {code} before standby"
+        try:
+            proc_echo = subprocess.run(echo, capture_output=True, text=True, timeout=GAZEBO_ECHO_S)
+        except subprocess.TimeoutExpired:
+            continue
+        if "standby" in proc_echo.stdout.split():
+            return None
+        time.sleep(GAZEBO_POLL_S)
+    return f"no standby on {STATUS_TOPIC} within {GAZEBO_STANDBY_S:g} s"
+
+
+def settle(proc: subprocess.Popen, csv: Path, hold_s: float) -> None:
+    """Until the CSV covers hold_s more of sim time, the launch ends or GAZEBO_CAP * hold_s."""
+    target = csv_span_ns(csv) + round(hold_s * 1e9)
+    end = time.monotonic() + GAZEBO_CAP * hold_s
+    while time.monotonic() < end and proc.poll() is None and csv_span_ns(csv) < target:
+        time.sleep(GAZEBO_POLL_S)
+
+
+def drive_waypoints(s: dict, proc: subprocess.Popen, csv: Path, out: Path, hold_s: float) -> str:
+    """Waits for standby, runs the client and lets the run settle; error text or ''."""
+    if reason := wait_standby(proc):
+        return f"{reason} (see {out / 'launch.log'})"
+    cmd = ["ros2", "run", "cobot_ros2", "send_waypoints.py", str(repo_path(s["waypoints"]))]
+    if s.get("cancel_after_s") is not None:
+        cmd += ["--cancel-after", str(float(s["cancel_after_s"]))]
+    with (out / "client.log").open("w", encoding="utf-8") as log:
+        try:
+            client = subprocess.run(cmd, stdout=log, stderr=log, timeout=GAZEBO_CLIENT_S)
+        except subprocess.TimeoutExpired:
+            return f"client still running after {GAZEBO_CLIENT_S:g} s"
+    want = 0 if s.get("cancel_after_s") is None else 3
+    if client.returncode != want:
+        return f"client exit {client.returncode}, expected {want} (see {out / 'client.log'})"
+    if (ended := proc.poll()) is not None:
+        return f"launch exited with {ended} during the goal (see {out / 'launch.log'})"
+    settle(proc, csv, hold_s)
+    return ""
+
+
+def judge_cancel(s: dict, csv: Path) -> tuple[bool, str]:
+    th = {k: float(s.get("thresholds", {}).get(k, v)) for k, v in CANCEL_DEFAULTS.items()}
+    df = load_run(csv)
+    t_ns, mode = df["t_ns"].to_numpy(dtype=np.int64), df["mode"].astype(str).to_numpy()
+    rest = t_ns >= t_ns[-1] - round(th["rest_window_s"] * 1e9)
+    qd = float(np.max(np.abs(joint_array(df, "qd")[rest])))
+    ratio = float(np.max(np.abs(joint_array(df, "tau")) / tau_max_of(s)))
+    problems = [] if mode[-1] == "standby" else [f"last mode {mode[-1]}, not standby"]
+    if not qd < th["rest_qd_max_rad_s"]:
+        problems.append(f"max |qd| {qd:.4g} rad/s over the last {th['rest_window_s']:g} s")
+    if not ratio <= th["peak_tau_ratio"]:
+        problems.append(f"|tau| / tau_max peaks at {ratio:.4g}")
+    return not problems, "; ".join(problems) or f"stopped, max |qd| {qd:.3g} rad/s"
+
+
 def run_gazebo(s: dict, out: Path, report: bool) -> tuple[bool, str]:
     if s["kind"] != "run":
         return False, f"gazebo runner supports kind run only, got {s['kind']}"
+    waypoints = bool(s.get("waypoints"))
+    if s.get("cancel_after_s") is not None and not waypoints:
+        return False, "cancel_after_s needs waypoints"
     config = repo_path(s["config"])
     traj = yaml.safe_load(config.read_text(encoding="utf-8"))["cobot"]["trajectory"]
     run_s = float(traj["duration_s"]) + float(traj["hold_s"])
@@ -240,17 +319,24 @@ def run_gazebo(s: dict, out: Path, report: bool) -> tuple[bool, str]:
     cmd = ["ros2", "launch", "cobot_sim", "sim.launch.py", "gui:=false"]
     cmd += ["controller:=cobot_controller", f"config_path:={config}"]
     cmd += [f"imperfections_path:={repo_path(s['imperfections'])}", f"seed:={int(s['seed'])}"]
-    cmd += [f"log_path:={csv}"]
+    cmd += [f"log_path:={csv}"] + (["command_source:=external"] if waypoints else [])
     with (out / "launch.log").open("w", encoding="utf-8") as log:
         proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         try:
-            code = wait_run(proc, csv, wait_s, round(run_s * 1e9))
+            if waypoints:
+                failed = drive_waypoints(s, proc, csv, out, float(traj["hold_s"]))
+            elif (code := wait_run(proc, csv, wait_s, round(run_s * 1e9))) is not None:
+                failed = f"launch exited with {code} before the run ended (see {log.name})"
+            else:
+                failed = ""
         finally:
             stop_launch(proc)
-    if code is not None:
-        return False, f"launch exited with {code} before the run ended (see {out / 'launch.log'})"
+    if failed:
+        return False, failed
     if not csv.is_file():
         return False, f"no CSV at {csv}"
+    if s.get("cancel_after_s") is not None:
+        return judge_cancel(s, csv)
     return judge_run(s, csv, out, report)
 
 

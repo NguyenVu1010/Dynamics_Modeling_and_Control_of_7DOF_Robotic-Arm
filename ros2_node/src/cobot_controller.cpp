@@ -16,6 +16,11 @@
 // perturb_model(nominal) instead of perturbing the plant (same size of error, opposite sign);
 // payload_kg cannot be emulated that way and is rejected; timing jitter has no meaning on the
 // sim clock and is ignored with a warning. `seed` >= 0 overrides the profile's seed.
+//
+// `command_source` ("" = the config file's, "config" or "external") picks the trajectory source.
+// External (feature waypoint-ros): the loop waits in standby and WaypointServer offers
+// ~/follow_waypoints, ~/preview_waypoints, ~/reset and the latched ~/reference_path; update()
+// hands its commands to the loop and publishes a LoopSnapshot (waypoint_server.hpp).
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -26,6 +31,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -42,6 +48,7 @@
 #include "cobot/model/model.hpp"
 #include "cobot/pipeline/control_loop.hpp"
 
+#include "waypoint_server.hpp"
 #include <controller_interface/controller_interface.hpp>
 #include <pluginlib/class_list_macros.hpp>
 #include <rcutils/logging.h>
@@ -56,7 +63,6 @@ using ci::CallbackReturn;
 using hardware_interface::LoanedCommandInterface;
 using hardware_interface::LoanedStateInterface;
 
-constexpr int kN = cobot::model::kArmDof;
 constexpr double kStatusRateHz = 10.0;  // ~/status messages per second
 constexpr std::chrono::milliseconds kWriterIdle{1};
 
@@ -193,7 +199,8 @@ class CobotController final : public ci::ControllerInterface {
                                 share + "/config/imperfections/realistic.yaml");
       auto_declare<std::int64_t>("seed", -1);  // < 0: the profile's seed
       auto_declare<std::vector<std::string>>("joints", {});
-      auto_declare<std::string>("log_path", "");  // empty: <cwd>/results/<run-id>/run.csv
+      auto_declare<std::string>("log_path", "");        // empty: <cwd>/results/<run-id>/run.csv
+      auto_declare<std::string>("command_source", "");  // empty: cobot.command_source
     } catch (const std::exception& e) {
       RCLCPP_ERROR(rclcpp::get_logger("cobot"), "on_init: %s", e.what());
       return CallbackReturn::ERROR;
@@ -220,7 +227,16 @@ class CobotController final : public ci::ControllerInterface {
       RCLCPP_ERROR(log, "%s", (config ? imp.reason() : config.reason()).c_str());
       return CallbackReturn::ERROR;
     }
-    const cobot::pipeline::Config<kN>& c = config.value();
+    cobot::pipeline::Config<kN> c = config.value();
+    const std::string source = get_node()->get_parameter("command_source").as_string();
+    if (source == "config" || source == "external") {
+      c.command_source = source == "external" ? cobot::pipeline::CommandSource::kExternal
+                                              : cobot::pipeline::CommandSource::kConfig;
+    } else if (!source.empty()) {
+      RCLCPP_ERROR(
+          log, "command_source: expected \"\", config or external, got %s", source.c_str());
+      return CallbackReturn::ERROR;
+    }
     cobot::imperfect::ImperfectionConfig<kN> profile = imp.value();
     if (seed >= 0) {
       profile.seed = static_cast<std::uint64_t>(seed);
@@ -250,10 +266,20 @@ class CobotController final : public ci::ControllerInterface {
       RCLCPP_ERROR(log, "%s: %s", c.urdf_path.c_str(), arm.reason().c_str());
       return CallbackReturn::ERROR;
     }
+    server_.reset();
+    link_.reset();
     try {
       // Model mismatch: the controller's model is perturbed instead of the plant.
-      loop_ = std::make_unique<cobot::pipeline::ControlLoop<kN>>(
-          cobot::imperfect::perturb_model(arm.value(), profile.model, profile.seed), c);
+      const cobot::model::Arm7 model =
+          cobot::imperfect::perturb_model(arm.value(), profile.model, profile.seed);
+      loop_ = std::make_unique<cobot::pipeline::ControlLoop<kN>>(model, c);
+      for (int i = 0; i < kN; ++i) {
+        tau_max_(i) = model.joints[static_cast<std::size_t>(i)].tau_max;
+      }
+      if (c.command_source == cobot::pipeline::CommandSource::kExternal) {
+        link_ = std::make_unique<LoopLink>();
+        server_ = std::make_unique<WaypointServer>(get_node(), *link_, model, c);
+      }
       io_ = std::make_unique<cobot::imperfect::ImperfectJointInterface<kN>>(
           ros_io_, profile, 1.0 / c.control_rate_hz, true);
       status_pub_ = get_node()->create_publisher<std_msgs::msg::String>(
@@ -290,6 +316,7 @@ class CobotController final : public ci::ControllerInterface {
     // Start on the measured state, stamped with the activation time; update() counts cycles.
     t0_ns_ = get_node()->now().nanoseconds();
     cycle_ = 0;
+    last_mode_ = cobot::pipeline::LoopMode::kIdle;  // start() enters standby again
     ros_io_.set_stamp(cobot::common::Timestamp{t0_ns_});
     const cobot::common::Status read = io_->read(state_);
     if (!read) {
@@ -331,8 +358,14 @@ class CobotController final : public ci::ControllerInterface {
     ros_io_.set_stamp(cobot::common::Timestamp{t0_ns_ + cycle_ * period_ns_});
     // A failed read keeps the previous state and stamp: the loop's freshness check holds.
     static_cast<void>(io_->read(state_));
+    if (link_) {
+      take_commands();
+    }
     static_cast<void>(loop_->step(state_, cmd_));
     static_cast<void>(io_->write(cmd_));
+    if (link_) {
+      publish_snapshot();
+    }
     if (cycle_++ % status_every_ == 0) {
       status_msg_.data = cobot::pipeline::to_string(loop_->mode());  // short: no allocation
       static_cast<void>(status_rt_->try_publish(status_msg_));
@@ -343,19 +376,75 @@ class CobotController final : public ci::ControllerInterface {
  private:
   using StatusPublisher = realtime_tools::RealtimePublisher<std_msgs::msg::String>;
 
-  // Writer thread: flushes after every batch so the rows survive an abrupt end of Gazebo.
+  // External mode, before step(): the latest goal trajectory (once per id), reset and stop
+  // requests. Nothing here allocates unless load() or reset() rejects (they build the message).
+  void take_commands() {
+    const WaypointCommand* command = link_->command.readFromRT();
+    if (command != nullptr && command->id != loaded_id_ && command->trajectory) {
+      loaded_id_ = command->id;
+      load_status_ = loop_->load(*command->trajectory);
+    }
+    const std::uint64_t reset = link_->reset_requested.load(std::memory_order_acquire);
+    if (reset != reset_id_) {
+      reset_id_ = reset;
+      reset_status_ = loop_->reset(state_);
+    }
+    if (link_->stop_requested.exchange(false, std::memory_order_acq_rel)) {
+      loop_->request_stop();
+    }
+  }
+
+  // External mode, after step(): the snapshot, skipped for this cycle when the lock is busy.
+  void publish_snapshot() {
+    const cobot::pipeline::LoopMode mode = loop_->mode();
+    if (mode == cobot::pipeline::LoopMode::kStandby && last_mode_ != mode) {
+      standby_q_ = state_.q;
+      standby_reference_ = loop_->reference_pose();
+    }
+    last_mode_ = mode;
+    const std::unique_lock<std::mutex> lock(link_->mutex, std::try_to_lock);
+    if (!lock.owns_lock()) {
+      return;
+    }
+    LoopSnapshot& s = link_->snapshot;
+    s.mode = mode;
+    s.standby_seen = s.standby_seen || mode == cobot::pipeline::LoopMode::kStandby;
+    s.standby_q = standby_q_;
+    s.standby_reference = standby_reference_;
+    s.segment = loop_->segment();
+    s.t_s = loop_->trajectory_time_s();
+    if (s.loaded_id != loaded_id_) {
+      s.loaded_id = loaded_id_;
+      s.load_ok = load_status_.is_ok();
+      s.load_message = load_status_.reason();  // allocates only for a rejection
+    }
+    if (s.reset_id != reset_id_) {
+      s.reset_id = reset_id_;
+      s.reset_ok = reset_status_.is_ok();
+      s.reset_message = reset_status_.reason();
+    }
+  }
+
+  // Writer thread: flushes after every batch so the rows survive an abrupt end of Gazebo; in
+  // external mode it also accumulates the goal metrics from the rows.
   void drain_log() {
     cobot::pipeline::LogRecord<kN> r;
+    RunAccumulator runs(tau_max_);
     bool last = false;
     while (!last) {
       last = writer_stop_.load(std::memory_order_acquire);
       bool any = false;
       while (loop_->log().pop(r)) {
         cobot::pipeline::write_csv_row<kN>(csv_, r);
+        runs.add(r);
         any = true;
       }
       if (any) {
         csv_.flush();
+        if (link_) {
+          const std::lock_guard<std::mutex> lock(link_->mutex);
+          link_->stats = runs.stats();
+        }
       } else if (!last) {
         std::this_thread::sleep_for(kWriterIdle);
       }
@@ -392,6 +481,17 @@ class CobotController final : public ci::ControllerInterface {
   std::ofstream csv_;
   std::thread writer_;
   std::atomic<bool> writer_stop_{false};
+  cobot::common::VecN<kN> tau_max_ = cobot::common::VecN<kN>::Ones();
+  // External mode (null otherwise); the server goes before the link it refers to.
+  std::unique_ptr<LoopLink> link_;
+  std::unique_ptr<WaypointServer> server_;
+  std::uint64_t loaded_id_ = 0;
+  std::uint64_t reset_id_ = 0;
+  cobot::common::Status load_status_ = cobot::common::Status::ok();
+  cobot::common::Status reset_status_ = cobot::common::Status::ok();
+  cobot::pipeline::LoopMode last_mode_ = cobot::pipeline::LoopMode::kIdle;
+  cobot::common::VecN<kN> standby_q_ = cobot::common::VecN<kN>::Zero();
+  cobot::common::Pose standby_reference_;
 };
 
 }  // namespace cobot_ros2
