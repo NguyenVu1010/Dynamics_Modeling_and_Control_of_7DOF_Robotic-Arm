@@ -1,0 +1,268 @@
+<?xml version="1.0"?>
+<robot name="cobot30_5">
+  <link name="world" />
+  <joint name="fixed" type="fixed">
+    <parent link="world" />
+    <child link="base_link" />
+  </joint>
+  <link name="base_link">
+    <inertial>
+      <origin xyz="-0.000989056198588842 -5.07148438501949E-05 0.0430543567069582" rpy="0 0 0" />
+      <mass value="1.356" />
+      <inertia ixx="0.002854164811229006" ixy="6.74904043821572e-08" ixz="-2.6982735074330066e-05" iyy="0.002781931138752516" iyz="1.2217264545239442e-06" izz="0.0035905362461182153" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://cobot_sim/meshes/base_link.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://cobot_sim/meshes/base_link.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="link_1">
+    <inertial>
+      <origin xyz="0.00568622330320681 -8.20843742846758E-06 -0.0114699821762951" rpy="0 0 0" />
+      <mass value="3.18" />
+      <inertia ixx="1.549492753276958" ixy="-2.127510845206133e-06" ixz="-0.00023970888735097348" iyy="1.5498028946736997" iyz="8.81076661193496e-07" izz="3.0923180037611213" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://cobot_sim/meshes/link_1.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://cobot_sim/meshes/link_1.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint_1" type="revolute">
+    <origin xyz="0 0 0.159" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="link_1" />
+    <axis xyz="0 0 1" />
+    <limit acceleration="15" lower="-2.9671" effort="87" upper="2.9671" velocity="2.5" />
+    <dynamics damping="0.003" friction="0.0" />
+  </joint>
+  <link name="link_2">
+    <inertial>
+      <origin xyz="0.00568634602663737 -8.14228149395926E-06 -0.0114700046641839" rpy="0 0 0" />
+      <mass value="3.18" />
+      <inertia ixx="1.5494927620529175" ixy="-2.1347667337502347e-06" ixz="-0.00023969260544459868" iyy="1.5498028836740805" iyz="8.89792647286823e-07" izz="3.092317999679731" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://cobot_sim/meshes/link_2.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://cobot_sim/meshes/link_2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint_2" type="revolute">
+    <origin xyz="0.134 0 0" rpy="0 -1.5708 3.1416" />
+    <parent link="link_1" />
+    <child link="link_2" />
+    <axis xyz="0 0 1" />
+    <limit acceleration="7.5" lower="-1.8326" effort="87.0" upper="1.8326" velocity="2.5" />
+    <dynamics damping="0.003" friction="0.0" />
+  </joint>
+  <link name="link_3">
+    <inertial>
+      <origin xyz="0.00258807621496486 1.02786126445452E-05 -0.173183730073437" rpy="0 0 0" />
+      <mass value="4.177" />
+      <inertia ixx="0.5612752589040895" ixy="2.5879679746446854e-06" ixz="-4.544270915049217e-05" iyy="0.5614175017404828" iyz="-2.3635253953361004e-06" izz="1.0059507953314377" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://cobot_sim/meshes/link_3.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://cobot_sim/meshes/link_3.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint_3" type="revolute">
+    <origin xyz="0.641 0 0" rpy="0 1.5708 0" />
+    <parent link="link_2" />
+    <child link="link_3" />
+    <axis xyz="0 0 1" />
+    <limit acceleration="12.5" lower="-2.9671" effort="87" upper="2.9671" velocity="2.5" />
+    <dynamics damping="0.003" friction="0.0" />
+  </joint>
+  <link name="link_4">
+    <inertial>
+      <origin xyz="0.005529275874395 3.20555322787242E-05 -0.00370947694571648" rpy="0 0 0" />
+      <mass value="1.98" />
+      <inertia ixx="0.502641699437118" ixy="2.8361916804798687e-06" ixz="-4.508834687942905e-05" iyy="0.5027860778800385" iyz="-2.2436051684452626e-07" izz="1.002685016784785" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://cobot_sim/meshes/link_4.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://cobot_sim/meshes/link_4.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint_4" type="revolute">
+    <origin xyz="0.11 0 0" rpy="3.1416 -1.5708 0" />
+    <parent link="link_3" />
+    <child link="link_4" />
+    <axis xyz="0 0 1" />
+    <limit acceleration="12.5" lower="-3.1416" effort="87.0" upper="-0.4" velocity="2.5" />
+    <dynamics damping="0.003" friction="0.0" />
+  </joint>
+  <link name="link_5">
+    <inertial>
+      <origin xyz="0.00104204965739937 2.81623847716919E-05 -0.15857751618617" rpy="0 0 0" />
+      <mass value="2.469" />
+      <inertia ixx="0.13687112308155072" ixy="2.185174749126734e-06" ixz="-1.084261208147402e-05" iyy="0.1369161065635881" iyz="-1.7417418111971292e-07" izz="0.22878629088618588" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://cobot_sim/meshes/link_5.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://cobot_sim/meshes/link_5.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint_5" type="revolute">
+    <origin xyz="0.478 0 0" rpy="0 1.5708 0" />
+    <parent link="link_4" />
+    <child link="link_5" />
+    <axis xyz="0 0 1" />
+    <limit acceleration="15" lower="-2.9671" effort="12" upper="2.9671" velocity="3" />
+    <dynamics damping="0.003" friction="0.0" />
+  </joint>
+  <link name="link_6">
+    <inertial>
+      <origin xyz="0.00290799885931436 7.79152273618633E-05 -0.00368819421517057" rpy="0 0 0" />
+      <mass value="0.92" />
+      <inertia ixx="0.1141330088519134" ixy="2.252658800197446e-06" ixz="-8.264897117688431e-06" iyy="0.11417875977739739" iyz="-1.794497166106742e-07" izz="0.22750358787802286" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://cobot_sim/meshes/link_6.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://cobot_sim/meshes/link_6.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint_6" type="revolute">
+    <origin xyz="0.086 0 0" rpy="0 -1.5708 3.1416" />
+    <parent link="link_5" />
+    <child link="link_6" />
+    <axis xyz="0 0 1" />
+    <limit acceleration="20" lower="-0.0873" effort="12" upper="3.8223" velocity="3" />
+    <dynamics damping="0.003" friction="0.0" />
+  </joint>
+  <link name="link_6_2">
+    <inertial>
+      <origin xyz="0.00290799920267108 7.79156612489354E-05 -0.00368819425960698" rpy="0 0 0" />
+      <mass value="0.92" />
+      <inertia ixx="0.0007630088541592914" ixy="2.2526615989070527e-06" ixz="-8.264895862446784e-06" iyy="0.0008087597843192291" iyz="-1.794446932036559e-07" izz="0.0007635878761004655" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://cobot_sim/meshes/link_6_2.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://cobot_sim/meshes/link_6_2.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint_6_2_fix" type="fixed">
+    <origin xyz="0.0860000000000007 0 0" rpy="1.5707963267949 3.1416 1.5707963267949" />
+    <parent link="link_6" />
+    <child link="link_6_2" />
+    <axis xyz="0 0 0" />
+  </joint>
+  <link name="link_7">
+    <inertial>
+      <origin xyz="0.000195407913214707 -2.75686119528204E-05 -0.0151453522300611" rpy="0 0 0" />
+      <mass value="0.227" />
+      <inertia ixx="0.1134774856879782" ixy="-3.4081134627833985e-07" ixz="-4.4515609505654394e-08" iyy="0.11347511730649346" iyz="6.2606138577975e-09" izz="0.22691730436827248" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://cobot_sim/meshes/link_7.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.792156862745098 0.819607843137255 0.933333333333333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="package://cobot_sim/meshes/link_7.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <joint name="joint_7" type="revolute">
+    <origin xyz="0.0725 0 0" rpy="0 1.5708 0" />
+    <parent link="link_6_2" />
+    <child link="link_7" />
+    <axis xyz="0 0 1" />
+    <limit acceleration="20" lower="-2.9671" effort="12" upper="2.9671" velocity="3" />
+    <dynamics damping="0.003" friction="0.0" />
+  </joint>
+</robot>

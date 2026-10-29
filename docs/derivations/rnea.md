@@ -62,6 +62,14 @@ qdd         = M(q)^-1 (tau - rnea(q, qd, 0, g) - D qd)      LDLT, D = diag(dampi
 `crba.md`) và giải bằng `Eigen::LDLT` cỡ cố định. Không cấp phát heap: mọi mảng trung gian là
 `std::array<Vec3, N>` trên stack.
 
+## Quán tính rotor quy đổi (armature)
+
+Cùng xấp xỉ chuẩn như `crba.md`: rotor chỉ thêm `armature_i * qdd_i` vào `tau_i` (cộng ở vòng
+ngược), nên `rnea = M_a qdd + C qd + G` với `M_a = M + diag(armature)`. Với `qdd = 0` số hạng này
+bằng 0, nên `G(q)` và `C(q, qd) qd` không đổi, còn `forward_dynamics` dùng `M_a` qua
+`mass_matrix`, nhất quán với `rnea`. Kiểm chứng: `tests/unit/dynamics_armature/`; fixture KDL
+so với mô hình đã đặt armature bằng 0 (KDL không có armature).
+
 ## Kiểm chứng
 
 `tests/unit/dynamics/`: con lắc đơn và tay máy phẳng 2 khâu (Spong) theo công thức đóng,

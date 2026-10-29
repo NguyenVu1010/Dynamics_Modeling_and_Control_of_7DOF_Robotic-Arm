@@ -1,11 +1,14 @@
 <?xml version="1.0"?>
-<!-- Gazebo model: the corrected URDF (single source of geometry and inertia, design D8)
-     plus ros2_control. Effort command; position, velocity, effort state. -->
+<!-- Gazebo model: the Gazebo plant variant of the corrected URDF (single source of geometry and
+     inertia, design D8) plus ros2_control. Effort command; position, velocity, effort state.
+     cobot30_5_gazebo.urdf is generated from cobot30_5.urdf by tools/fix_urdf_inertia.py
+     (gazebo_urdf): Gazebo has no joint armature, so each joint's reflected rotor inertia is
+     added to its child link as a rotor disc about the joint axis (an approximation, see there). -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="cobot30_5">
   <xacro:arg name="controllers_yaml" default=""/>
   <xacro:arg name="home_q" default="0.0 0.5235987755982988 0.0 -1.5707963267948966 0.0 1.0471975511965976 0.0"/>
 
-  <xacro:include filename="cobot30_5.urdf"/>
+  <xacro:include filename="cobot30_5_gazebo.urdf"/>
 
   <xacro:property name="home" value="${'$(arg home_q)'.split()}"/>
 

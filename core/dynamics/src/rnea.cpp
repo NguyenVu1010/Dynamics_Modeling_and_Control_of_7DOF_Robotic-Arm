@@ -63,7 +63,9 @@ VecN<N> rnea(const Model<N>& model,
     }
     f += force[i];
     n += moment[i] + r_com[i].cross(force[i]);
-    tau(static_cast<Eigen::Index>(i)) = fk.axis_b[i].dot(n);
+    const auto k = static_cast<Eigen::Index>(i);
+    // Reflected rotor inertia: armature * qdd_i on joint i alone (no gravity or velocity term).
+    tau(k) = fk.axis_b[i].dot(n) + model.joints[i].armature * qdd(k);
   }
   return tau;
 }

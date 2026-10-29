@@ -3,7 +3,8 @@
 // base_link -> link_7 of sim/urdf/cobot30_5.urdf, gravity (0, 0, -9.80665). KDL merges the
 // fixed joint joint_6_2_fix on its own, so a wrong merge in Model<7> shows up here.
 // 100 rows, seed 3; columns q1..7, qd1..7, qdd1..7, tau1..7, G1..7, M11..M77 (row-major).
-// tau and G exclude joint damping.
+// tau and G exclude joint damping. KDL knows no armature (reflected rotor inertia), so the
+// model is compared with armature zeroed.
 #include <cmath>
 #include <cstdlib>
 #include <fstream>
@@ -117,6 +118,11 @@ class KdlReference : public ::testing::Test {
  protected:
   void SetUp() override {
     ASSERT_TRUE(test::load_arm(arm_));
+    // KDL has no rotor inertia: compare against the URDF model with armature zeroed (the
+    // armature terms are checked on their own in tests/unit/dynamics_armature).
+    for (model::JointParams& j : arm_.joints) {
+      j.armature = 0.0;
+    }
     ASSERT_TRUE(load_reference(rows_));
     ASSERT_EQ(static_cast<int>(rows_.size()), kRows);
   }

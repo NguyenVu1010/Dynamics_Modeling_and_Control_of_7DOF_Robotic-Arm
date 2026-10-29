@@ -39,6 +39,8 @@ struct JointParams {
   double qd_max = 0.0;              // rad/s
   double tau_max = 0.0;             // N m
   double damping = 0.0;             // N m s / rad (URDF <dynamics damping>)
+  double armature = 0.0;            // kg m^2, reflected rotor inertia J_in * N^2
+                                    // (URDF <cobot_armature value>, 0 when absent)
 };
 
 // Variable-length chain as parsed, before the DOF is checked.
@@ -50,6 +52,7 @@ struct UrdfChain {
 
 // Parse the serial chain from `base_link` to `tip_link`. Errors name the element and
 // attribute (e.g. "joint_3: <limit effort> missing"). Non-standard attributes are ignored.
+// A revolute or continuous joint may carry <cobot_armature value="..."/> (kg m^2, >= 0).
 Result<UrdfChain> parse_urdf_chain(const std::filesystem::path& urdf,
                                    const std::string& base_link,
                                    const std::string& tip_link);
