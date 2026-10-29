@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <optional>
 
@@ -21,13 +22,31 @@ struct RunSummary {
   bool held = false;               // any row in holding
 };
 
+// Waypoint list of a run (feature bench-waypoints): the loop runs in external command mode and
+// executes the list once pipeline::validate_path accepts it from the standby pose.
+struct WaypointInput {
+  std::filesystem::path yaml;
+  bool path_invalid = false;  // set when validate_path rejects the list (cobot_bench exit 1)
+};
+
 // One run with an in-memory imperfection profile (its seed is used as is). `label` names the
 // profile in errors and in the meta file. An empty out_csv writes no Run CSV and no meta file.
+// With `waypoints`, a rejected list is an error with one line per issue and writes no file.
 common::Result<RunSummary> run_profile(
     const std::filesystem::path& config_yaml,
     const imperfect::ImperfectionConfig<model::kArmDof>& imperfections,
     const std::filesystem::path& label,
     const std::filesystem::path& out_csv,
-    std::optional<double> duration_s);
+    std::optional<double> duration_s,
+    WaypointInput* waypoints = nullptr);
+
+// bench::run, with `path_invalid` telling a rejected waypoint list from bad input.
+common::Status run_checked(const std::filesystem::path& config_yaml,
+                           const std::filesystem::path& imperfections_yaml,
+                           std::optional<std::uint64_t> seed,
+                           const std::filesystem::path& out_csv,
+                           std::optional<double> duration_s,
+                           const std::optional<std::filesystem::path>& waypoints_yaml,
+                           bool& path_invalid);
 
 }  // namespace cobot::bench

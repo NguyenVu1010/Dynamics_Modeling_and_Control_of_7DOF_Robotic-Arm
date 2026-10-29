@@ -1,24 +1,28 @@
 // cobot_bench: the control loop against SimPlant without ROS (design 11.2).
 // Exit 0 on a completed run (tools/run_e2e.py judges it), 2 on bad arguments or configuration
-// with the reason on stderr.
+// (a bad waypoint file included) with the reason on stderr, 1 when `run --waypoints` rejects the
+// list (one line per issue on stderr, no Run CSV written).
 #include <cstdint>
 #include <cstdio>
 #include <exception>
+#include <filesystem>
 #include <map>
 #include <optional>
 #include <set>
 #include <stdexcept>
 #include <string>
 
+#include "engine.hpp"
 #include "run.hpp"
 
 namespace {
 
+constexpr int kExitPathInvalid = 1;
 constexpr int kExitBadInput = 2;
 
 const char* const kUsage =
     "usage: cobot_bench run --config <yaml> --imperfections <yaml> [--seed <u64>] --out <csv> "
-    "[--duration-s <s>]\n"
+    "[--duration-s <s>] [--waypoints <yaml>]\n"
     "       cobot_bench montecarlo --config <yaml> --imperfections <yaml> --runs <n> "
     "--seed0 <u64> --out <dir> [--keep-runs] [--duration-s <s>]\n"
     "       cobot_bench sweep --config <yaml> --sweep <yaml> --out <dir> [--duration-s <s>]\n"
@@ -83,18 +87,29 @@ int report(const char* mode, const cobot::common::Status& status) {
 int main_impl(int argc, char** argv) {
   const std::string mode = argc > 1 ? argv[1] : "";
   if (mode == "run") {
-    const auto f = parse_flags(argc,
-                               argv,
-                               {"--config", "--imperfections", "--seed", "--out", "--duration-s"},
-                               {"--config", "--imperfections", "--out"});
+    const auto f = parse_flags(
+        argc,
+        argv,
+        {"--config", "--imperfections", "--seed", "--out", "--duration-s", "--waypoints"},
+        {"--config", "--imperfections", "--out"});
     std::optional<std::uint64_t> seed;
     if (f.count("--seed") > 0) {
       seed = parse_u64(f.at("--seed"));
     }
-    return report(
-        "run",
-        cobot::bench::run(
-            f.at("--config"), f.at("--imperfections"), seed, f.at("--out"), parse_duration(f)));
+    std::optional<std::filesystem::path> waypoints;
+    if (f.count("--waypoints") > 0) {
+      waypoints = f.at("--waypoints");
+    }
+    bool path_invalid = false;
+    const int code = report("run",
+                            cobot::bench::run_checked(f.at("--config"),
+                                                      f.at("--imperfections"),
+                                                      seed,
+                                                      f.at("--out"),
+                                                      parse_duration(f),
+                                                      waypoints,
+                                                      path_invalid));
+    return path_invalid ? kExitPathInvalid : code;
   }
   if (mode == "montecarlo") {
     const auto f = parse_flags(
