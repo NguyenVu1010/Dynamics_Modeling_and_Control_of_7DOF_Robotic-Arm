@@ -42,6 +42,19 @@ def ros2(tmp_path):
     return bindir, tmp_path / "ros2_calls.jsonl"
 
 
+@pytest.fixture
+def ros2_external(tmp_path):
+    """As `ros2`, with fake_ros2_external.py: also answers `topic echo` on the controller status
+    and `run cobot_ros2 send_waypoints.py` (waypoint scenarios, feature waypoint-ros)."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    exe = bindir / "ros2"
+    source = (Path(__file__).parent / "fake_ros2_external.py").read_text(encoding="utf-8")
+    exe.write_bytes(f"#!{sys.executable}\n{source}".encode())
+    exe.chmod(0o755)
+    return bindir, tmp_path / "ros2_calls.jsonl"
+
+
 def short_config(tmp_path):
     """default.yaml with duration_s 0.5 and hold_s 0.5, paths made absolute."""
     data = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))
@@ -157,18 +170,19 @@ def test_gazebo_verdict_uses_scenario_thresholds(tmp_path, ros2, mode, limit_m, 
     assert len(launches(entries)) == 1
 
 
-def test_all_tag_gazebo_runs_e2e_07_without_bench(tmp_path, ros2):
+def test_all_tag_gazebo_runs_e2e_07_without_bench(tmp_path, ros2_external):
     # Real scenario: ideal_world.yaml has duration_s 10 + hold_s 2, so the fake writes rows up to
     # 12 s and the runner waits at least 10 + 2 + 5 = 17 s. Bench scenarios are not tagged
     # gazebo, so no --bench is needed.
     env = {"FAKE_ROS2_T_END_S": "12.0"}
     code, out, entries, elapsed = run_e2e(
-        tmp_path, ros2, ["--all", "--tag", "gazebo"], env_extra=env
+        tmp_path, ros2_external, ["--all", "--tag", "gazebo"], env_extra=env
     )
     assert code == 0, out
     assert "E2E-07" in out and "PASS" in out
-    # E2E-07 (ideal) and E2E-09 (realistic) both carry the gazebo tag.
+    # E2E-07 (ideal), E2E-09 (realistic), E2E-11 and E2E-11b (waypoints through the action,
+    # feature waypoint-ros) carry the gazebo tag.
     calls = launches(entries)
-    assert len(calls) == 2
+    assert len(calls) == 4
     assert all("controller:=cobot_controller" in c["argv"] for c in calls)
     assert elapsed >= 17.0

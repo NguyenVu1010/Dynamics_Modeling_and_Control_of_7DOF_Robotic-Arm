@@ -207,6 +207,7 @@ Status ControlLoop<N>::step(const JointState<N>& state, JointCommand<N>& out) {
     const std::chrono::duration<double, std::micro> elapsed = std::chrono::steady_clock::now() - t0;
     record.step_time_us = elapsed.count();
   }
+  last_record_ = record;
   log_.push(record);
 
   if (mode_ == LoopMode::kFault) {

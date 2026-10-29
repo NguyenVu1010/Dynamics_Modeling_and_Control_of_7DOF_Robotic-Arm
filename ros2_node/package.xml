@@ -9,13 +9,20 @@
 
   <buildtool_depend>ament_cmake</buildtool_depend>
   <depend>ament_index_cpp</depend>
+  <depend>cobot_interfaces</depend>
   <depend>controller_interface</depend>
+  <depend>geometry_msgs</depend>
   <depend>hardware_interface</depend>
+  <depend>nav_msgs</depend>
   <depend>pluginlib</depend>
   <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
   <depend>rclcpp_lifecycle</depend>
   <depend>realtime_tools</depend>
   <depend>std_msgs</depend>
+  <depend>std_srvs</depend>
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>rclpy</exec_depend>
   <depend>eigen</depend>
   <depend>tinyxml2</depend>
   <depend>yaml-cpp</depend>

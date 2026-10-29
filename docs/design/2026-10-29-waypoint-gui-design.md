@@ -208,6 +208,15 @@ waypoints:
   sai số vị trí tại mỗi điểm `stop` ≤ 5 mm.
 - E2E-11 (Gazebo, CI): client Python gửi action với danh sách của E2E-10; kiểm tra result và
   feedback; thêm một lần Hủy giữa chừng kiểm tra cánh tay dừng và giữ.
+- E2E-11b (Gazebo, CI): như E2E-11, Hủy sau 3 s; đạt khi result là canceled, dòng cuối ở
+  `standby`, max |qd| trong 0.5 s cuối < 0.03 rad/s và peak |τ|/τ_max ≤ 1. Ngưỡng nghỉ của
+  brief là 0.01 rad/s, nhưng qd trong CSV là vận tốc đo (encoder lượng tử hoá, vi phân, lọc
+  100 Hz): khi đứng yên trong Gazebo với profile `realistic` nhiễu của nó có độ lệch chuẩn
+  0.0047 rad/s mỗi khớp và max 0.013–0.017 rad/s ngay cả ở standby trước goal, nên 0.01 không
+  đạt được với một cài đặt đúng; 0.03 ≈ 6σ. Chờ chủ dự án duyệt thay đổi ngưỡng này.
+- Chỉ số của result (sai số cuối, RMS sai số khớp, peak |τ|/τ_max) được tích luỹ trong
+  `update()` từ bản ghi của từng bước (`ControlLoop::last_record()`), kích thước cố định, không
+  cấp phát, không phụ thuộc luồng ghi CSV.
 - GUI: build được trên CI (job gazebo); không test giao diện bằng màn hình.
 
 ## 8. Chia PR (dự kiến)

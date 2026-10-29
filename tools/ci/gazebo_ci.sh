@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Runs inside docker/ros.Dockerfile with the repo mounted at the working directory:
-# colcon build of the ROS packages, static asset check, clang-tidy on ros2_node, smoke test,
-# then E2E-07 when the Gazebo scenario exists (feature `ros2-controller`).
+# colcon build of the ROS packages (cobot_interfaces, cobot_ros2), static asset check, clang-tidy
+# on ros2_node, smoke test, then every scenario tagged gazebo (E2E-07, E2E-09, E2E-11 waypoint
+# goal, E2E-11b canceled goal) when one exists (features `ros2-controller`, `waypoint-ros`).
 set -euo pipefail
 repo="$(pwd)"
 export COBOT_COLCON_WS=/tmp/colcon

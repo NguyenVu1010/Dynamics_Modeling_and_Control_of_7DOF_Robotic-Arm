@@ -2,10 +2,12 @@
 
 ros2 launch cobot_sim sim.launch.py [gui:=false] [controller:=effort_passthrough]
     [config_path:=YAML] [imperfections_path:=YAML] [seed:=INT] [log_path:=CSV]
+    [command_source:=config|external]
 
-config_path, imperfections_path, seed and log_path, when given, become parameters of the
-spawned controller (cobot_controller) through a temporary parameter file, removed at shutdown;
-unset, the controller's defaults apply. imperfections_path defaults to the realistic profile
+config_path, imperfections_path, seed, log_path and command_source, when given, become
+parameters of the spawned controller (cobot_controller) through a temporary parameter file,
+removed at shutdown; unset, the controller's defaults apply (command_source: the config file's
+cobot.command_source). imperfections_path defaults to the realistic profile
 (config/imperfections/realistic.yaml); seed defaults to the profile's own seed.
 
 The profile's friction (imperfections.friction: coulomb_nm, viscous_nm_s_rad, scalar or one
@@ -78,7 +80,7 @@ def _setup(context: object) -> list:
 
     overrides: dict[str, object] = {
         name: value
-        for name in ("config_path", "imperfections_path", "log_path")
+        for name in ("config_path", "imperfections_path", "log_path", "command_source")
         if (value := LaunchConfiguration(name).perform(context))
     }
     if seed := LaunchConfiguration("seed").perform(context):
@@ -144,6 +146,7 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("imperfections_path", default_value=_realistic_profile()),
             DeclareLaunchArgument("seed", default_value=""),
             DeclareLaunchArgument("log_path", default_value=""),
+            DeclareLaunchArgument("command_source", default_value=""),
             OpaqueFunction(function=_setup),
         ]
     )

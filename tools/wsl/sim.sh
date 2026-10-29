@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# ROS 2 / Gazebo side of the repo (colcon packages under sim/ and ros2_node/).
+# ROS 2 / Gazebo side of the repo (colcon packages under sim/, ros2_interfaces/ and ros2_node/).
 # Usage: sim.sh build | check | tidy | smoke [seconds]
 set -eo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -9,7 +9,7 @@ source "$repo/tools/wsl/env.sh"
 ws="$cobot_ws"
 set -u
 
-paths=("$repo/sim")
+paths=("$repo/sim" "$repo/ros2_interfaces")
 if [ -f "$repo/ros2_node/package.xml" ]; then paths+=("$repo/ros2_node"); fi
 
 cmd="${1:-build}"

@@ -1,0 +1,18 @@
+# E2E-11b (feature waypoint-ros): as E2E-11, the goal canceled 3 s after it was accepted. PASS
+# needs the client to report canceled, the last row in standby, the arm at rest over the last
+# 0.5 s and no torque over its limit. The CSV qd is the measured velocity (quantized encoder,
+# differentiated and filtered at 100 Hz); at rest in Gazebo with the realistic profile its noise
+# has std 0.0047 rad/s per joint, so rest is |qd| < 0.03 rad/s (about 6 sigma), not 0.01.
+id: E2E-11b
+tags: [gazebo]
+runner: gazebo
+kind: run
+config: config/default.yaml
+imperfections: config/imperfections/realistic.yaml
+seed: 7
+waypoints: tests/e2e/waypoints/e2e_10.yaml
+cancel_after_s: 3.0
+thresholds:
+  rest_window_s: 0.5
+  rest_qd_max_rad_s: 0.03
+  peak_tau_ratio: 1.0

@@ -1,0 +1,16 @@
+# E2E-11 (feature waypoint-ros, design 2026-10-29 section 7): headless Gazebo, the controller in
+# command_source external, the E2E-10 waypoint file sent through the FollowWaypoints action by
+# send_waypoints.py, realistic profile, seed 7, E2E-02 thresholds. No stop_pos_err_m: Gazebo
+# writes no meta file with the node times. Paths are relative to the repo root.
+id: E2E-11
+tags: [gazebo]
+runner: gazebo
+kind: run
+config: config/default.yaml
+imperfections: config/imperfections/realistic.yaml
+seed: 7
+waypoints: tests/e2e/waypoints/e2e_10.yaml
+thresholds:
+  final_pos_err_m: 0.005
+  final_rot_err_deg: 2.0
+  rms_joint_err_rad: 0.02

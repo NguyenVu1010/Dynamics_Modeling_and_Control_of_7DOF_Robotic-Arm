@@ -57,6 +57,9 @@ class ControlLoop {
 
   LoopMode mode() const { return mode_; }
   SpscRing<LogRecord<N>, kLogCapacity>& log() { return log_; }
+  // The record of the last step (the row pushed to log(), also when the ring dropped it), for a
+  // host that needs per-step values on the control thread without draining the ring.
+  const LogRecord<N>& last_record() const { return last_record_; }
 
   // External mode only. Accepted in kStandby when the trajectory starts at reference_pose()
   // within 1e-4 m and 1.745e-4 rad; the trajectory is copied (fixed storage) and runs from the
@@ -91,6 +94,7 @@ class ControlLoop {
   std::int64_t stale_steps_ = 0;                             // steps since t_last_ last advanced
   common::VecN<N> q_last_finite_ = common::VecN<N>::Zero();  // hold target for a non-finite q
   SpscRing<LogRecord<N>, kLogCapacity> log_;
+  LogRecord<N> last_record_;
   // External mode.
   std::optional<planning::WaypointTrajectory> waypoints_;
   planning::CartesianSample reference_;  // desired sample of the last step (or of standby)
