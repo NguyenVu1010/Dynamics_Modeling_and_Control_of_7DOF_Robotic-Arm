@@ -1,11 +1,17 @@
 """Gazebo Harmonic + gz_ros2_control for the 7-DOF arm.
 
 ros2 launch cobot_sim sim.launch.py [gui:=false] [controller:=effort_passthrough]
-    [config_path:=YAML] [imperfections_path:=YAML] [log_path:=CSV]
+    [config_path:=YAML] [imperfections_path:=YAML] [seed:=INT] [log_path:=CSV]
 
-config_path, imperfections_path and log_path, when given, become parameters of the spawned
-controller (cobot_controller) through a temporary parameter file, removed at shutdown;
-unset, the controller's defaults apply.
+config_path, imperfections_path, seed and log_path, when given, become parameters of the
+spawned controller (cobot_controller) through a temporary parameter file, removed at shutdown;
+unset, the controller's defaults apply. imperfections_path defaults to the realistic profile
+(config/imperfections/realistic.yaml); seed defaults to the profile's own seed.
+
+The profile's friction (imperfections.friction: coulomb_nm, viscous_nm_s_rad, scalar or one
+value per joint) goes into the physics: it becomes the xacro args joint_<i>_friction and
+joint_<i>_damping, i.e. each arm joint's <dynamics friction damping>, and the controller leaves
+friction out of its plant effects on this path (ADR-011).
 """
 
 import json
@@ -24,6 +30,36 @@ from launch.event_handlers import OnShutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
+ARM_JOINTS = 7
+
+
+def _realistic_profile() -> str:
+    share = Path(get_package_share_directory("cobot_ros2"))
+    return str(share / "config/imperfections/realistic.yaml")
+
+
+def _per_joint(value: object, key: str) -> list[float]:
+    """A scalar applies to every joint; a list sets each joint (imperfection schema)."""
+    values = [float(v) for v in value] if isinstance(value, list) else [float(value)] * ARM_JOINTS
+    if len(values) != ARM_JOINTS:
+        raise ValueError(f"imperfections.friction.{key}: expected {ARM_JOINTS} values")
+    return values
+
+
+def _friction_mappings(profile: Path) -> dict[str, str]:
+    """xacro args joint_<i>_friction / joint_<i>_damping from the profile's friction."""
+    import yaml  # noqa: PLC0415  (only needed once the launch runs)
+
+    data = yaml.safe_load(profile.read_text(encoding="utf-8")) or {}
+    friction = (data.get("imperfections") or {}).get("friction") or {}
+    coulomb = _per_joint(friction.get("coulomb_nm", 0.0), "coulomb_nm")
+    viscous = _per_joint(friction.get("viscous_nm_s_rad", 0.0), "viscous_nm_s_rad")
+    mappings = {}
+    for i in range(ARM_JOINTS):
+        mappings[f"joint_{i + 1}_friction"] = repr(coulomb[i])
+        mappings[f"joint_{i + 1}_damping"] = repr(viscous[i])
+    return mappings
+
 
 def _setup(context: object) -> list:
     share = Path(get_package_share_directory("cobot_sim"))
@@ -36,15 +72,17 @@ def _setup(context: object) -> list:
 
     import xacro  # noqa: PLC0415  (only available in a sourced ROS environment)
 
-    robot_description = xacro.process_file(
-        str(xacro_file), mappings={"controllers_yaml": controllers_yaml}
-    ).toxml()
+    profile = LaunchConfiguration("imperfections_path").perform(context) or _realistic_profile()
+    mappings = {"controllers_yaml": controllers_yaml, **_friction_mappings(Path(profile))}
+    robot_description = xacro.process_file(str(xacro_file), mappings=mappings).toxml()
 
-    overrides = {
+    overrides: dict[str, object] = {
         name: value
         for name in ("config_path", "imperfections_path", "log_path")
         if (value := LaunchConfiguration(name).perform(context))
     }
+    if seed := LaunchConfiguration("seed").perform(context):
+        overrides["seed"] = int(seed)
     param_args = []
     cleanup = []
     if overrides:
@@ -103,7 +141,8 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("controller", default_value="effort_passthrough"),
             DeclareLaunchArgument("controllers_yaml", default_value=""),
             DeclareLaunchArgument("config_path", default_value=""),
-            DeclareLaunchArgument("imperfections_path", default_value=""),
+            DeclareLaunchArgument("imperfections_path", default_value=_realistic_profile()),
+            DeclareLaunchArgument("seed", default_value=""),
             DeclareLaunchArgument("log_path", default_value=""),
             OpaqueFunction(function=_setup),
         ]

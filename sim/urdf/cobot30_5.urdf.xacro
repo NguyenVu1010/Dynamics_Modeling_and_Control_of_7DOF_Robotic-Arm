@@ -3,10 +3,27 @@
      inertia, design D8) plus ros2_control. Effort command; position, velocity, effort state.
      cobot30_5_gazebo.urdf is generated from cobot30_5.urdf by tools/fix_urdf_inertia.py
      (gazebo_urdf): Gazebo has no joint armature, so each joint's reflected rotor inertia is
-     added to its child link as a rotor disc about the joint axis (an approximation, see there). -->
+     added to its child link as a rotor disc about the joint axis (an approximation, see there).
+     joint_<i>_friction (Coulomb, N m) and joint_<i>_damping (viscous, N m s/rad) set each arm
+     joint's <dynamics>; sim.launch.py fills them from the imperfection profile's friction, so
+     the physics engine applies it (default 0: no joint friction). -->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro" name="cobot30_5">
   <xacro:arg name="controllers_yaml" default=""/>
   <xacro:arg name="home_q" default="0.0 0.5235987755982988 0.0 -1.5707963267948966 0.0 1.0471975511965976 0.0"/>
+  <xacro:arg name="joint_1_friction" default="0.0"/>
+  <xacro:arg name="joint_1_damping" default="0.0"/>
+  <xacro:arg name="joint_2_friction" default="0.0"/>
+  <xacro:arg name="joint_2_damping" default="0.0"/>
+  <xacro:arg name="joint_3_friction" default="0.0"/>
+  <xacro:arg name="joint_3_damping" default="0.0"/>
+  <xacro:arg name="joint_4_friction" default="0.0"/>
+  <xacro:arg name="joint_4_damping" default="0.0"/>
+  <xacro:arg name="joint_5_friction" default="0.0"/>
+  <xacro:arg name="joint_5_damping" default="0.0"/>
+  <xacro:arg name="joint_6_friction" default="0.0"/>
+  <xacro:arg name="joint_6_damping" default="0.0"/>
+  <xacro:arg name="joint_7_friction" default="0.0"/>
+  <xacro:arg name="joint_7_damping" default="0.0"/>
 
   <xacro:include filename="cobot30_5_gazebo.urdf"/>
 

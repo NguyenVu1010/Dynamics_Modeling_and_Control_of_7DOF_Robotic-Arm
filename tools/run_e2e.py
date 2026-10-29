@@ -8,12 +8,13 @@ finite), timing (p95 of `cobot_bench timing` <= thresholds.p95_step_us), monteca
 runs in the summary meeting the thresholds >= thresholds.pass_rate), sweep (bench completes and
 the sensitivity report with hardware_requirements.md is produced). --bench is needed only by
 bench scenarios. runner: gazebo scenarios (kind run) launch headless Gazebo with
-cobot_controller (needs a sourced colcon install of cobot_sim and cobot_ros2), wait at least
-duration_s + hold_s + 5 s after the controller created its CSV (or after launching, if it never
-does), then keep waiting until the CSV covers duration_s + hold_s of sim time (Gazebo may run
-slower than real time), at most 3x that minimum wait after the CSV appeared, stop the launch
-and judge the CSV; they are skipped unless --tag gazebo. Scenarios tagged nightly run only with
---tag nightly or --scenario. Exit 0 all pass, 1 any fails, 2 bad arguments.
+cobot_controller, the scenario's profile and seed (needs a sourced colcon install of cobot_sim
+and cobot_ros2), wait at least duration_s + hold_s + 5 s after the controller created its CSV
+(or after launching, if it never does), then keep waiting until the CSV covers duration_s +
+hold_s of sim time (Gazebo may run slower than real time), at most 3x that minimum wait after
+the CSV appeared, stop the launch and judge the CSV; they are skipped unless --tag gazebo.
+Scenarios tagged nightly run only with --tag nightly or --scenario. Exit 0 all pass, 1 any
+fails, 2 bad arguments.
 """
 
 import argparse
@@ -225,7 +226,8 @@ def run_gazebo(s: dict, out: Path, report: bool) -> tuple[bool, str]:
     csv.unlink(missing_ok=True)
     cmd = ["ros2", "launch", "cobot_sim", "sim.launch.py", "gui:=false"]
     cmd += ["controller:=cobot_controller", f"config_path:={config}"]
-    cmd += [f"imperfections_path:={repo_path(s['imperfections'])}", f"log_path:={csv}"]
+    cmd += [f"imperfections_path:={repo_path(s['imperfections'])}", f"seed:={int(s['seed'])}"]
+    cmd += [f"log_path:={csv}"]
     with (out / "launch.log").open("w", encoding="utf-8") as log:
         proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         try:
