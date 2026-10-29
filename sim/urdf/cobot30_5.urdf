@@ -56,6 +56,7 @@
     <axis xyz="0 0 1" />
     <limit acceleration="15" lower="-2.9671" effort="87" upper="2.9671" velocity="2.5" />
     <dynamics damping="0.003" friction="0.0" />
+    <cobot_armature value="3.08632" />
   </joint>
   <link name="link_2">
     <inertial>
@@ -86,6 +87,7 @@
     <axis xyz="0 0 1" />
     <limit acceleration="7.5" lower="-1.8326" effort="87.0" upper="1.8326" velocity="2.5" />
     <dynamics damping="0.003" friction="0.0" />
+    <cobot_armature value="3.08632" />
   </joint>
   <link name="link_3">
     <inertial>
@@ -116,6 +118,7 @@
     <axis xyz="0 0 1" />
     <limit acceleration="12.5" lower="-2.9671" effort="87" upper="2.9671" velocity="2.5" />
     <dynamics damping="0.003" friction="0.0" />
+    <cobot_armature value="1.0" />
   </joint>
   <link name="link_4">
     <inertial>
@@ -146,6 +149,7 @@
     <axis xyz="0 0 1" />
     <limit acceleration="12.5" lower="-3.1416" effort="87.0" upper="-0.4" velocity="2.5" />
     <dynamics damping="0.003" friction="0.0" />
+    <cobot_armature value="1.0" />
   </joint>
   <link name="link_5">
     <inertial>
@@ -176,6 +180,7 @@
     <axis xyz="0 0 1" />
     <limit acceleration="15" lower="-2.9671" effort="12" upper="2.9671" velocity="3" />
     <dynamics damping="0.003" friction="0.0" />
+    <cobot_armature value="0.22674" />
   </joint>
   <link name="link_6">
     <inertial>
@@ -206,6 +211,7 @@
     <axis xyz="0 0 1" />
     <limit acceleration="20" lower="-0.0873" effort="12" upper="3.8223" velocity="3" />
     <dynamics damping="0.003" friction="0.0" />
+    <cobot_armature value="0.22674" />
   </joint>
   <link name="link_6_2">
     <inertial>
@@ -264,5 +270,6 @@
     <axis xyz="0 0 1" />
     <limit acceleration="20" lower="-2.9671" effort="12" upper="2.9671" velocity="3" />
     <dynamics damping="0.003" friction="0.0" />
+    <cobot_armature value="0.22674" />
   </joint>
 </robot>

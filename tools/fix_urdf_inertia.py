@@ -2,8 +2,10 @@
 
 Sets every link mass from sim/urdf/mass_budget.yaml, scales its inertia tensor by the same
 factor (uniform-density assumption, centre of mass unchanged), fixes the effort typos, keeps
-only the standard <dynamics> attributes, points meshes at the cobot_sim package and drops the
-ROS 1 tags (<transmission>, <gazebo>). Running it on its own output changes nothing.
+only the standard <dynamics> attributes, writes the reflected rotor inertia J_in * N^2 of every
+revolute joint as <cobot_armature value="..."/> (kg m^2, `armature` section), points meshes at
+the cobot_sim package and drops the ROS 1 tags (<transmission>, <gazebo>). Running it on its own
+output changes nothing.
 
 Usage: python tools/fix_urdf_inertia.py --in IN.urdf --budget BUDGET.yaml --out OUT.urdf
 """
@@ -17,10 +19,20 @@ from pathlib import Path
 import yaml
 
 INERTIA_KEYS = ("ixx", "ixy", "ixz", "iyy", "iyz", "izz")
+G_MM2_PER_KG_M2 = 1e9  # 1 g mm^2 = 1e-3 kg * 1e-6 m^2
+ARMATURE_TAG = "cobot_armature"
 
 
 def _fmt(value: float) -> str:
     return repr(float(value))
+
+
+def armature_kg_m2(section: dict, joint: str) -> float:
+    """Reflected rotor inertia J_in * N^2 of `joint`, kg m^2."""
+    n = float(section["gear_ratio"])
+    j_in = float(section["joints"][joint]["input_inertia_g_mm2"])
+    # Divide by the exact 1e9: integer inputs then round once (0.22674, not 0.22674000000000002).
+    return j_in * n * n / G_MM2_PER_KG_M2
 
 
 def fix_urdf(original: Path, budget_path: Path, out: Path) -> None:
@@ -49,6 +61,7 @@ def fix_urdf(original: Path, budget_path: Path, out: Path) -> None:
 
     efforts = budget.get("effort_fix", {})
     damping = float(budget["damping_nm_s_rad"])
+    armature = budget["armature"]
     for joint in root.findall("joint"):
         name = joint.get("name")
         limit = joint.find("limit")
@@ -60,6 +73,12 @@ def fix_urdf(original: Path, budget_path: Path, out: Path) -> None:
             dyn.attrib.clear()
             dyn.set("damping", _fmt(damping))
             dyn.set("friction", _fmt(float(friction)))
+        for old in joint.findall(ARMATURE_TAG):
+            joint.remove(old)
+        if joint.get("type") == "revolute":
+            if name not in armature["joints"]:
+                raise KeyError(f"{name}: no entry in the mass budget armature section")
+            ET.SubElement(joint, ARMATURE_TAG, value=_fmt(armature_kg_m2(armature, name)))
 
     for tag in ("transmission", "gazebo"):
         for el in root.findall(tag):

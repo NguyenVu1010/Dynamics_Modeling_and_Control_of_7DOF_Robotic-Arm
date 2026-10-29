@@ -55,6 +55,8 @@ MatN<N> mass_matrix(const Model<N>& model, const VecN<N>& q) {
       M(cj, ci) = fk.axis_b[j].dot(n_j);
       M(ci, cj) = M(cj, ci);
     }
+    // Reflected rotor inertia J_in * N^2 turns with the joint only: diagonal term.
+    M(ci, ci) += model.joints[i].armature;
   }
   return M;
 }

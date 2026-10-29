@@ -242,8 +242,23 @@ Status read_revolute(const XMLElement* joint,
     }
   }
   constexpr double kNoDamping = 0.0;
-  return read_double(
+  s = read_double(
       joint->FirstChildElement("dynamics"), "dynamics", "damping", name, &kNoDamping, out.damping);
+  if (!s.is_ok()) {
+    return s;
+  }
+  // Reflected rotor inertia (non-standard element, ignored by urdfdom and sdformat). Absent
+  // element: 0; an element without a value is an error.
+  const XMLElement* armature = joint->FirstChildElement("cobot_armature");
+  if (armature == nullptr) {
+    out.armature = 0.0;
+    return Status::ok();
+  }
+  s = read_double(armature, "cobot_armature", "value", name, nullptr, out.armature);
+  if (s.is_ok() && out.armature < 0.0) {
+    return Status::error(name + ": <cobot_armature value> is negative");
+  }
+  return s;
 }
 
 // `link` attribute of the joint's <parent> or <child>; null when absent.

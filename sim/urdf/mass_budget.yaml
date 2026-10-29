@@ -20,3 +20,17 @@ effort_fix:
   joint_2: {effort_nm: 87.0, source: "URDF typo 870; same-size joint_1/joint_3 use 87"}
   joint_4: {effort_nm: 87.0, source: "URDF typo 870; same-size joint_1/joint_3 use 87"}
 damping_nm_s_rad: 0.003
+# Reflected rotor inertia per revolute joint, armature = J_in * N^2 (kg m^2), written by
+# tools/fix_urdf_inertia.py as <cobot_armature value="..."/>. 1 g mm^2 = 1e-9 kg m^2.
+armature:
+  status: "assumed until the eRob H-series datasheet values are confirmed (ADR-005 open item)"
+  gear_ratio: 100
+  gear_ratio_source: "assumed common eRob strain-wave ratio; the series offers 50/80/100/120"
+  joints:
+    joint_1: {input_inertia_g_mm2: 308632, source: "eRob110I strain-wave-gear input inertia, reseller listing of the ZeroErr table"}
+    joint_2: {input_inertia_g_mm2: 308632, source: "eRob110I strain-wave-gear input inertia, reseller listing of the ZeroErr table"}
+    joint_3: {input_inertia_g_mm2: 100000, source: "assumed eRob90 value between the eRob70 and eRob110 values; replace with the datasheet"}
+    joint_4: {input_inertia_g_mm2: 100000, source: "assumed eRob90 value between the eRob70 and eRob110 values; replace with the datasheet"}
+    joint_5: {input_inertia_g_mm2: 22674, source: "eRob70I input inertia, lower of the listed configurations, ZeroErr product table"}
+    joint_6: {input_inertia_g_mm2: 22674, source: "eRob70I input inertia, lower of the listed configurations, ZeroErr product table"}
+    joint_7: {input_inertia_g_mm2: 22674, source: "eRob70I input inertia, lower of the listed configurations, ZeroErr product table"}

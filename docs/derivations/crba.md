@@ -47,3 +47,12 @@ M_ji = M_ij = z_j . n_j,       j = 0..i
 Mỗi cặp `(i, j)` được tính một lần và ghi vào cả hai nửa, nên `M` đối xứng theo cách dựng.
 Tổng chi phí O(N^2). Đường chéo `M_ii = z_i^T I_pC z_i`; với con lắc đơn
 (`tests/unit/dynamics/test_analytic.cpp`) là `I_xx + m l^2`.
+
+## Quán tính rotor quy đổi (armature)
+
+Rotor động cơ có quán tính `J_in` quay nhanh gấp `N` lần khớp (tỉ số truyền), nên động năng của
+nó là `1/2 J_in N^2 qd_i^2`: một số hạng chỉ phụ thuộc `qd_i`. Theo xấp xỉ chuẩn (bỏ qua mômen
+con quay của rotor; khối lượng rotor đã nằm trong link), nó chỉ cộng vào đường chéo:
+`M_a(q) = M(q) + diag(armature)`, `armature_i = J_in N^2` (`JointParams::armature`, URDF
+`<cobot_armature value>`). `mass_matrix` cộng `armature_i` vào `M_ii` sau khi tính cột `i`.
+Vì số hạng này không phụ thuộc `q`, nó không sinh lực Coriolis hay trọng lực.
