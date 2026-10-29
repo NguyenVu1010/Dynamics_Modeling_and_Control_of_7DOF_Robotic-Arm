@@ -32,7 +32,8 @@ module phải được ép bằng công cụ, không bằng kỷ luật.
 - `tests/unit/` và `tests/component/` tự thêm mọi thư mục con có `CMakeLists.txt`; một test
   dùng `cobot_add_test(name sources...)`.
 - `sim/` là gói ament `cobot_sim`, `ros2_node/` là gói ament `cobot_ros2`; cả hai build bằng
-  colcon (`tools/wsl/sim.sh build`), build dir ngoài cây nguồn (`$HOME/cobot-build/`).
+  colcon (`tools/wsl/sim.sh build`), build dir ngoài cây nguồn, gom trong một thư mục riêng của dự án
+  (`~/projects/7dof_dynamic_control/{build,colcon,venv,out}`, `tools/wsl/paths.sh`).
 - Phụ thuộc ngoài của lõi: Eigen 3.4, tinyxml2 (`model`), yaml-cpp (`pipeline`); test thêm GTest.
 
 ## Phương án đã cân nhắc

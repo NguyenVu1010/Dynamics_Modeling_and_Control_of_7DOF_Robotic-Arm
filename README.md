@@ -118,8 +118,12 @@ compensation) and `sim/urdf/mass_budget.yaml` (masses, armature). Gazebo takes t
 All C++ builds run in WSL Ubuntu-24.04 (ROS 2 Jazzy and Gazebo Harmonic installed). From
 PowerShell: `wsl -d Ubuntu-24.04 -- bash <repo>/tools/wsl/<script>.sh`.
 
+Everything the scripts generate lives in one folder per project, `~/projects/7dof_dynamic_control/`
+(override with `COBOT_ROOT`): `build/<branch>[-asan|-cov]`, `colcon/<branch>`, `venv`, `out`.
+`tools/wsl/prune.sh` removes the builds of branches that no longer exist.
+
 ```bash
-tools/wsl/setup.sh                 # prints the apt line to type, creates .venv
+tools/wsl/setup.sh                 # prints the apt line to type, creates the venv
 tools/wsl/build.sh                 # CMake + Ninja, -Werror, ctest
 tools/wsl/build.sh --asan          # Debug with ASan + UBSan
 tools/wsl/build.sh --target T      # one target

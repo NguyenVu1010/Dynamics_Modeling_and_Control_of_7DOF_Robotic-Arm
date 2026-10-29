@@ -3,7 +3,9 @@
 # Usage: pytest.sh [pytest args...]
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-venv="${COBOT_VENV:-$HOME/.venvs/cobot}"
+# shellcheck source=paths.sh
+source "$repo/tools/wsl/paths.sh" "$repo"
+venv="$(cobot_venv)"
 if [ ! -x "$venv/bin/python" ]; then
   echo "virtualenv $venv missing: run tools/wsl/setup.sh" >&2
   exit 2

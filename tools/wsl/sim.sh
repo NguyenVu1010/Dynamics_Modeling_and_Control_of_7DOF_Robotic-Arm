@@ -3,10 +3,10 @@
 # Usage: sim.sh build | check | tidy | smoke [seconds]
 set -eo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-ws="${COBOT_COLCON_WS:-$HOME/cobot-build/colcon}"
 # ROS 2, the workspace when built, and this project's ROS domain / Gazebo partition.
 # shellcheck source=env.sh
 source "$repo/tools/wsl/env.sh"
+ws="$cobot_ws"
 set -u
 
 paths=("$repo/sim")

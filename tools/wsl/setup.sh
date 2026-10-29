@@ -3,7 +3,9 @@
 # apt line for you to run, then creates the Python virtualenv.
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-venv="${COBOT_VENV:-$HOME/.venvs/cobot}"
+# shellcheck source=paths.sh
+source "$repo/tools/wsl/paths.sh" "$repo"
+venv="$(cobot_venv)"
 
 pkgs=(cmake ninja-build ccache g++ libeigen3-dev libgtest-dev libgmock-dev libtinyxml2-dev
   libyaml-cpp-dev clang-format-18 clang-tidy-18 gcovr python3-venv)

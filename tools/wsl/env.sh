@@ -6,11 +6,14 @@
 # simulations running at once would otherwise share /clock, /joint_states and gz topics.
 #   COBOT_ROS_DOMAIN_ID (default 42) -> ROS_DOMAIN_ID, overriding the value from ~/.bashrc
 #   COBOT_GZ_PARTITION  (default cobot) -> GZ_PARTITION
-#   COBOT_COLCON_WS     (default ~/cobot-build/colcon) -> the workspace sourced here
+#   COBOT_COLCON_WS     (default $COBOT_ROOT/colcon/<branch>, tools/wsl/paths.sh) -> the
+#                       workspace sourced here
 
 export ROS_DOMAIN_ID="${COBOT_ROS_DOMAIN_ID:-42}"
 export GZ_PARTITION="${COBOT_GZ_PARTITION:-cobot}"
-cobot_ws="${COBOT_COLCON_WS:-$HOME/cobot-build/colcon}"
+# shellcheck source=paths.sh
+source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/paths.sh"   "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+cobot_ws="$(cobot_colcon_ws)"
 
 # cobot_ws_guard WS REPO: wipe WS/build and WS/install when a package there was configured from
 # a source directory outside REPO (a deleted worktree, another clone). CMake would otherwise stop

@@ -8,6 +8,8 @@ usage() { echo "Usage: $0 [--asan] [--coverage] [--build-dir DIR] [--target T] [
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=git_env.sh
 source "$repo/tools/wsl/git_env.sh" "$repo"
+# shellcheck source=paths.sh
+source "$repo/tools/wsl/paths.sh" "$repo"
 asan=0
 coverage=0
 build_dir=""
@@ -37,10 +39,13 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "$build_dir" ]; then
-  branch="$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null || echo detached)"
-  build_dir="$HOME/cobot-build/${branch//\//-}"
-  if [ "$asan" = 1 ]; then build_dir="${build_dir}-asan"; fi
-  if [ "$coverage" = 1 ]; then build_dir="${build_dir}-cov"; fi
+  if [ "$asan" = 1 ]; then
+    build_dir="$(cobot_build_dir asan)"
+  elif [ "$coverage" = 1 ]; then
+    build_dir="$(cobot_build_dir cov)"
+  else
+    build_dir="$(cobot_build_dir)"
+  fi
 fi
 
 args=(-S "$repo" -B "$build_dir" -DCOBOT_WERROR=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON)
