@@ -167,6 +167,8 @@ def test_all_tag_gazebo_runs_e2e_07_without_bench(tmp_path, ros2):
     )
     assert code == 0, out
     assert "E2E-07" in out and "PASS" in out
-    (call,) = launches(entries)
-    assert "controller:=cobot_controller" in call["argv"]
+    # E2E-07 (ideal) and E2E-09 (realistic) both carry the gazebo tag.
+    calls = launches(entries)
+    assert len(calls) == 2
+    assert all("controller:=cobot_controller" in c["argv"] for c in calls)
     assert elapsed >= 17.0
