@@ -167,6 +167,7 @@ The C++ toolchain lives in WSL. From PowerShell run the scripts as
 | `tools/wsl/pytest.sh` | runs `pytest` in `.venv` |
 | `tools/wsl/lint.sh` | clang-format, clang-tidy on changed files, ruff check and format |
 | `tools/wsl/sim.sh {build\|check\|smoke}` | colcon build of `sim/`, offline asset check, headless Gazebo smoke test |
+| `source tools/wsl/env.sh` | ROS 2 + colcon workspace, with this project's own ROS domain (42) and Gazebo partition |
 
 Do not pass inline `bash -lc "..."` commands containing `(`, `)` or `$` through `wsl`; put
 them in a script file.

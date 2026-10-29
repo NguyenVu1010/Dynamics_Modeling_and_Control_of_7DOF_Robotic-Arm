@@ -4,8 +4,9 @@
 set -eo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ws="${COBOT_COLCON_WS:-$HOME/cobot-build/colcon}"
-# shellcheck disable=SC1091
-source /opt/ros/jazzy/setup.bash
+# ROS 2, the workspace when built, and this project's ROS domain / Gazebo partition.
+# shellcheck source=env.sh
+source "$repo/tools/wsl/env.sh"
 set -u
 
 paths=("$repo/sim")
@@ -14,8 +15,9 @@ if [ -f "$repo/ros2_node/package.xml" ]; then paths+=("$repo/ros2_node"); fi
 cmd="${1:-build}"
 case "$cmd" in
   build)
-    colcon build --paths "${paths[@]}" --build-base "$ws/build" --install-base "$ws/install" \
-      --parallel-workers 2 --cmake-args -DCMAKE_BUILD_TYPE=Release \
+    cobot_ws_guard "$ws" "$repo"
+    colcon --log-base "$ws/log" build --paths "${paths[@]}" --build-base "$ws/build" \
+      --install-base "$ws/install" --parallel-workers 2 --cmake-args -DCMAKE_BUILD_TYPE=Release \
       -DCMAKE_EXPORT_COMPILE_COMMANDS=ON --no-warn-unused-cli
     echo "COLCON OK: $ws/install"
     ;;
@@ -35,6 +37,7 @@ case "$cmd" in
     # shellcheck disable=SC1091
     source "$ws/install/setup.bash"
     set -u
+    echo "ROS_DOMAIN_ID=$ROS_DOMAIN_ID GZ_PARTITION=$GZ_PARTITION"
     log="$(mktemp)"
     ros2 launch cobot_sim sim.launch.py gui:=false > "$log" 2>&1 &
     pid=$!
