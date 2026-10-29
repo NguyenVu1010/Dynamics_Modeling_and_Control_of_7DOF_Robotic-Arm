@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<!-- Planar 2-link arm: joint_1 carries armature 0.25 kg m^2, joint_2 has no <cobot_armature> (-> 0). -->
+<robot name="armature_2link">
+  <link name="base_link" />
+  <joint name="joint_1" type="revolute">
+    <origin xyz="0 0 0.1" rpy="0 0 0" />
+    <parent link="base_link" />
+    <child link="link_1" />
+    <axis xyz="0 0 1" />
+    <limit lower="-1.5" upper="1.5" effort="10" velocity="2" />
+    <dynamics damping="0.1" friction="0.0" />
+    <cobot_armature value="0.25" />
+  </joint>
+  <link name="link_1">
+    <inertial>
+      <origin xyz="0.25 0 0" rpy="0 0 0" />
+      <mass value="2.0" />
+      <inertia ixx="0.001" ixy="0" ixz="0" iyy="0.0427" iyz="0" izz="0.0427" />
+    </inertial>
+  </link>
+  <joint name="joint_2" type="revolute">
+    <origin xyz="0.5 0 0" rpy="0 0 0" />
+    <parent link="link_1" />
+    <child link="link_2" />
+    <axis xyz="0 0 1" />
+    <limit lower="-2.0" upper="2.5" effort="5" velocity="3" />
+  </joint>
+  <link name="link_2">
+    <inertial>
+      <origin xyz="0.2 0 0" rpy="0 0 0" />
+      <mass value="1.0" />
+      <inertia ixx="0.0005" ixy="0" ixz="0" iyy="0.0135" iyz="0" izz="0.0137" />
+    </inertial>
+  </link>
+</robot>
