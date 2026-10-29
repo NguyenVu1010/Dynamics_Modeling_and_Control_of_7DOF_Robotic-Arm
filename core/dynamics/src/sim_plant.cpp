@@ -1,11 +1,13 @@
 #include "cobot/dynamics/sim_plant.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <stdexcept>
 #include <string>
 
 #include <Eigen/Cholesky>
+#include <Eigen/LU>
 
 #include "cobot/common/dof.hpp"
 #include "cobot/dynamics/dynamics.hpp"
@@ -25,6 +27,9 @@ namespace {
 // it back (up to h * coulomb / m above the real one) and overstate the friction. Joints
 // without Coulomb friction keep their viscous term inside RK4.
 
+constexpr int kMaxSweeps = 30;           // projected Gauss-Seidel sweeps per step
+constexpr double kSweepTolRadS = 1e-12;  // stop when no joint velocity moves more (rad/s)
+
 // Joint acceleration with the viscous torque `viscous_rk4` .* qd (URDF damping is applied by
 // forward_dynamics; an entry of `viscous_rk4` equal to -damping cancels it).
 template <int N>
@@ -37,54 +42,109 @@ VecN<N> plant_qdd(const Model<N>& model,
   return forward_dynamics(model, q, qd, tau);
 }
 
-// Stick-slip projection, unconditionally stable. `q_start` / `qd_start` is the state at the
-// start of the step, `q` / `qd` the friction-free RK4 result, updated in place.
+// One joint alone: velocity v_free before its friction impulse, dv = h * coulomb / m,
+// damp = h * viscous / m. Stick (exact 0) when |v_free| <= dv, else slide with the viscous
+// term implicit; never reverses the sign.
+inline double slide_or_stick(double v_free, double dv, double damp) {
+  if (std::abs(v_free) <= dv) {
+    return 0.0;
+  }
+  return (v_free - std::copysign(dv, v_free)) / (1.0 + damp);
+}
+
+// Stick-slip projection, unconditionally stable. `q` / `qd` is the friction-free RK4 result,
+// updated in place; `lambda` holds the joint friction impulses (N m s), warm-started from the
+// previous step and updated.
 //
-// Friction on joint i over the step is a joint impulse -lambda_i * e_i, which changes the
-// velocities by -lambda_i * M^-1 e_i, so joint i itself by -lambda_i / m_i with the effective
-// inertia m_i = 1 / (M^-1)_ii. With v the joint velocity before and v' after:
-//   lambda_i = h * (coulomb_i * sign(v') + viscous_i * v'),   v' = v - lambda_i / m_i.
-// If |v| <= dv_i = h * coulomb_i / m_i the joint sticks (v' = 0, static friction balances the
-// rest), else v' = (v - sign(v) * dv_i) / (1 + h * viscous_i / m_i), same sign as v.
-// Applying the impulse through the whole column of M^-1 keeps the energy balance of the arm
-// exact (Delta KE = -lambda_i * (v + v') / 2). Joints are processed one after the other with
-// M at the end of the RK4 step, each seeing the velocities left by the previous ones
-// (sequential approximation of the coupled stick-slip problem).
-// Positions follow the velocity change by the trapezoid rule; on a joint with Coulomb
-// friction the position is the trapezoid of the start and final velocity, so a stuck joint
-// does not move at all and a constant net acceleration stays exact.
+// Friction on joint i over the step is a joint impulse -lambda_i * e_i; all of them change the
+// velocities to v' = v - W lambda with W = M(q)^-1 (applying the impulse through the whole
+// column keeps Delta KE = -sum_i lambda_i * (v_i + v'_i) / 2, the friction work). Per joint,
+// with m_i = 1 / W_ii:
+//   v'_i != 0:  lambda_i = h * (coulomb_i * sign(v'_i) + viscous_i * v'_i)
+//   v'_i == 0:  |lambda_i| <= h * coulomb_i            (static friction)
+// This coupled problem is solved by projected Gauss-Seidel on lambda: each joint solves its
+// own 1-D problem (slide_or_stick) given the impulses of the others, which changes the
+// velocity of every joint through W. The sweeps only find which joints stick and the sign of
+// the sliding ones; that set then fixes a linear system in lambda, solved exactly, so stuck
+// joints end at exactly qd = 0 whatever the coupling. If the exact solution contradicts the set
+// (sweep cap hit mid-transition), the Gauss-Seidel result is kept.
+// Positions follow the velocity change by the trapezoid rule, q += h / 2 * (qd' - qd_rk4):
+// RK4 accuracy is kept while sliding, and a stuck joint starting at rest does not move for a
+// constant acceleration (q_rk4 = q + h^2 a / 2, qd_rk4 = h a).
 template <int N>
 void apply_friction(const Model<N>& model,
                     const VecN<N>& coulomb,
                     const VecN<N>& viscous,
                     double h,
-                    const VecN<N>& q_start,
-                    const VecN<N>& qd_start,
+                    VecN<N>& lambda,
                     VecN<N>& q,
                     VecN<N>& qd) {
-  const Eigen::LDLT<MatN<N>> ldlt(mass_matrix(model, q));
+  const MatN<N> w = Eigen::LDLT<MatN<N>>(mass_matrix(model, q)).solve(MatN<N>::Identity());
   const VecN<N> qd_rk4 = qd;
   for (int i = 0; i < N; ++i) {
     if (!(coulomb(i) > 0.0)) {
-      continue;
+      lambda(i) = 0.0;
     }
-    const VecN<N> m_inv_col = ldlt.solve(VecN<N>::Unit(i));  // M^-1 e_i; (M^-1)_ii = 1 / m_i
-    const double v = qd(i);
-    const double dv = h * coulomb(i) * m_inv_col(i);
-    double v_new = 0.0;
-    if (std::abs(v) > dv) {
-      v_new = (v - std::copysign(dv, v)) / (1.0 + (h * viscous(i) * m_inv_col(i)));
-    }
-    const double lambda = (v - v_new) / m_inv_col(i);
-    qd -= lambda * m_inv_col;
-    qd(i) = v_new;  // exact, free of rounding (an exact 0 when stuck)
   }
-  q += (0.5 * h) * (qd - qd_rk4);
+  VecN<N> v = qd_rk4 - (w * lambda);
+  // Per joint after the last sweep: +1 / -1 sliding direction, 0 stuck, 2 no Coulomb friction.
+  VecN<N> state = VecN<N>::Constant(2.0);
+  for (int sweep = 0; sweep < kMaxSweeps; ++sweep) {
+    double change = 0.0;
+    for (int i = 0; i < N; ++i) {
+      if (!(coulomb(i) > 0.0)) {
+        continue;
+      }
+      const double w_ii = w(i, i);
+      const double v_free = v(i) + (w_ii * lambda(i));
+      const double v_new = slide_or_stick(v_free, h * coulomb(i) * w_ii, h * viscous(i) * w_ii);
+      const double d_lambda = ((v_free - v_new) / w_ii) - lambda(i);
+      v -= d_lambda * w.col(i);
+      lambda(i) += d_lambda;
+      state(i) = v_new == 0.0 ? 0.0 : std::copysign(1.0, v_new);
+      change = std::max(change, std::abs(d_lambda) * w_ii);
+    }
+    if (change <= kSweepTolRadS) {
+      break;
+    }
+  }
+
+  // Exact solve for the stick set and sliding signs found:
+  //   stuck i:    (W lambda)_i = qd_rk4_i                                   (v'_i = 0)
+  //   sliding i:  lambda_i + h b_i (W lambda)_i = h (c_i s_i + b_i qd_rk4_i)
+  //   no Coulomb: lambda_i = 0
+  MatN<N> a = MatN<N>::Identity();
+  VecN<N> r = VecN<N>::Zero();
   for (int i = 0; i < N; ++i) {
-    if (coulomb(i) > 0.0) {
-      q(i) = q_start(i) + (0.5 * h * (qd_start(i) + qd(i)));
+    if (state(i) == 0.0) {
+      a.row(i) = w.row(i);
+      r(i) = qd_rk4(i);
+    } else if (state(i) != 2.0) {
+      a.row(i) += h * viscous(i) * w.row(i);
+      r(i) = h * ((coulomb(i) * state(i)) + (viscous(i) * qd_rk4(i)));
     }
   }
+  const VecN<N> lambda_x = a.partialPivLu().solve(r);
+  const VecN<N> v_x = qd_rk4 - (w * lambda_x);
+  bool consistent = lambda_x.allFinite();
+  for (int i = 0; consistent && i < N; ++i) {
+    if (state(i) == 0.0) {
+      consistent = std::abs(lambda_x(i)) <= h * coulomb(i) * (1.0 + 1e-9);
+    } else if (state(i) != 2.0) {
+      consistent = v_x(i) * state(i) > 0.0;
+    }
+  }
+  if (consistent) {
+    lambda = lambda_x;
+    v = v_x;
+  }
+  for (int i = 0; i < N; ++i) {
+    if (state(i) == 0.0) {
+      v(i) = 0.0;  // exact stick (the residual is rounding, or below the sweep tolerance)
+    }
+  }
+  qd = v;
+  q += (0.5 * h) * (qd - qd_rk4);
 }
 
 // Throws naming the field and joint of the first negative (or NaN) entry.
@@ -135,8 +195,6 @@ void SimPlant<N>::step(const VecN<N>& tau_cmd, double dt_s) {
   // Classical RK4 on (q, qd) with tau_applied held constant, without the friction of the
   // joints that have Coulomb friction.
   const double h = dt_s;
-  const VecN<N> q_start = q_;
-  const VecN<N> qd_start = qd_;
   const VecN<N> a1 = plant_qdd(model_, viscous_rk4_, q_, qd_, tau_applied_);
   const VecN<N> q2 = q_ + 0.5 * h * qd_;
   const VecN<N> v2 = qd_ + 0.5 * h * a1;
@@ -151,7 +209,7 @@ void SimPlant<N>::step(const VecN<N>& tau_cmd, double dt_s) {
   qd_ += (h / 6.0) * (a1 + 2.0 * a2 + 2.0 * a3 + a4);
 
   if (has_coulomb_) {
-    apply_friction(model_, effects_.coulomb_nm, viscous_projection_, h, q_start, qd_start, q_, qd_);
+    apply_friction(model_, effects_.coulomb_nm, viscous_projection_, h, friction_impulse_, q_, qd_);
   }
 
   // Hard joint stops: clamp the position, drop the velocity pointing out of the range.

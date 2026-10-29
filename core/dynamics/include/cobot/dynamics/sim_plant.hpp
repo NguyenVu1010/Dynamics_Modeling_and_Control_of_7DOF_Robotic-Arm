@@ -49,6 +49,8 @@ class SimPlant {
   VecN<N> viscous_rk4_ = VecN<N>::Zero();
   VecN<N> viscous_projection_ = VecN<N>::Zero();
   bool has_coulomb_ = false;  // any coulomb_nm > 0: the projection needs M(q) each step
+  // Joint friction impulses of the last projection (N m s), warm start of the next one.
+  VecN<N> friction_impulse_ = VecN<N>::Zero();
 };
 
 }  // namespace cobot::dynamics
