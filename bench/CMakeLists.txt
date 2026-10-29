@@ -7,7 +7,7 @@ execute_process(COMMAND git describe --always --dirty --tags
                 WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
                 OUTPUT_VARIABLE COBOT_GIT_DESCRIBE OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
 
-add_library(cobot_bench_run STATIC run.cpp)
+add_library(cobot_bench_run STATIC run.cpp sweep.cpp)
 cobot_set_target_defaults(cobot_bench_run)
 target_include_directories(cobot_bench_run PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(cobot_bench_run PUBLIC cobot::pipeline PRIVATE Threads::Threads)

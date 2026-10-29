@@ -1,0 +1,12 @@
+# E2E-06 (design 11.2, 11.3): one-at-a-time sensitivity sweep; passes when the report and the
+# hardware requirement table are produced. The table uses the G3 thresholds.
+id: E2E-06
+tags: [nightly]
+runner: bench
+kind: sweep
+config: config/default.yaml
+sweep: config/sweeps/hardware.yaml
+thresholds:
+  final_pos_err_m: 0.002
+  final_rot_err_deg: 1.0
+  rms_joint_err_rad: 0.01

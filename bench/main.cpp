@@ -19,9 +19,15 @@ constexpr int kExitBadInput = 2;
 const char* const kUsage =
     "usage: cobot_bench run --config <yaml> --imperfections <yaml> [--seed <u64>] --out <csv> "
     "[--duration-s <s>]\n"
+    "       cobot_bench montecarlo --config <yaml> --imperfections <yaml> --runs <n> "
+    "--seed0 <u64> --out <dir> [--keep-runs] [--duration-s <s>]\n"
+    "       cobot_bench sweep --config <yaml> --sweep <yaml> --out <dir> [--duration-s <s>]\n"
     "       cobot_bench timing --config <yaml> --steps <n>\n";
 
-// "--name value" pairs after the mode; throws std::invalid_argument on a bad command line.
+const char* const kKeepRuns = "--keep-runs";
+
+// "--name value" pairs after the mode (--keep-runs takes no value and maps to ""); throws
+// std::invalid_argument on a bad command line.
 std::map<std::string, std::string> parse_flags(int argc,
                                                char** argv,
                                                const std::set<std::string>& known,
@@ -29,9 +35,12 @@ std::map<std::string, std::string> parse_flags(int argc,
   std::map<std::string, std::string> flags;
   for (int i = 2; i < argc; i += 2) {
     const std::string name = argv[i];
-    if (known.count(name) == 0 || i + 1 >= argc || !flags.emplace(name, argv[i + 1]).second) {
+    const bool is_switch = name == kKeepRuns;
+    if (known.count(name) == 0 || (!is_switch && i + 1 >= argc) ||
+        !flags.emplace(name, is_switch ? "" : argv[i + 1]).second) {
       throw std::invalid_argument("unknown, repeated or valueless argument " + name);
     }
+    i -= is_switch ? 1 : 0;
   }
   for (const std::string& name : required) {
     if (flags.count(name) == 0) {
@@ -51,6 +60,26 @@ std::uint64_t parse_u64(const std::string& text) {
   return v;
 }
 
+std::optional<double> parse_duration(const std::map<std::string, std::string>& f) {
+  if (f.count("--duration-s") == 0) {
+    return std::nullopt;
+  }
+  std::size_t used = 0;
+  const double v = std::stod(f.at("--duration-s"), &used);
+  if (used != f.at("--duration-s").size()) {
+    throw std::invalid_argument("not a number: " + f.at("--duration-s"));
+  }
+  return v;
+}
+
+int report(const char* mode, const cobot::common::Status& status) {
+  if (!status) {
+    std::fprintf(stderr, "cobot_bench %s: %s\n", mode, status.reason().c_str());
+    return kExitBadInput;
+  }
+  return 0;
+}
+
 int main_impl(int argc, char** argv) {
   const std::string mode = argc > 1 ? argv[1] : "";
   if (mode == "run") {
@@ -59,24 +88,37 @@ int main_impl(int argc, char** argv) {
                                {"--config", "--imperfections", "--seed", "--out", "--duration-s"},
                                {"--config", "--imperfections", "--out"});
     std::optional<std::uint64_t> seed;
-    std::optional<double> duration_s;
     if (f.count("--seed") > 0) {
       seed = parse_u64(f.at("--seed"));
     }
-    if (f.count("--duration-s") > 0) {
-      std::size_t used = 0;
-      duration_s = std::stod(f.at("--duration-s"), &used);
-      if (used != f.at("--duration-s").size()) {
-        throw std::invalid_argument("not a number: " + f.at("--duration-s"));
-      }
-    }
-    const cobot::common::Status status = cobot::bench::run(
-        f.at("--config"), f.at("--imperfections"), seed, f.at("--out"), duration_s);
-    if (!status) {
-      std::fprintf(stderr, "cobot_bench run: %s\n", status.reason().c_str());
-      return kExitBadInput;
-    }
-    return 0;
+    return report(
+        "run",
+        cobot::bench::run(
+            f.at("--config"), f.at("--imperfections"), seed, f.at("--out"), parse_duration(f)));
+  }
+  if (mode == "montecarlo") {
+    const auto f = parse_flags(
+        argc,
+        argv,
+        {"--config", "--imperfections", "--runs", "--seed0", "--out", kKeepRuns, "--duration-s"},
+        {"--config", "--imperfections", "--runs", "--seed0", "--out"});
+    return report("montecarlo",
+                  cobot::bench::montecarlo(f.at("--config"),
+                                           f.at("--imperfections"),
+                                           parse_u64(f.at("--runs")),
+                                           parse_u64(f.at("--seed0")),
+                                           f.at("--out"),
+                                           f.count(kKeepRuns) > 0,
+                                           parse_duration(f)));
+  }
+  if (mode == "sweep") {
+    const auto f = parse_flags(argc,
+                               argv,
+                               {"--config", "--sweep", "--out", "--duration-s"},
+                               {"--config", "--sweep", "--out"});
+    return report(
+        "sweep",
+        cobot::bench::sweep(f.at("--config"), f.at("--sweep"), f.at("--out"), parse_duration(f)));
   }
   if (mode == "timing") {
     const auto f = parse_flags(argc, argv, {"--config", "--steps"}, {"--config", "--steps"});

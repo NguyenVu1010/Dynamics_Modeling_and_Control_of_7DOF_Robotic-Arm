@@ -1,0 +1,15 @@
+# E2E-05 (design 11.3): Monte Carlo, 50 seeds on the realistic profile; at least 95 % of the
+# runs meet the E2E-02 thresholds. seed = first seed (seed0) of the 50.
+id: E2E-05
+tags: [nightly]
+runner: bench
+kind: montecarlo
+config: config/default.yaml
+imperfections: config/imperfections/realistic.yaml
+seed: 1
+runs: 50
+thresholds:
+  final_pos_err_m: 0.005
+  final_rot_err_deg: 2.0
+  rms_joint_err_rad: 0.02
+  pass_rate: 0.95

@@ -4,8 +4,11 @@ Usage: python tools/run_e2e.py (--scenario YAML | --all [--tag T]) --bench PATH 
        [--no-report]
 Scenario paths are relative to the repository root. kind: run (thresholds on the Run CSV),
 determinism (two runs, identical bytes), safety (expect.mode_reached, |tau| <= tau_max and
-finite), timing (p95 of `cobot_bench timing` <= thresholds.p95_step_us). runner: gazebo
-scenarios are skipped unless --tag gazebo. Exit 0 all pass, 1 any fails, 2 bad arguments.
+finite), timing (p95 of `cobot_bench timing` <= thresholds.p95_step_us), montecarlo (share of
+runs in the summary meeting the thresholds >= thresholds.pass_rate), sweep (bench completes and
+the sensitivity report with hardware_requirements.md is produced). runner: gazebo scenarios are
+skipped unless --tag gazebo; scenarios tagged nightly run only with --tag nightly or --scenario.
+Exit 0 all pass, 1 any fails, 2 bad arguments.
 """
 
 import argparse
@@ -20,6 +23,7 @@ import yaml
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "eval"))
 
+from cobot_eval import sensitivity  # noqa: E402
 from cobot_eval.metrics import (  # noqa: E402
     Thresholds,
     check,
@@ -30,6 +34,7 @@ from cobot_eval.metrics import (  # noqa: E402
 )
 
 SCENARIO_DIR = REPO / "tests/e2e/scenarios"
+THRESHOLD_KEYS = ("final_pos_err_m", "final_rot_err_deg", "rms_joint_err_rad")
 
 
 def repo_path(value: str) -> Path:
@@ -54,11 +59,60 @@ def bench(args: argparse.Namespace, *cmd: str) -> subprocess.CompletedProcess:
     return proc
 
 
+def thresholds_of(s: dict) -> Thresholds:
+    return Thresholds(*(float(s["thresholds"][k]) for k in THRESHOLD_KEYS))
+
+
+def sensitivity_report(s: dict, summary: Path, out: Path) -> None:
+    (out / "scenario.yaml").write_text(yaml.safe_dump(s), encoding="utf-8")
+    args = ["--summary", str(summary), "--thresholds", str(out / "scenario.yaml")]
+    if sensitivity.main([*args, "--out", str(out / "report")]) != 0:
+        raise RuntimeError("sensitivity report failed")
+
+
+def run_nightly(s: dict, args: argparse.Namespace, out: Path, config: str) -> tuple[bool, str]:
+    if s["kind"] == "montecarlo":
+        imperfections = str(repo_path(s["imperfections"]))
+        runs = ("--runs", str(s["runs"]), "--seed0", str(s["seed"]))
+        bench(
+            args,
+            "montecarlo",
+            "--config",
+            config,
+            "--imperfections",
+            imperfections,
+            *runs,
+            "--out",
+            str(out),
+        )
+    else:
+        bench(
+            args,
+            "sweep",
+            "--config",
+            config,
+            "--sweep",
+            str(repo_path(s["sweep"])),
+            "--out",
+            str(out),
+        )
+    summary = sensitivity.load_summary(out / "summary.csv")
+    if args.no_report:
+        # The tables need no matplotlib; only the PNGs are skipped.
+        sensitivity.write_tables(summary, thresholds_of(s), out / "report")
+    else:
+        sensitivity_report(s, out / "summary.csv", out)
+    if s["kind"] == "sweep":
+        produced = (out / "report/hardware_requirements.md").is_file()
+        return produced, f"{len(summary)} runs, report {'produced' if produced else 'missing'}"
+    rate = float(sensitivity.passes(summary, thresholds_of(s)).mean())
+    limit = float(s["thresholds"]["pass_rate"])
+    return rate >= limit, f"pass rate {rate:.4g} over {len(summary)} runs (limit {limit:g})"
+
+
 def judge_run(s: dict, csv: Path, out: Path, report: bool) -> tuple[bool, str]:
-    th = s["thresholds"]
-    keys = ("final_pos_err_m", "final_rot_err_deg", "rms_joint_err_rad")
     m = compute_metrics(load_run(csv), tau_max_of(s))
-    failures = check(m, Thresholds(*(float(th[k]) for k in keys)))
+    failures = check(m, thresholds_of(s))
     if report:
         # Imported here: the arm64 image has no matplotlib and runs with --no-report.
         from cobot_eval import report as report_mod
@@ -95,6 +149,8 @@ def run_scenario(s: dict, args: argparse.Namespace) -> tuple[bool, str]:
             return False, f"no p95_us in output: {text.strip()}"
         limit = float(s["thresholds"]["p95_step_us"])
         return float(match.group(1)) <= limit, f"{text.strip()} (limit p95 {limit:g} us)"
+    if s["kind"] in ("montecarlo", "sweep"):
+        return run_nightly(s, args, out, config)
     csvs = [out / f"run{k}.csv" for k in range(1, 3 if s["kind"] == "determinism" else 2)]
     for csv in csvs:
         imperfections = str(repo_path(s["imperfections"]))
@@ -140,7 +196,12 @@ def main(argv: list[str] | None = None) -> int:
     except (OSError, yaml.YAMLError) as err:
         print(f"error: {err}", file=sys.stderr)
         return 2
-    scenarios = [s for s in scenarios if args.tag is None or args.tag in s.get("tags", [])]
+    scenarios = [
+        s
+        for s in scenarios
+        if (args.tag in s.get("tags", []) if args.tag else "nightly" not in s.get("tags", []))
+        or args.scenario
+    ]
     if not scenarios:
         print("error: no scenario selected", file=sys.stderr)
         return 2
