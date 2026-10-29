@@ -227,8 +227,7 @@ FrictionPower drive_wrist(double qd_ref) {
       // Friction power at the end of the step (rectangle rule over the window).
       for (int i = 0; i < 7; ++i) {
         const double v = plant.qd()(i);
-        const double b =
-            fx.viscous_nm_s_rad(i) + arm.joints[static_cast<std::size_t>(i)].damping;
+        const double b = fx.viscous_nm_s_rad(i) + arm.joints[static_cast<std::size_t>(i)].damping;
         expected_energy += ((fx.coulomb_nm(i) * std::abs(v)) + (b * v * v)) * kDt;
       }
       sum_qd7 += plant.qd()(6);
