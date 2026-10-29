@@ -7,6 +7,7 @@
 #include "cobot/common/result.hpp"
 #include "cobot/common/types.hpp"
 #include "cobot/control/computed_torque.hpp"
+#include "cobot/control/friction_compensation.hpp"
 #include "cobot/imperfect/config.hpp"
 #include "cobot/planning/clik.hpp"
 
@@ -44,6 +45,7 @@ struct Config {
   TrajectoryConfig trajectory;
   planning::ClikConfig clik;
   control::ComputedTorqueGains<N> computed_torque;
+  control::FrictionCompensationConfig<N> friction_compensation;  // optional section: disabled
   SafetyConfig safety;
   std::filesystem::path log_output_dir = "results";
 };

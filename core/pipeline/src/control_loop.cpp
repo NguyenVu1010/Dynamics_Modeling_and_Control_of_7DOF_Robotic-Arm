@@ -44,6 +44,17 @@ bool outside_safe_set(const model::Model<N>& m, const JointState<N>& s, double s
   return false;
 }
 
+// tau + tau_ff clamped element-wise to [-tau_max, tau_max]. A non-finite sum stays non-finite,
+// so the loop still faults on it.
+template <int N>
+void add_clamped(const model::Model<N>& m, const common::VecN<N>& tau_ff, common::VecN<N>& tau) {
+  for (int i = 0; i < N; ++i) {
+    const double limit = m.joints[static_cast<std::size_t>(i)].tau_max;
+    const double t = tau(i) + tau_ff(i);
+    tau(i) = t > limit ? limit : (t < -limit ? -limit : t);
+  }
+}
+
 }  // namespace
 
 template <int N>
@@ -52,6 +63,7 @@ ControlLoop<N>::ControlLoop(const model::Model<N>& model, const Config<N>& confi
       config_(config),
       clik_(model, config.clik),
       computed_torque_(model, config.computed_torque),
+      friction_(config.friction_compensation),
       hold_(model, config.computed_torque) {}
 
 template <int N>
@@ -118,6 +130,7 @@ Status ControlLoop<N>::step(const JointState<N>& state, JointCommand<N>& out) {
     const double dt = 1.0 / config_.control_rate_hz;
     const planning::JointReference<N>& ref = clik_.step(x_d, dt);
     out = computed_torque_.compute(state, ref);
+    add_clamped(model_, friction_.torque(ref.qd), out.tau);
     record.q_ref = ref.q;
     record.qd_ref = ref.qd;
     if (t >= config_.trajectory.duration_s + config_.trajectory.hold_s) {
