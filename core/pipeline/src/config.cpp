@@ -78,10 +78,16 @@ class Reader {
     return {n.IsMap() ? n : YAML::Node(), full(label), *errors_};
   }
 
-  // True when `key` is present and not null, for optional sections; reports nothing.
-  bool has(const std::string& key) const {
+  // True when `key` is present and not null, for optional sections; reports nothing. A key
+  // present with a null value (`key:` or `key: ~`) counts as absent but is marked as read, so
+  // finish() does not call it unknown.
+  bool has(const std::string& key) {
     const YAML::Node& map = node_;  // const lookup never inserts the key
-    return node_.IsMap() && map[key].IsDefined() && !map[key].IsNull();
+    if (!node_.IsMap() || !map[key].IsDefined()) {
+      return false;
+    }
+    used_.insert(key);
+    return !map[key].IsNull();
   }
 
   Reader map(const std::string& key) {
@@ -271,7 +277,7 @@ void read_config(Reader& root, const fs::path& dir, Config<N>& c) {
   g.vector<N>("kp", kPositive, false, c.computed_torque.kp);
   g.vector<N>("kd", kPositive, false, c.computed_torque.kd);
 
-  // Optional: a missing section keeps the disabled defaults.
+  // Optional: a missing or empty (null) section keeps the disabled defaults.
   if (m.has("friction_compensation")) {
     Reader f = m.map("friction_compensation");
     control::FrictionCompensationConfig<N>& fc = c.friction_compensation;

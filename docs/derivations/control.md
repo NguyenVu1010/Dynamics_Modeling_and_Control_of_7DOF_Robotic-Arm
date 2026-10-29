@@ -124,6 +124,10 @@ với `c = coulomb_nm`, `b = viscous_nm_s_rad`, `ε = velocity_eps_rad_s` trong
 - Giá trị danh định trong `default.yaml` là 80 % ma sát của profile realistic: nhận dạng không
   bao giờ đúng tuyệt đối, và bù thiếu an toàn hơn bù thừa (bù thừa đổi dấu nhiễu, có thể gây
   dao động quanh điểm dừng). Phần 20 % còn lại vẫn do `k_p`, `k_d` xử lý.
+- `config/default.yaml` hiện để `enabled: false`: SimPlant chưa áp ma sát Coulomb ổn định trên
+  cổ tay (quán tính nhỏ, RK4 bước 1 ms), nên bù lúc này là đẩy ngược một lực ma sát không tồn tại
+  và E2E-02 hiện chạy không bù. Các giá trị 80 % đã đặt sẵn; bật lên khi plant được sửa.
+  Thiếu mục `friction_compensation` hoặc để trống (`friction_compensation:`) đều cho mặc định tắt.
 - Chỉ áp dụng ở chế độ tracking; hold và fault giữ nguyên. Profile ideal không có ma sát nên
   các kịch bản ideal (E2E-01, E2E-07) dùng `tests/e2e/configs/ideal_world.yaml` với
   `enabled: false`; bù khi plant không có ma sát là tự đưa nhiễu vào.
