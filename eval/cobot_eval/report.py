@@ -2,6 +2,7 @@
 
 Usage: python -m cobot_eval.report --csv RUN.csv --urdf URDF --thresholds YAML --out DIR
        [--t-eval S] [--title T]
+stop_pos_err_m is read from the waypoint keys of `<csv>.meta.yaml` when that file exists.
 Exit code: 0 all thresholds pass, 1 a threshold fails, 2 bad input.
 """
 
@@ -24,6 +25,7 @@ from cobot_eval.metrics import (  # noqa: E402
     checked_values,
     compute_metrics,
     joint_array,
+    load_meta,
     load_run,
     read_tau_max,
     task_errors,
@@ -49,6 +51,11 @@ def load_thresholds(path: Path) -> Thresholds:
             raise ValueError(f"{path}: threshold {key} is not a number") from err
         if not math.isfinite(parsed[key]):
             raise ValueError(f"{path}: threshold {key} is not finite")
+    if values.get("stop_pos_err_m") is not None:  # optional (waypoint scenarios)
+        try:
+            parsed["stop_pos_err_m"] = float(values["stop_pos_err_m"])
+        except (TypeError, ValueError) as err:
+            raise ValueError(f"{path}: threshold stop_pos_err_m is not a number") from err
     return Thresholds(**parsed)
 
 
@@ -68,6 +75,8 @@ def render_markdown(title: str, csv: Path, m: RunMetrics, th: Thresholds) -> str
         "| --- | --- | --- | --- |",
     ]
     lines += [f"| {name} | {v:.6g} | {t:.6g} | {_verdict(within(v, t))} |" for name, v, t in rows]
+    if th.stop_pos_err_m is None and m.stop_pos_err_m is not None:
+        lines.append(f"| stop_pos_err_m | {m.stop_pos_err_m:.6g} | | |")
     lines += [
         f"| final_rot_err_rad | {m.final_rot_err_rad:.6g} | | |",
         f"| peak_tau_ratio | {m.peak_tau_ratio:.4g} | | |",
@@ -140,7 +149,7 @@ def main(argv: list[str] | None = None) -> int:
         df = load_run(args.csv)
         tau_max = read_tau_max(args.urdf)
         thresholds = load_thresholds(args.thresholds)
-        metrics = compute_metrics(df, tau_max, args.t_eval)
+        metrics = compute_metrics(df, tau_max, args.t_eval, load_meta(args.csv))
     except (OSError, ValueError, yaml.YAMLError, pd.errors.ParserError) as err:
         print(f"error: {err}", file=sys.stderr)
         return EXIT_BAD_INPUT

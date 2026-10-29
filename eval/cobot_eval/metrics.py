@@ -9,11 +9,15 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import yaml
 
 ERROR_MODES = ("tracking", "finished")
 SAT_FRACTION = 0.999
 _JOINT_PREFIXES = ("q", "qd", "qref", "qdref", "tau")
 _TASK_COLUMNS = ("px", "py", "pz", "rx", "ry", "rz", "pdx", "pdy", "pdz", "rdx", "rdy", "rdz")
+# Meta keys written by `cobot_bench run --waypoints` and the settle time after a stop node.
+WAYPOINT_META_KEYS = ("waypoint_node_times_s", "waypoint_stop", "waypoint_positions_m")
+STOP_SETTLE_S = 0.2
 
 
 def run_columns(n: int) -> list[str]:
@@ -61,6 +65,7 @@ class RunMetrics:
     sat_time_s: float
     held: bool
     final_t_s: float
+    stop_pos_err_m: float | None = None  # None: the run has no waypoint meta keys
 
 
 @dataclass(frozen=True)
@@ -68,6 +73,7 @@ class Thresholds:
     final_pos_err_m: float
     final_rot_err_deg: float
     rms_joint_err_rad: float
+    stop_pos_err_m: float | None = None  # optional; when set the metric must be computed
 
 
 def joint_count(df: pd.DataFrame) -> int:
@@ -119,8 +125,38 @@ def _row_durations_s(t_ns: np.ndarray) -> np.ndarray:
     return np.append(dt, dt[-1])
 
 
+def load_meta(csv: Path) -> dict | None:
+    """Parsed `<csv>.meta.yaml` written next to a Run CSV by cobot_bench, None without one."""
+    path = csv.with_name(csv.name + ".meta.yaml")
+    if not path.is_file():
+        return None
+    meta = yaml.safe_load(path.read_text(encoding="utf-8"))
+    return meta if isinstance(meta, dict) else None
+
+
+def stop_pos_err_m(df: pd.DataFrame, meta: dict | None) -> float | None:
+    """Max over the stop waypoints of |p_tip - waypoint position| (m), the tip read from the row
+    nearest to the node time + STOP_SETTLE_S (the last row past the end). `meta` is the parsed
+    `<run.csv>.meta.yaml` of `cobot_bench run --waypoints`; None when a waypoint key is missing
+    or no waypoint stops."""
+    if not isinstance(meta, dict) or any(k not in meta for k in WAYPOINT_META_KEYS):
+        return None
+    times, stops, targets = (meta[k] for k in WAYPOINT_META_KEYS)
+    t_s = df["t_ns"].to_numpy(dtype=float) * 1e-9
+    p = _cols(df, ["px", "py", "pz"])
+    errors = []
+    for t_node, stop, target in zip(times, stops, targets, strict=True):
+        if stop:
+            k = int(np.argmin(np.abs(t_s - (float(t_node) + STOP_SETTLE_S))))
+            errors.append(float(np.linalg.norm(p[k] - np.asarray(target, dtype=float))))
+    return float(np.max(errors)) if errors else None  # np.max keeps a NaN
+
+
 def compute_metrics(
-    df: pd.DataFrame, tau_max: Sequence[float], t_eval_s: float | None = None
+    df: pd.DataFrame,
+    tau_max: Sequence[float],
+    t_eval_s: float | None = None,
+    meta: dict | None = None,
 ) -> RunMetrics:
     n = joint_count(df)
     limits = np.asarray(tau_max, dtype=float)
@@ -158,6 +194,7 @@ def compute_metrics(
         sat_time_s=float(_row_durations_s(t_ns)[saturated].sum()),
         held=bool(np.any(mode == "holding")),
         final_t_s=float(t_ns[k]) * 1e-9,
+        stop_pos_err_m=stop_pos_err_m(df, meta),
     )
 
 
@@ -167,8 +204,9 @@ def within(value: float, threshold: float) -> bool:
 
 
 def checked_values(metrics: RunMetrics, thresholds: Thresholds) -> list[tuple[str, float, float]]:
-    """(name, value, threshold) for each thresholded metric, in report order."""
-    return [
+    """(name, value, threshold) for each thresholded metric, in report order. A stop threshold
+    with no computed metric checks NaN, so it fails."""
+    values = [
         ("final_pos_err_m", metrics.final_pos_err_m, thresholds.final_pos_err_m),
         (
             "final_rot_err_deg",
@@ -177,6 +215,12 @@ def checked_values(metrics: RunMetrics, thresholds: Thresholds) -> list[tuple[st
         ),
         ("rms_joint_err_rad", metrics.rms_joint_err_rad, thresholds.rms_joint_err_rad),
     ]
+    if thresholds.stop_pos_err_m is not None:
+        stop = metrics.stop_pos_err_m
+        values.append(
+            ("stop_pos_err_m", math.nan if stop is None else stop, thresholds.stop_pos_err_m)
+        )
+    return values
 
 
 def check(metrics: RunMetrics, thresholds: Thresholds) -> list[str]:
