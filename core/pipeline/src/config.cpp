@@ -265,7 +265,24 @@ void read_pose(Reader& r, common::Pose& out) {
   }
 }
 
-// The optional sections of feature `loop-external`: a missing (or null) one keeps its default.
+// Reads `key` of `r` into `out` only when present (and not null); otherwise `out` keeps its default.
+void optional_number(Reader& r, const std::string& key, const Rule& rule, double& out) {
+  if (r.has(key)) {
+    r.number(key, rule, out);
+  }
+}
+
+// An angle given in degrees under `key`, stored in rad; absent keeps the default.
+void optional_degrees(Reader& r, const std::string& key, double& out_rad) {
+  if (r.has(key)) {
+    double deg = 0.0;  // stays 0 (not > 0) when the value is rejected
+    r.number(key, kPositive, deg);
+    out_rad = deg > 0.0 ? deg * kDegToRad : out_rad;
+  }
+}
+
+// The optional sections of feature `loop-external`: a missing (or null) section or sub-key keeps
+// its default.
 template <int N>
 void read_external(Reader& m, Config<N>& c) {
   if (m.has("command_source")) {
@@ -279,10 +296,10 @@ void read_external(Reader& m, Config<N>& c) {
   }
   if (m.has("cartesian_limits")) {
     Reader l = m.map("cartesian_limits");
-    l.number("v_max_m_s", kPositive, c.cartesian_limits.v_max_m_s);
-    l.number("a_max_m_s2", kPositive, c.cartesian_limits.a_max_m_s2);
-    l.number("w_max_rad_s", kPositive, c.cartesian_limits.w_max_rad_s);
-    l.number("alpha_max_rad_s2", kPositive, c.cartesian_limits.alpha_max_rad_s2);
+    optional_number(l, "v_max_m_s", kPositive, c.cartesian_limits.v_max_m_s);
+    optional_number(l, "a_max_m_s2", kPositive, c.cartesian_limits.a_max_m_s2);
+    optional_number(l, "w_max_rad_s", kPositive, c.cartesian_limits.w_max_rad_s);
+    optional_number(l, "alpha_max_rad_s2", kPositive, c.cartesian_limits.alpha_max_rad_s2);
     l.finish();
   }
   if (m.has("stop_time_s")) {
@@ -290,21 +307,31 @@ void read_external(Reader& m, Config<N>& c) {
   }
   if (m.has("tcp_offset")) {
     Reader t = m.map("tcp_offset");
-    read_pose(t, c.tcp_offset.T_tip_tcp);
+    common::Pose& tcp = c.tcp_offset.T_tip_tcp;
+    if (t.has("position_m")) {
+      Vec3 p = Vec3::Constant(std::nan(""));
+      t.vector<3>("position_m", kAny, false, p);
+      if (p.allFinite()) {
+        tcp.p = p;
+      }
+    }
+    if (t.has("rpy_deg")) {
+      Vec3 rpy = Vec3::Constant(std::nan(""));
+      t.vector<3>("rpy_deg", kAny, false, rpy);
+      if (rpy.allFinite()) {
+        tcp.R = rpy_matrix(rpy * kDegToRad);
+      }
+    }
     t.finish();
   }
   if (m.has("path_validation")) {
     Reader v = m.map("path_validation");
     ValidationLimits& pv = c.path_validation;
-    v.number("reach_pos_m", kPositive, pv.reach_pos_m);
-    double deg = 0.0;
-    v.number("reach_rot_deg", kPositive, deg);
-    pv.reach_rot_rad = deg > 0.0 ? deg * kDegToRad : pv.reach_rot_rad;
-    deg = 0.0;
-    v.number("joint_margin_deg", kPositive, deg);
-    pv.joint_margin_rad = deg > 0.0 ? deg * kDegToRad : pv.joint_margin_rad;
-    v.number("torque_ratio", kPositive, pv.torque_ratio);
-    v.number("max_stretch", kPositive, pv.max_stretch);
+    optional_number(v, "reach_pos_m", kPositive, pv.reach_pos_m);
+    optional_degrees(v, "reach_rot_deg", pv.reach_rot_rad);
+    optional_degrees(v, "joint_margin_deg", pv.joint_margin_rad);
+    optional_number(v, "torque_ratio", kPositive, pv.torque_ratio);
+    optional_number(v, "max_stretch", kPositive, pv.max_stretch);
     v.finish();
   }
 }

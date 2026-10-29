@@ -302,8 +302,15 @@ Status ControlLoop<N>::reset(const JointState<N>& state) {
   if (!state_finite(state)) {
     return Status::error("reset: non-finite state");
   }
+  // The stamp must be fresh by the same rule step() uses: not older than the newest one seen, and
+  // a repeated newest stamp only while the periods spent on it stay within hal_timeout_s (a frozen
+  // HAL is the cause of the hold, not a reason to leave it).
   if (state.t < t_last_) {
     return Status::error("reset: stale state (older than the newest stamp seen)");
+  }
+  if (state.t == t_last_ &&
+      static_cast<double>(stale_steps_) / config_.control_rate_hz > config_.safety.hal_timeout_s) {
+    return Status::error("reset: stale state (HAL stamp not advancing)");
   }
   for (int i = 0; i < N; ++i) {
     const model::JointParams& j = model_.joints[static_cast<std::size_t>(i)];
@@ -319,6 +326,8 @@ Status ControlLoop<N>::reset(const JointState<N>& state) {
   kinematics::forward_kinematics(model_, state.q, fk);
   clik_.reset(state.q);
   q_last_finite_ = state.q;
+  t_last_ = state.t;
+  stale_steps_ = 0;
   enter_standby(fk.T_b_e);
   return Status::ok();
 }

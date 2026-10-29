@@ -68,7 +68,8 @@ struct Config {
   double stop_time_s = 0.5;                    // > 0, duration of the request_stop() ramp
   TcpOffset tcp_offset;
   // YAML {reach_pos_m, reach_rot_deg, joint_margin_deg, torque_ratio, max_stretch}; dt_s and
-  // path_sample_dt_s keep their defaults.
+  // path_sample_dt_s keep their defaults. In every new section each sub-key is optional too: a
+  // partial section (`cartesian_limits: {v_max_m_s: 0.3}`) keeps the defaults of the others.
   ValidationLimits path_validation;
 };
 
