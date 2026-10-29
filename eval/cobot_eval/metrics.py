@@ -15,7 +15,7 @@ ERROR_MODES = ("tracking", "finished")
 SAT_FRACTION = 0.999
 _JOINT_PREFIXES = ("q", "qd", "qref", "qdref", "tau")
 _TASK_COLUMNS = ("px", "py", "pz", "rx", "ry", "rz", "pdx", "pdy", "pdz", "rdx", "rdy", "rdz")
-# Meta keys written by `cobot_bench run --waypoints` and the settle time after a stop node.
+# Meta keys written by `cobot_bench run --waypoints` and the settle window after a stop node.
 WAYPOINT_META_KEYS = ("waypoint_node_times_s", "waypoint_stop", "waypoint_positions_m")
 STOP_SETTLE_S = 0.2
 
@@ -135,10 +135,16 @@ def load_meta(csv: Path) -> dict | None:
 
 
 def stop_pos_err_m(df: pd.DataFrame, meta: dict | None) -> float | None:
-    """Max over the stop waypoints of |p_tip - waypoint position| (m), the tip read from the row
-    nearest to the node time + STOP_SETTLE_S (the last row past the end). `meta` is the parsed
-    `<run.csv>.meta.yaml` of `cobot_bench run --waypoints`; None when a waypoint key is missing
-    or no waypoint stops."""
+    """Max over the stop waypoints of the closest approach of the tip to the waypoint position (m):
+    min of |p_tip - p_waypoint| over the rows from the one nearest the node time to the one nearest
+    node time + STOP_SETTLE_S (the last row past the end), both included.
+
+    The minimum over a window, not one row after the settle time: the trajectory does not dwell at
+    an intermediate stop (zero velocity at the node, then the next segment starts), so the row
+    STOP_SETTLE_S later holds planned departure, not tracking error. At the last waypoint the arm
+    rests and the window gives it the settle time. A NaN tip in the window gives NaN (fails).
+    `meta` is the parsed `<run.csv>.meta.yaml` of `cobot_bench run --waypoints`; None when a
+    waypoint key is missing or no waypoint stops."""
     if not isinstance(meta, dict) or any(k not in meta for k in WAYPOINT_META_KEYS):
         return None
     times, stops, targets = (meta[k] for k in WAYPOINT_META_KEYS)
@@ -147,8 +153,10 @@ def stop_pos_err_m(df: pd.DataFrame, meta: dict | None) -> float | None:
     errors = []
     for t_node, stop, target in zip(times, stops, targets, strict=True):
         if stop:
-            k = int(np.argmin(np.abs(t_s - (float(t_node) + STOP_SETTLE_S))))
-            errors.append(float(np.linalg.norm(p[k] - np.asarray(target, dtype=float))))
+            k0 = int(np.argmin(np.abs(t_s - float(t_node))))
+            k1 = int(np.argmin(np.abs(t_s - (float(t_node) + STOP_SETTLE_S))))
+            gaps = np.linalg.norm(p[k0 : k1 + 1] - np.asarray(target, dtype=float), axis=1)
+            errors.append(float(np.min(gaps)))  # np.min keeps a NaN
     return float(np.max(errors)) if errors else None  # np.max keeps a NaN
 
 

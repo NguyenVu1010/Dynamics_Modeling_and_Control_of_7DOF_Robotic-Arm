@@ -56,6 +56,8 @@ def load_thresholds(path: Path) -> Thresholds:
             parsed["stop_pos_err_m"] = float(values["stop_pos_err_m"])
         except (TypeError, ValueError) as err:
             raise ValueError(f"{path}: threshold stop_pos_err_m is not a number") from err
+        if not math.isfinite(parsed["stop_pos_err_m"]):
+            raise ValueError(f"{path}: threshold stop_pos_err_m is not finite")
     return Thresholds(**parsed)
 
 

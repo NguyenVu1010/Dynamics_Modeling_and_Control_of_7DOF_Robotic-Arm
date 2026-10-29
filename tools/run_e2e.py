@@ -20,6 +20,7 @@ fails, 2 bad arguments.
 """
 
 import argparse
+import math
 import os
 import re
 import signal
@@ -81,10 +82,14 @@ def bench(args: argparse.Namespace, *cmd: str) -> subprocess.CompletedProcess:
 def thresholds_of(s: dict) -> Thresholds:
     th = s["thresholds"]
     stop = th.get("stop_pos_err_m")  # optional: judged from the run's meta file
-    return Thresholds(
+    parsed = Thresholds(
         *(float(th[k]) for k in THRESHOLD_KEYS),
         stop_pos_err_m=None if stop is None else float(stop),
     )
+    for key, value in vars(parsed).items():
+        if value is not None and not math.isfinite(value):
+            raise ValueError(f"{s.get('id', '?')}: threshold {key} is not finite")
+    return parsed
 
 
 def sensitivity_report(s: dict, summary: Path, out: Path) -> None:
