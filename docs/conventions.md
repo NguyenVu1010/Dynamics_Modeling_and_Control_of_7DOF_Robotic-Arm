@@ -49,6 +49,15 @@ order in a comment at every construction site.
   obtained with `to_seconds`. Never compare floating-point times.
 - Gravity is `[0, 0, -9.80665]` m/s² in `b` (`gravity_b` in YAML).
 
+## Configuration files
+
+`config/default.yaml` configures the controller (including friction compensation);
+`config/imperfections/*.yaml` describe the environment (sensors, motors, friction, model
+mismatch, timing, seed). Which file holds what, how to pick a profile for bench
+(`--imperfections`) and Gazebo (`imperfections_path:=`, default `realistic.yaml`) and how to
+make a custom one: README, section "Environment configuration". On the Gazebo path the profile's
+friction is written into each arm joint's `<dynamics friction damping>` (ADR-011).
+
 ## Model and fixed-joint merge
 
 `Model<N>` holds `N` revolute joints. For each joint: `T_parent_joint`, axis, limits
@@ -57,7 +66,9 @@ kg m², from the non-standard child element `<cobot_armature value="..."/>`, 0 w
 each child link: mass `m`, centre of mass `c` in the link frame, inertia `I_c` about the centre
 of mass in the link frame. Gazebo ignores `<cobot_armature>`, so its plant uses
 `sim/urdf/cobot30_5_gazebo.urdf`, where each armature is folded into the child link's inertia
-as a rotor disc about the joint axis (`tools/fix_urdf_inertia.py --gazebo-out`).
+as a rotor disc about the joint axis (`tools/fix_urdf_inertia.py --gazebo-out`), and whose
+joint `<dynamics>` come from the xacro args `joint_<i>_friction` / `joint_<i>_damping` (default
+0; the URDF's nominal damping is not used there).
 
 Fixed joints are merged into the parent link when the URDF is loaded:
 

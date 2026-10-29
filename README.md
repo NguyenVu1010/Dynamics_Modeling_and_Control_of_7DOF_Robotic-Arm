@@ -119,9 +119,32 @@ tools/wsl/sim.sh smoke             # headless Gazebo, 20 s
 The real controller in Gazebo (after `sim.sh build` and sourcing its `install/setup.bash`):
 
 ```bash
-ros2 launch cobot_sim sim.launch.py controller:=cobot_controller [gui:=true]   [config_path:=config/default.yaml] [imperfections_path:=config/imperfections/realistic.yaml]   [log_path:=results/<run-id>/run.csv]
-python tools/run_e2e.py --all --tag gazebo --out results/e2e-gazebo   # E2E-07
+ros2 launch cobot_sim sim.launch.py controller:=cobot_controller [gui:=true]   [config_path:=config/default.yaml] [imperfections_path:=config/imperfections/realistic.yaml]   [seed:=7] [log_path:=results/<run-id>/run.csv]
+python tools/run_e2e.py --all --tag gazebo --out results/e2e-gazebo   # E2E-07, E2E-09
 ```
+
+## Environment configuration
+
+Two kinds of YAML file, kept apart:
+
+| File | Holds |
+| --- | --- |
+| `config/default.yaml` | the controller: URDF path, rate, trajectory, CLIK, computed-torque gains, friction compensation, safety |
+| `config/imperfections/*.yaml` | the environment (the robot as it really is): sensors, motors, friction, model mismatch, timing, seed |
+
+Profiles: `ideal.yaml` (perfect robot), `realistic.yaml` (typical industrial servo, the
+default), `pessimistic.yaml`. Every group in a profile names the source of its numbers.
+
+- bench: `cobot_bench run --config config/default.yaml --imperfections config/imperfections/realistic.yaml [--seed N] --out run.csv`
+- Gazebo: `ros2 launch cobot_sim sim.launch.py controller:=cobot_controller imperfections_path:=<profile> [seed:=N]`;
+  without `imperfections_path` the realistic profile applies. Sensor and motor effects go
+  through the controller's imperfect joint interface; friction goes into the physics (each
+  joint's `<dynamics friction damping>`); model mismatch is emulated by perturbing the
+  controller's model. `payload_kg` must be 0 on this path and timing jitter is ignored
+  ([ADR-011](docs/adr/011-simulation.md)).
+- Custom profile: copy `config/imperfections/realistic.yaml`, change the values (a scalar
+  applies to every joint, a 7-element list sets each joint), update the `source` lines, and
+  pass the new file to `--imperfections` or `imperfections_path:=`.
 
 ## Test levels
 
@@ -138,6 +161,7 @@ Unit and known-answer component tests cover every module. End-to-end scenarios l
 | E2E-06 | one-factor sensitivity sweep, report + hardware requirement table | report generated | nightly, manual |
 | E2E-07 | headless Gazebo, real controller through `gz_ros2_control`, `ideal` | G3 | every PR |
 | E2E-08 | arm64 (Pi 5) container under QEMU: build, unit, E2E-01..04 | pass | every PR |
+| E2E-09 | headless Gazebo, real controller, `realistic`, seed 7 (friction in the physics) | 5 mm, 2°, 0.02 rad | every PR |
 | PF-01 | `ControlLoop` step time | p50/p95 reported; p95 < 1 ms on CI, 200 µs measured on desktop | every PR |
 
 ## Documentation

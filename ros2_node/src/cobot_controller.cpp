@@ -8,10 +8,19 @@
 // and the loop would hold on the stale stamp. A writer thread drains the log ring into the Run
 // CSV at `log_path` (default: results/<run-id>/run.csv under the working directory); `~/status`
 // carries the loop mode.
+//
+// Imperfections on the Gazebo path (ADR-011, feature gazebo-realism): sensor and actuator
+// effects apply through ImperfectJointInterface; friction is applied by the physics engine
+// (sim.launch.py writes the profile's friction into the joints' <dynamics>), so the interface
+// gets the profile with friction zeroed; model mismatch is emulated by giving the controller
+// perturb_model(nominal) instead of perturbing the plant (same size of error, opposite sign);
+// payload_kg cannot be emulated that way and is rejected; timing jitter has no meaning on the
+// sim clock and is ignored with a warning. `seed` >= 0 overrides the profile's seed.
 #include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <ctime>
 #include <exception>
 #include <filesystem>
@@ -29,6 +38,7 @@
 
 #include "cobot/common/logger.hpp"
 #include "cobot/imperfect/imperfect_joint_interface.hpp"
+#include "cobot/imperfect/perturb.hpp"
 #include "cobot/model/model.hpp"
 #include "cobot/pipeline/control_loop.hpp"
 
@@ -179,7 +189,9 @@ class CobotController final : public ci::ControllerInterface {
       cobot::common::set_logger(&g_logger);
       const std::string share = ament_index_cpp::get_package_share_directory("cobot_ros2");
       auto_declare<std::string>("config_path", share + "/config/default.yaml");
-      auto_declare<std::string>("imperfections_path", share + "/config/imperfections/ideal.yaml");
+      auto_declare<std::string>("imperfections_path",
+                                share + "/config/imperfections/realistic.yaml");
+      auto_declare<std::int64_t>("seed", -1);  // < 0: the profile's seed
       auto_declare<std::vector<std::string>>("joints", {});
       auto_declare<std::string>("log_path", "");  // empty: <cwd>/results/<run-id>/run.csv
     } catch (const std::exception& e) {
@@ -195,6 +207,7 @@ class CobotController final : public ci::ControllerInterface {
     log_path_ = get_node()->get_parameter("log_path").as_string();
     const std::string config_path = get_node()->get_parameter("config_path").as_string();
     const std::string imp_path = get_node()->get_parameter("imperfections_path").as_string();
+    const std::int64_t seed = get_node()->get_parameter("seed").as_int();
     if (joints_.size() != static_cast<std::size_t>(kN)) {
       RCLCPP_ERROR(log, "joints: expected %d names, got %zu", kN, joints_.size());
       return CallbackReturn::ERROR;
@@ -208,6 +221,26 @@ class CobotController final : public ci::ControllerInterface {
       return CallbackReturn::ERROR;
     }
     const cobot::pipeline::Config<kN>& c = config.value();
+    cobot::imperfect::ImperfectionConfig<kN> profile = imp.value();
+    if (seed >= 0) {
+      profile.seed = static_cast<std::uint64_t>(seed);
+    }
+    if (profile.model.payload_kg != 0.0) {
+      RCLCPP_ERROR(log,
+                   "%s: imperfections.model.payload_kg = %g is not supported on the Gazebo path "
+                   "(model perturbation cannot emulate a payload); set it to 0",
+                   imp_path.c_str(),
+                   profile.model.payload_kg);
+      return CallbackReturn::ERROR;
+    }
+    if (profile.timing.period_jitter_std_us != 0.0) {
+      RCLCPP_WARN(log,
+                  "%s: imperfections.timing.period_jitter_std_us = %g ignored on the Gazebo path "
+                  "(the sim clock has no jitter)",
+                  imp_path.c_str(),
+                  profile.timing.period_jitter_std_us);
+    }
+    profile.friction = cobot::imperfect::FrictionConfig<kN>{};  // in the physics (<dynamics>)
     const cobot::common::Result<cobot::model::UrdfChain> chain =
         cobot::model::parse_urdf_chain(c.urdf_path, c.base_link, c.tip_link);
     const cobot::common::Result<cobot::model::Arm7> arm =
@@ -218,9 +251,11 @@ class CobotController final : public ci::ControllerInterface {
       return CallbackReturn::ERROR;
     }
     try {
-      loop_ = std::make_unique<cobot::pipeline::ControlLoop<kN>>(arm.value(), c);
+      // Model mismatch: the controller's model is perturbed instead of the plant.
+      loop_ = std::make_unique<cobot::pipeline::ControlLoop<kN>>(
+          cobot::imperfect::perturb_model(arm.value(), profile.model, profile.seed), c);
       io_ = std::make_unique<cobot::imperfect::ImperfectJointInterface<kN>>(
-          ros_io_, imp.value(), 1.0 / c.control_rate_hz, true);
+          ros_io_, profile, 1.0 / c.control_rate_hz, true);
       status_pub_ = get_node()->create_publisher<std_msgs::msg::String>(
           "~/status", rclcpp::SystemDefaultsQoS());
       status_rt_ = std::make_unique<StatusPublisher>(status_pub_);
@@ -238,8 +273,11 @@ class CobotController final : public ci::ControllerInterface {
     }
     period_ns_ = std::llround(1e9 / c.control_rate_hz);
     status_every_ = std::max<std::int64_t>(1, std::llround(c.control_rate_hz / kStatusRateHz));
-    RCLCPP_INFO(
-        log, "configured: config %s, imperfections %s", config_path.c_str(), imp_path.c_str());
+    RCLCPP_INFO(log,
+                "configured: config %s, imperfections %s, seed %llu",
+                config_path.c_str(),
+                imp_path.c_str(),
+                static_cast<unsigned long long>(profile.seed));
     return CallbackReturn::SUCCESS;
   }
 

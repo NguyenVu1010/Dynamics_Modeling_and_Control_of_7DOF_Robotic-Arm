@@ -53,3 +53,26 @@ có jitter topic. Đổi lại, kết quả Gazebo phụ thuộc bộ giải v�
 ## Kết quả MVP (2026-10-29)
 
 E2E-07 đạt trên Gazebo Harmonic 8 qua gz_ros2_control, giao tiếp effort, bước 1 ms: sai số vị trí cuối 0.000 mm, RMS khớp 3.7e-6 rad. Chạy 17 s thời gian mô phỏng mất khoảng 23 s thời gian thực trong WSL. Job CI gazebo chạy trong image ros:jazzy. Vẫn chờ bàn: có cần thêm kịch bản Gazebo với nhiễu (hiện chỉ có profile ideal) hay không.
+
+## Cập nhật (2026-10-29): Gazebo có nhiễu
+
+Gazebo chạy với profile môi trường như bench, mặc định `config/imperfections/realistic.yaml`
+(tham số `imperfections_path` của launch và của controller), thêm tham số launch `seed` (mặc
+định: seed trong file). Kịch bản E2E-09: Gazebo, `config/default.yaml` (bù ma sát bật), profile
+realistic, seed 7, ngưỡng như E2E-02.
+
+- Cảm biến và động cơ: `ImperfectJointInterface(apply_plant_effects=true)` bọc giao tiếp
+  `gz_ros2_control` trong controller, như trước.
+- Ma sát: đưa vào bộ giải vật lý, không cộng thành mô-men từ `qd` đo ở 1 kHz (phản hồi hiện
+  cứng, đúng lỗi đã gặp ở SimPlant). Launch đọc `imperfections.friction` của profile và truyền
+  xacro arg `joint_<i>_friction` (Coulomb, N m) và `joint_<i>_damping` (nhớt, N m s/rad) vào
+  `<dynamics>` của từng khớp (mặc định 0; DART xử lý ma sát Coulomb của khớp như một ràng
+  buộc). Controller đưa cho `ImperfectJointInterface` bản sao profile với ma sát bằng 0 (không
+  đổi chữ ký nào). Damping danh định 0.003 N m s/rad của URDF không còn trong plant Gazebo; mô
+  hình của controller vẫn giữ nó (sai lệch 0.003 qd, nhỏ hơn độ phân giải mô-men).
+- Sai lệch mô hình: plant Gazebo là URDF, nên controller nhận `perturb_model(nominal, mismatch,
+  seed)` thay cho mô hình danh định. Tương đương bench về độ lớn sai số, ngược dấu; sweep trên
+  bench vẫn là tham chiếu. `payload_kg != 0` không mô phỏng được theo cách này: configure báo lỗi
+  nêu `imperfections.model.payload_kg` và "not supported on the Gazebo path".
+- Jitter chu kỳ: không có nghĩa trên đồng hồ mô phỏng; `timing.period_jitter_std_us != 0` chỉ
+  sinh một cảnh báo lúc configure và bị bỏ qua.

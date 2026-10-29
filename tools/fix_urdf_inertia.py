@@ -9,7 +9,9 @@ output changes nothing.
 
 With --gazebo-out it also writes the Gazebo plant variant of OUT (see gazebo_urdf): Gazebo
 ignores <cobot_armature>, so the variant folds each joint's armature into the inertia of the
-joint's child link about the joint axis instead.
+joint's child link about the joint axis instead, and its revolute joints take their
+<dynamics friction damping> from the xacro args joint_<i>_friction and joint_<i>_damping
+(the variant is only read through sim/urdf/cobot30_5.urdf.xacro, which declares them).
 
 Usage: python tools/fix_urdf_inertia.py --in IN.urdf --budget BUDGET.yaml --out OUT.urdf
        [--gazebo-out GAZEBO.urdf]
@@ -132,12 +134,23 @@ def gazebo_urdf(model: Path, out: Path) -> None:
     It is an approximation: in the plant the disc also moves with the joints above, so it enters
     their mass-matrix rows (the a / 2 terms most) and the Coriolis terms, while a real rotor's
     reflected inertia acts on joint i only. The controller model (`model`) is not changed.
+
+    Every revolute joint's <dynamics> becomes friction="$(arg <joint>_friction)"
+    damping="$(arg <joint>_damping)": the launch fills them from the imperfection profile, so
+    the physics engine applies the plant's joint friction (feature gazebo-realism).
     """
     tree = ET.parse(model)
     root = tree.getroot()
     links = {link.get("name"): link for link in root.findall("link")}
     for joint in root.findall("joint"):
         name = joint.get("name")
+        if joint.get("type") == "revolute":
+            dyn = joint.find("dynamics")
+            if dyn is None:
+                dyn = ET.SubElement(joint, "dynamics")
+            dyn.attrib.clear()
+            dyn.set("damping", f"$(arg {name}_damping)")
+            dyn.set("friction", f"$(arg {name}_friction)")
         arm = joint.find(ARMATURE_TAG)
         if arm is None:
             continue
