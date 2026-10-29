@@ -152,7 +152,7 @@ def compute_metrics(
     return RunMetrics(
         final_pos_err_m=float(pos[0]),
         final_rot_err_rad=float(rot[0]),
-        rms_joint_err_rad=max(per_joint),
+        rms_joint_err_rad=float(np.max(per_joint)),  # np.max keeps a NaN on any joint
         rms_joint_err_per_joint_rad=per_joint,
         peak_tau_ratio=float(ratio.max()),
         sat_time_s=float(_row_durations_s(t_ns)[saturated].sum()),

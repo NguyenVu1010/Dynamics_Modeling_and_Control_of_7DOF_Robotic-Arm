@@ -87,8 +87,13 @@ class Metrics {
       final_e_ = r.T_b_e;
       final_d_ = r.T_b_d;
     }
-    const double ratio = (r.tau.cwiseAbs().array() / tau_max_.array()).maxCoeff();
-    s_.peak_tau_ratio = std::max(s_.peak_tau_ratio, ratio);
+    // PropagateNaN and the explicit isnan keep a NaN torque visible in the summary
+    // (std::max and the default maxCoeff may drop it).
+    const double ratio =
+        (r.tau.cwiseAbs().array() / tau_max_.array()).maxCoeff<Eigen::PropagateNaN>();
+    if (std::isnan(ratio) || ratio > s_.peak_tau_ratio) {
+      s_.peak_tau_ratio = std::isnan(s_.peak_tau_ratio) ? s_.peak_tau_ratio : ratio;
+    }
     prev_sat_ = ratio >= kSatFraction;
     prev_t_ns_ = r.t.ns;
     ++rows_;
@@ -106,7 +111,7 @@ class Metrics {
     s.final_rot_err_rad = common::so3_log(final_d_.R * final_e_.R.transpose()).norm();
     if (error_rows_ > 0) {
       const Vec mean_sq = sum_sq_ / static_cast<double>(error_rows_);
-      s.rms_joint_err_rad = mean_sq.cwiseSqrt().maxCoeff();
+      s.rms_joint_err_rad = mean_sq.cwiseSqrt().maxCoeff<Eigen::PropagateNaN>();
     }
     const std::int64_t sat_ns = sat_ns_ + (prev_sat_ && rows_ > 1 ? last_dt_ns_ : 0);
     s.sat_time_s = static_cast<double>(sat_ns) / static_cast<double>(common::kNanosecondsPerSecond);
