@@ -265,7 +265,8 @@ void read_pose(Reader& r, common::Pose& out) {
   }
 }
 
-// Reads `key` of `r` into `out` only when present (and not null); otherwise `out` keeps its default.
+// Reads `key` of `r` into `out` only when present (and not null); otherwise `out` keeps its
+// default.
 void optional_number(Reader& r, const std::string& key, const Rule& rule, double& out) {
   if (r.has(key)) {
     r.number(key, rule, out);
