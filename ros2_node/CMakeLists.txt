@@ -34,6 +34,8 @@ pluginlib_export_plugin_description_file(controller_interface cobot_ros2.xml)
 install(TARGETS ${PROJECT_NAME} LIBRARY DESTINATION lib)
 # Default parameters: share/cobot_ros2/config/default.yaml, whose urdf_path
 # (../sim/urdf/cobot30_5.urdf) resolves to the installed copy of the URDF.
+# Its log.output_dir is not used: without log_path the CSV goes to results/<run-id>/run.csv
+# under the working directory of the controller manager (ADR-012).
 install(DIRECTORY "${COBOT_REPO_ROOT}/config" DESTINATION share/${PROJECT_NAME})
 install(FILES "${COBOT_REPO_ROOT}/sim/urdf/cobot30_5.urdf" DESTINATION share/${PROJECT_NAME}/sim/urdf)
 

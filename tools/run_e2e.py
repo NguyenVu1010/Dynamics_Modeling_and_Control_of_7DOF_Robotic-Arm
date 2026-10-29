@@ -8,10 +8,12 @@ finite), timing (p95 of `cobot_bench timing` <= thresholds.p95_step_us), monteca
 runs in the summary meeting the thresholds >= thresholds.pass_rate), sweep (bench completes and
 the sensitivity report with hardware_requirements.md is produced). --bench is needed only by
 bench scenarios. runner: gazebo scenarios (kind run) launch headless Gazebo with
-cobot_controller (needs a sourced colcon install of cobot_sim and cobot_ros2), stop the launch
+cobot_controller (needs a sourced colcon install of cobot_sim and cobot_ros2), wait at least
 duration_s + hold_s + 5 s after the controller created its CSV (or after launching, if it never
-does) and judge that CSV; they are skipped unless --tag gazebo. Scenarios tagged nightly run
-only with --tag nightly or --scenario. Exit 0 all pass, 1 any fails, 2 bad arguments.
+does), then keep waiting until the CSV covers duration_s + hold_s of sim time (Gazebo may run
+slower than real time), at most 3x that minimum wait after the CSV appeared, stop the launch
+and judge the CSV; they are skipped unless --tag gazebo. Scenarios tagged nightly run only with
+--tag nightly or --scenario. Exit 0 all pass, 1 any fails, 2 bad arguments.
 """
 
 import argparse
@@ -43,6 +45,8 @@ SCENARIO_DIR = REPO / "tests/e2e/scenarios"
 THRESHOLD_KEYS = ("final_pos_err_m", "final_rot_err_deg", "rms_joint_err_rad")
 GAZEBO_MARGIN_S = 5.0  # real-time factor below 1 and shutdown, on top of the trajectory time
 GAZEBO_POLL_S = 0.1
+GAZEBO_CAP = 3.0  # overall wait cap, as a multiple of the minimum wait
+GAZEBO_TAIL_BYTES = 8192  # enough for the last complete CSV row
 GAZEBO_STOP_S = 30.0  # graceful shutdown of the launch before it is killed
 
 
@@ -164,19 +168,50 @@ def stop_launch(proc: subprocess.Popen) -> None:
         pass
 
 
-def wait_run(proc: subprocess.Popen, csv: Path, wait_s: float) -> int | None:
+def csv_t_ns(line: bytes) -> int | None:
+    """t_ns (first column) of a complete data row, None for the header or a partial row."""
+    try:
+        return int(line.split(b",", 1)[0])
+    except ValueError:
+        return None
+
+
+def csv_span_ns(csv: Path) -> int:
+    """Last row's t_ns minus the first row's t_ns of a CSV being written (0 if too short)."""
+    try:
+        with csv.open("rb") as f:
+            lines = f.read(GAZEBO_TAIL_BYTES).split(b"\n")
+            first = csv_t_ns(lines[1]) if len(lines) > 2 else None
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - GAZEBO_TAIL_BYTES))
+            tail = f.read().split(b"\n")[:-1]  # rows end with a newline: drop the partial one
+    except OSError:
+        return 0
+    last = csv_t_ns(tail[-1]) if tail else None
+    return 0 if first is None or last is None else last - first
+
+
+def wait_run(proc: subprocess.Popen, csv: Path, wait_s: float, run_ns: int) -> int | None:
     """Exit code if the launch ends early, else None once wait_s has passed since the CSV
-    appeared (the controller is active from then on) or since the start without a CSV."""
-    deadline = time.monotonic() + wait_s
+    appeared (the controller is active from then on) and the CSV covers run_ns of sim time,
+    or GAZEBO_CAP * wait_s has passed since then. Without a CSV the clock runs from the start
+    and the launch is stopped after wait_s."""
+    base = time.monotonic()
     csv_seen = False
-    while time.monotonic() < deadline:
+    while True:
         if (code := proc.poll()) is not None:
             return code
+        now = time.monotonic()
         if not csv_seen and csv.exists():
-            csv_seen = True
-            deadline = time.monotonic() + wait_s
+            csv_seen, base = True, now
+        if not csv_seen:
+            if now >= base + wait_s:
+                return None
+        elif now >= base + GAZEBO_CAP * wait_s:
+            return None
+        elif now >= base + wait_s and csv_span_ns(csv) >= run_ns:
+            return None
         time.sleep(GAZEBO_POLL_S)
-    return None
 
 
 def run_gazebo(s: dict, out: Path, report: bool) -> tuple[bool, str]:
@@ -184,7 +219,8 @@ def run_gazebo(s: dict, out: Path, report: bool) -> tuple[bool, str]:
         return False, f"gazebo runner supports kind run only, got {s['kind']}"
     config = repo_path(s["config"])
     traj = yaml.safe_load(config.read_text(encoding="utf-8"))["cobot"]["trajectory"]
-    wait_s = float(traj["duration_s"]) + float(traj["hold_s"]) + GAZEBO_MARGIN_S
+    run_s = float(traj["duration_s"]) + float(traj["hold_s"])
+    wait_s = run_s + GAZEBO_MARGIN_S
     csv = out / "run.csv"
     csv.unlink(missing_ok=True)
     cmd = ["ros2", "launch", "cobot_sim", "sim.launch.py", "gui:=false"]
@@ -193,7 +229,7 @@ def run_gazebo(s: dict, out: Path, report: bool) -> tuple[bool, str]:
     with (out / "launch.log").open("w", encoding="utf-8") as log:
         proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         try:
-            code = wait_run(proc, csv, wait_s)
+            code = wait_run(proc, csv, wait_s, round(run_s * 1e9))
         finally:
             stop_launch(proc)
     if code is not None:

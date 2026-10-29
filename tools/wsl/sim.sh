@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ROS 2 / Gazebo side of the repo (colcon packages under sim/ and ros2_node/).
-# Usage: sim.sh build | check | smoke [seconds]
+# Usage: sim.sh build | check | tidy | smoke [seconds]
 set -eo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 ws="${COBOT_COLCON_WS:-$HOME/cobot-build/colcon}"
@@ -15,11 +15,19 @@ cmd="${1:-build}"
 case "$cmd" in
   build)
     colcon build --paths "${paths[@]}" --build-base "$ws/build" --install-base "$ws/install" \
-      --parallel-workers 2 --cmake-args -DCMAKE_BUILD_TYPE=Release
+      --parallel-workers 2 --cmake-args -DCMAKE_BUILD_TYPE=Release \
+      -DCMAKE_EXPORT_COMPILE_COMMANDS=ON --no-warn-unused-cli
     echo "COLCON OK: $ws/install"
     ;;
   check)
     bash "$repo/tools/ci/check_sim_assets.sh" "$ws/install/cobot_sim"
+    ;;
+  tidy)
+    # clang-tidy on the ROS controller sources (the lint job cannot: no ROS headers there).
+    db="$ws/build/cobot_ros2"
+    if [ ! -f "$db/compile_commands.json" ]; then echo "run sim.sh build first" >&2; exit 2; fi
+    clang-tidy-18 -p "$db" --quiet --warnings-as-errors='*' "$repo"/ros2_node/src/*.cpp
+    echo "TIDY OK"
     ;;
   smoke)
     secs="${2:-25}"
@@ -57,7 +65,7 @@ EOF
     echo "SMOKE OK"
     ;;
   *)
-    echo "usage: $0 build | check | smoke [seconds]" >&2
+    echo "usage: $0 build | check | tidy | smoke [seconds]" >&2
     exit 2
     ;;
 esac

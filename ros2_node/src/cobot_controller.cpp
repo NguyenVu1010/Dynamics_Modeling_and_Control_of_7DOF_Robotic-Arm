@@ -1,11 +1,13 @@
 // cobot_ros2/CobotController: ros2_control controller around pipeline::ControlLoop (design 5.5,
 // ADR-012). update() runs at the controller_manager rate: read the joints' position, velocity
 // and effort state interfaces through ImperfectJointInterface (plant effects on), step the loop,
-// write the effort command interfaces. The trajectory starts at the first update after
-// activation. State stamps count update cycles from that update's time: the `time` argument
-// follows the ROS clock (/clock in simulation), which can stall for many cycles while the
-// interfaces are still read every cycle, and the loop would hold on the stale stamp. A writer
-// thread drains the log ring into the Run CSV at `log_path`; `~/status` carries the loop mode.
+// write the effort command interfaces. on_activate reads the measured state and starts the
+// trajectory on it (activation fails when the state cannot be read). State stamps count update
+// cycles from the activation time: the `time` argument follows the ROS clock (/clock in
+// simulation), which can stall for many cycles while the interfaces are still read every cycle,
+// and the loop would hold on the stale stamp. A writer thread drains the log ring into the Run
+// CSV at `log_path` (default: results/<run-id>/run.csv under the working directory); `~/status`
+// carries the loop mode.
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -52,16 +54,23 @@ constexpr std::chrono::milliseconds kWriterIdle{1};
 class RosLogger final : public cobot::common::Logger {
  public:
   void log(cobot::common::LogLevel level, std::string_view msg) override {
-    static constexpr int kSeverity[] = {RCUTILS_LOG_SEVERITY_DEBUG,
-                                        RCUTILS_LOG_SEVERITY_INFO,
-                                        RCUTILS_LOG_SEVERITY_WARN,
-                                        RCUTILS_LOG_SEVERITY_ERROR};
-    rcutils_log(nullptr,
-                kSeverity[static_cast<int>(level)],
-                "cobot",
-                "%.*s",
-                static_cast<int>(msg.size()),
-                msg.data());
+    rcutils_log(
+        nullptr, severity(level), "cobot", "%.*s", static_cast<int>(msg.size()), msg.data());
+  }
+
+ private:
+  static int severity(cobot::common::LogLevel level) {
+    switch (level) {
+      case cobot::common::LogLevel::kDebug:
+        return RCUTILS_LOG_SEVERITY_DEBUG;
+      case cobot::common::LogLevel::kInfo:
+        return RCUTILS_LOG_SEVERITY_INFO;
+      case cobot::common::LogLevel::kWarn:
+        return RCUTILS_LOG_SEVERITY_WARN;
+      case cobot::common::LogLevel::kError:
+        break;
+    }
+    return RCUTILS_LOG_SEVERITY_ERROR;
   }
 };
 RosLogger g_logger;
@@ -172,7 +181,7 @@ class CobotController final : public ci::ControllerInterface {
       auto_declare<std::string>("config_path", share + "/config/default.yaml");
       auto_declare<std::string>("imperfections_path", share + "/config/imperfections/ideal.yaml");
       auto_declare<std::vector<std::string>>("joints", {});
-      auto_declare<std::string>("log_path", "");  // empty: <log.output_dir>/<run-id>/run.csv
+      auto_declare<std::string>("log_path", "");  // empty: <cwd>/results/<run-id>/run.csv
     } catch (const std::exception& e) {
       RCLCPP_ERROR(rclcpp::get_logger("cobot"), "on_init: %s", e.what());
       return CallbackReturn::ERROR;
@@ -229,7 +238,6 @@ class CobotController final : public ci::ControllerInterface {
     }
     period_ns_ = std::llround(1e9 / c.control_rate_hz);
     status_every_ = std::max<std::int64_t>(1, std::llround(c.control_rate_hz / kStatusRateHz));
-    log_dir_ = c.log_output_dir;
     RCLCPP_INFO(
         log, "configured: config %s, imperfections %s", config_path.c_str(), imp_path.c_str());
     return CallbackReturn::SUCCESS;
@@ -241,9 +249,24 @@ class CobotController final : public ci::ControllerInterface {
       RCLCPP_ERROR(log, "missing position/velocity/effort state or effort command interface");
       return CallbackReturn::ERROR;
     }
-    const std::filesystem::path csv =
-        log_path_.empty() ? log_dir_ / run_id() / "run.csv" : std::filesystem::path(log_path_);
+    // Start on the measured state, stamped with the activation time; update() counts cycles.
+    t0_ns_ = get_node()->now().nanoseconds();
+    cycle_ = 0;
+    ros_io_.set_stamp(cobot::common::Timestamp{t0_ns_});
+    const cobot::common::Status read = io_->read(state_);
+    if (!read) {
+      RCLCPP_ERROR(log, "initial state: %s", read.reason().c_str());
+      return CallbackReturn::ERROR;
+    }
+    const cobot::common::Status started = loop_->start(state_);
+    if (!started) {
+      RCLCPP_ERROR(log, "%s", started.reason().c_str());
+      return CallbackReturn::ERROR;
+    }
     std::error_code ec;
+    const std::filesystem::path csv =
+        log_path_.empty() ? std::filesystem::current_path(ec) / "results" / run_id() / "run.csv"
+                          : std::filesystem::path(log_path_);
     std::filesystem::create_directories(csv.parent_path(), ec);
     csv_.open(csv, std::ios::binary | std::ios::trunc);
     if (!csv_) {
@@ -253,8 +276,6 @@ class CobotController final : public ci::ControllerInterface {
     cobot::pipeline::write_csv_header<kN>(csv_);
     writer_stop_.store(false, std::memory_order_release);
     writer_ = std::thread([this] { drain_log(); });
-    started_ = false;
-    cycle_ = 0;
     RCLCPP_INFO(log, "active, writing %s", csv.c_str());
     return CallbackReturn::SUCCESS;
   }
@@ -267,19 +288,11 @@ class CobotController final : public ci::ControllerInterface {
     return CallbackReturn::SUCCESS;
   }
 
-  ci::return_type update(const rclcpp::Time& time, const rclcpp::Duration& /*period*/) override {
-    if (!started_) {
-      t0_ns_ = time.nanoseconds();
-    }
+  ci::return_type update(const rclcpp::Time& /*time*/,
+                         const rclcpp::Duration& /*period*/) override {
     ros_io_.set_stamp(cobot::common::Timestamp{t0_ns_ + cycle_ * period_ns_});
     // A failed read keeps the previous state and stamp: the loop's freshness check holds.
     static_cast<void>(io_->read(state_));
-    if (!started_) {
-      if (!loop_->start(state_)) {
-        return ci::return_type::ERROR;
-      }
-      started_ = true;
-    }
     static_cast<void>(loop_->step(state_, cmd_));
     static_cast<void>(io_->write(cmd_));
     if (cycle_++ % status_every_ == 0) {
@@ -326,15 +339,13 @@ class CobotController final : public ci::ControllerInterface {
 
   std::vector<std::string> joints_;
   std::string log_path_;
-  std::filesystem::path log_dir_;
   std::unique_ptr<cobot::pipeline::ControlLoop<kN>> loop_;
   RosJointInterface ros_io_;
   std::unique_ptr<cobot::imperfect::ImperfectJointInterface<kN>> io_;
   cobot::hal::JointState<kN> state_;
   cobot::hal::JointCommand<kN> cmd_;
-  bool started_ = false;
   std::int64_t cycle_ = 0;
-  std::int64_t t0_ns_ = 0;         // time of the first update after activation
+  std::int64_t t0_ns_ = 0;         // activation time, the stamp of the start state
   std::int64_t period_ns_ = 1;     // control period
   std::int64_t status_every_ = 1;  // cycles between ~/status messages
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;

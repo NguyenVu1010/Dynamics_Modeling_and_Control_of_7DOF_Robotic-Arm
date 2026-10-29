@@ -4,7 +4,8 @@ ros2 launch cobot_sim sim.launch.py [gui:=false] [controller:=effort_passthrough
     [config_path:=YAML] [imperfections_path:=YAML] [log_path:=CSV]
 
 config_path, imperfections_path and log_path, when given, become parameters of the spawned
-controller (cobot_controller); unset, the controller's defaults apply.
+controller (cobot_controller) through a temporary parameter file, removed at shutdown;
+unset, the controller's defaults apply.
 """
 
 import json
@@ -13,7 +14,13 @@ from pathlib import Path
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, OpaqueFunction
+from launch.actions import (
+    DeclareLaunchArgument,
+    ExecuteProcess,
+    OpaqueFunction,
+    RegisterEventHandler,
+)
+from launch.event_handlers import OnShutdown
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
@@ -39,14 +46,22 @@ def _setup(context: object) -> list:
         if (value := LaunchConfiguration(name).perform(context))
     }
     param_args = []
+    cleanup = []
     if overrides:
         with tempfile.NamedTemporaryFile("w", suffix=".yaml", delete=False) as f:
             json.dump({controller: {"ros__parameters": overrides}}, f)  # JSON is valid YAML
-        param_args = ["--param-file", f.name]
+        param_file = Path(f.name)
+        param_args = ["--param-file", str(param_file)]
+        cleanup = [
+            RegisterEventHandler(
+                OnShutdown(on_shutdown=lambda _event, _context: param_file.unlink(missing_ok=True))
+            )
+        ]
 
     world = str(share / "worlds/empty.sdf")
     gz_args = ["gz", "sim", "-r", world] if gui else ["gz", "sim", "-r", "-s", world]
     return [
+        *cleanup,
         ExecuteProcess(cmd=gz_args, output="screen"),
         Node(
             package="robot_state_publisher",
