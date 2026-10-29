@@ -12,6 +12,7 @@ import yaml
 REPO = Path(__file__).resolve().parents[2]
 CONFIG = REPO / "config/default.yaml"
 IDEAL = REPO / "config/imperfections/ideal.yaml"
+IDEAL_WORLD = REPO / "tests/e2e/configs/ideal_world.yaml"
 G3 = {"final_pos_err_m": 0.002, "final_rot_err_deg": 1.0, "rms_joint_err_rad": 0.01}
 G3_REAL = {"final_pos_err_m": 0.005, "final_rot_err_deg": 2.0, "rms_joint_err_rad": 0.02}
 PR = ["pr", "arm64"]
@@ -69,6 +70,36 @@ def test_scenario_files_follow_contract(name, kind, tags, extra):
     assert (REPO / s["config"]).is_file() and (REPO / s["imperfections"]).is_file()
     assert isinstance(s["seed"], int)
     assert {k: s.get(k) for k in extra} == extra
+
+
+@pytest.mark.parametrize(
+    ("name", "config", "imperfections"),
+    [
+        ("e2e_01_ideal", IDEAL_WORLD, IDEAL),
+        ("e2e_02_realistic", CONFIG, REPO / "config/imperfections/realistic.yaml"),
+        ("e2e_07_gazebo", IDEAL_WORLD, IDEAL),
+    ],
+)
+def test_ideal_profile_scenarios_run_without_friction_compensation(name, config, imperfections):
+    # The ideal plant has no friction, so compensating it would inject a disturbance; the
+    # realistic plant has friction and keeps the compensation of default.yaml.
+    s = yaml.safe_load((REPO / f"tests/e2e/scenarios/{name}.yaml").read_text(encoding="utf-8"))
+    assert (REPO / s["config"]).resolve() == config.resolve()
+    assert (REPO / s["imperfections"]).resolve() == imperfections.resolve()
+
+
+def test_ideal_world_config_is_default_without_compensation():
+    ideal_path = IDEAL_WORLD
+    default = yaml.safe_load(CONFIG.read_text(encoding="utf-8"))["cobot"]
+    ideal = yaml.safe_load(ideal_path.read_text(encoding="utf-8"))["cobot"]
+    urdf = (CONFIG.parent / default.pop("urdf_path")).resolve()
+    assert (ideal_path.parent / ideal.pop("urdf_path")).resolve() == urdf
+    log_dir = (CONFIG.parent / default.pop("log")["output_dir"]).resolve()
+    assert (ideal_path.parent / ideal.pop("log")["output_dir"]).resolve() == log_dir
+    # default.yaml may ship compensation off for now; ideal_world.yaml always has it off.
+    assert ideal["friction_compensation"].pop("enabled") is False
+    default["friction_compensation"].pop("enabled")
+    assert ideal == default
 
 
 def test_safety_config_is_default_with_another_goal():

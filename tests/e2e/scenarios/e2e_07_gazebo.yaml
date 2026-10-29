@@ -5,7 +5,7 @@ id: E2E-07
 tags: [gazebo]
 runner: gazebo
 kind: run
-config: config/default.yaml
+config: tests/e2e/configs/ideal_world.yaml  # default.yaml without friction compensation
 imperfections: config/imperfections/ideal.yaml
 seed: 1
 thresholds:

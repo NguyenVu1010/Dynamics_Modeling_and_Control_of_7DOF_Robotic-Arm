@@ -6,6 +6,7 @@
 # 1.198 m from it. Damped least-squares IK along the straight line (200 steps, URDF limits)
 # reaches the 3 deg soft margin of joint 4 first, at 60 % of the line (q4 = -25.2 deg), with
 # every other joint >= 44.9 deg from its limits; the full line would need q4 > -0.4 rad.
+# friction_compensation is copied unchanged from default.yaml.
 cobot:
   urdf_path: ../../../sim/urdf/cobot30_5.urdf
   base_link: base_link
@@ -29,6 +30,11 @@ cobot:
   computed_torque:
     kp: [6400.0, 6400.0, 6400.0, 6400.0, 6400.0, 6400.0, 6400.0]
     kd: [160.0, 160.0, 160.0, 160.0, 160.0, 160.0, 160.0]
+  friction_compensation:
+    enabled: false
+    coulomb_nm: [1.36, 1.36, 1.36, 1.36, 0.192, 0.192, 0.192]
+    viscous_nm_s_rad: [0.4, 0.4, 0.4, 0.4, 0.08, 0.08, 0.08]
+    velocity_eps_rad_s: 0.01
   safety:
     soft_margin_deg: 3.0
     hal_timeout_ms: 5.0

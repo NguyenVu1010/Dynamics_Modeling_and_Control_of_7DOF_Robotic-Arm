@@ -18,7 +18,8 @@
 #include "cobot/pipeline/log_record.hpp"
 #include "cobot/pipeline/sim_joint_interface.hpp"
 
-// Shared set-up for the ControlLoop component tests: the real arm and config/default.yaml,
+// Shared set-up for the ControlLoop component tests: the real arm and config/default.yaml
+// without friction compensation (tests/e2e/configs/ideal_world.yaml),
 // an ideal SimPlant (no friction, no motor lag, exact model) behind a SimJointInterface
 // without jitter, and the loop under test.
 namespace cobot::pipeline::test {
@@ -38,9 +39,11 @@ struct Setup {
   Config<kN> config;
 };
 
-// config/default.yaml and the URDF it names.
+// tests/e2e/configs/ideal_world.yaml (config/default.yaml with friction compensation off: the
+// plant here has no friction, so compensating would inject a disturbance) and its URDF.
 inline std::optional<Setup> load_setup() {
-  const std::filesystem::path yaml = std::filesystem::path(COBOT_REPO_DIR) / "config/default.yaml";
+  const std::filesystem::path yaml =
+      std::filesystem::path(COBOT_REPO_DIR) / "tests/e2e/configs/ideal_world.yaml";
   const auto cfg = load_config<kN>(yaml);
   if (!cfg) {
     ADD_FAILURE() << "load_config: " << cfg.reason();

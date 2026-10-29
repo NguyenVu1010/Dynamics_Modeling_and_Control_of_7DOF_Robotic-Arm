@@ -103,3 +103,32 @@ hằng số thời gian động cơ 1 ms). Ở tần số cắt cỡ `k_d = 160 
 | 60 | 0.31 mm / 0.55° / 0.018 rad: đạt sát ngưỡng |
 | **80** | **0.17 mm / 0.31° / 0.010 rad: đạt** |
 | 100 | 0.11 mm / 0.19° / 0.007 rad: đạt, ít biên pha hơn |
+
+## Bù ma sát
+
+Ma sát khớp của plant (profile realistic) là Coulomb cộng nhớt, `τ_f = c ⊙ sign(q̇) + b ⊙ q̇`.
+Computed torque không biết `τ_f`, nên theo mục trên nó là nhiễu `d` đẩy khớp lệch
+`e_i ≈ d_i / (M_ii k_p,i)`, lớn nhất ở cổ tay. Bộ điều khiển cộng thêm feed-forward
+
+    τ_ff = c ⊙ tanh(q̇_ref / ε) + b ⊙ q̇_ref
+    τ = clamp(τ_CT + τ_ff, -τ_max, τ_max)
+
+với `c = coulomb_nm`, `b = viscous_nm_s_rad`, `ε = velocity_eps_rad_s` trong
+`cobot.friction_compensation` (`config/default.yaml`).
+
+- Dùng vận tốc **tham chiếu** `q̇_ref` chứ không dùng `q̇` đo: nhiễu và lượng tử hóa cảm biến
+  không đi qua `tanh` dốc, và khi khớp đứng yên quanh `q̇ ≈ 0` mô-men không đảo dấu liên tục
+  (không chattering). Khi bám tốt `q̇ ≈ q̇_ref`, nên phần còn lại là sai số bám nhỏ.
+- `tanh(q̇/ε)` thay `sign(q̇)`: liên tục, lẻ, `|tanh| ≤ 1`, bằng `±1` khi `|q̇| ≫ ε`. Với
+  `ε = 0.01 rad/s`, `|q̇_ref| = 0.03 rad/s` đã cho 99.5 % lực Coulomb.
+- Giá trị danh định trong `default.yaml` là 80 % ma sát của profile realistic: nhận dạng không
+  bao giờ đúng tuyệt đối, và bù thiếu an toàn hơn bù thừa (bù thừa đổi dấu nhiễu, có thể gây
+  dao động quanh điểm dừng). Phần 20 % còn lại vẫn do `k_p`, `k_d` xử lý.
+- `config/default.yaml` hiện để `enabled: false`: SimPlant chưa áp ma sát Coulomb ổn định trên
+  cổ tay (quán tính nhỏ, RK4 bước 1 ms), nên bù lúc này là đẩy ngược một lực ma sát không tồn tại
+  và E2E-02 hiện chạy không bù. Các giá trị 80 % đã đặt sẵn; bật lên khi plant được sửa.
+  Thiếu mục `friction_compensation` hoặc để trống (`friction_compensation:`) đều cho mặc định tắt.
+- Chỉ áp dụng ở chế độ tracking; hold và fault giữ nguyên. Profile ideal không có ma sát nên
+  các kịch bản ideal (E2E-01, E2E-07) dùng `tests/e2e/configs/ideal_world.yaml` với
+  `enabled: false`; bù khi plant không có ma sát là tự đưa nhiễu vào.
+- `q̇_ref` không hữu hạn cho `τ_ff = 0`; mô-men cuối luôn bị kẹp vào `τ_max` của URDF.

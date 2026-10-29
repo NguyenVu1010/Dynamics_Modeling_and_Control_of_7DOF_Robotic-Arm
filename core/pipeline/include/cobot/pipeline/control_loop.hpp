@@ -5,6 +5,7 @@
 #include <optional>
 
 #include "cobot/control/computed_torque.hpp"
+#include "cobot/control/friction_compensation.hpp"
 #include "cobot/control/hold.hpp"
 #include "cobot/hal/joint_interface.hpp"
 #include "cobot/model/model.hpp"
@@ -23,6 +24,9 @@
 // stamp repeated for longer than hal_timeout at control_rate_hz), or a stamp going backwards
 // -> kHolding (HoldController at the q of that moment; never leaves on its own). A non-finite
 // computed torque -> kFault with zero torque. Output torque is always finite and within tau_max.
+//
+// Tracking torque: clamp(computed_torque(state, ref) + friction feed-forward of ref.qd, tau_max);
+// the hold is not compensated.
 namespace cobot::pipeline {
 
 using common::Status;
@@ -48,6 +52,7 @@ class ControlLoop {
   Config<N> config_;
   planning::ClikReference<N> clik_;
   control::ComputedTorque<N> computed_torque_;
+  control::FrictionCompensation<N> friction_;
   control::HoldController<N> hold_;
   std::optional<planning::CartesianTrajectory> trajectory_;
   LoopMode mode_ = LoopMode::kIdle;

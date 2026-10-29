@@ -78,6 +78,18 @@ class Reader {
     return {n.IsMap() ? n : YAML::Node(), full(label), *errors_};
   }
 
+  // True when `key` is present and not null, for optional sections; reports nothing. A key
+  // present with a null value (`key:` or `key: ~`) counts as absent but is marked as read, so
+  // finish() does not call it unknown.
+  bool has(const std::string& key) {
+    const YAML::Node& map = node_;  // const lookup never inserts the key
+    if (!node_.IsMap() || !map[key].IsDefined()) {
+      return false;
+    }
+    used_.insert(key);
+    return !map[key].IsNull();
+  }
+
   Reader map(const std::string& key) {
     const YAML::Node n = get(key);
     if (n && !n.IsMap()) {
@@ -264,6 +276,17 @@ void read_config(Reader& root, const fs::path& dir, Config<N>& c) {
   Reader g = m.map("computed_torque");
   g.vector<N>("kp", kPositive, false, c.computed_torque.kp);
   g.vector<N>("kd", kPositive, false, c.computed_torque.kd);
+
+  // Optional: a missing or empty (null) section keeps the disabled defaults.
+  if (m.has("friction_compensation")) {
+    Reader f = m.map("friction_compensation");
+    control::FrictionCompensationConfig<N>& fc = c.friction_compensation;
+    f.scalar("enabled", fc.enabled);
+    f.vector<N>("coulomb_nm", kNonNegative, true, fc.coulomb_nm);
+    f.vector<N>("viscous_nm_s_rad", kNonNegative, true, fc.viscous_nm_s_rad);
+    f.number("velocity_eps_rad_s", kPositive, fc.velocity_eps_rad_s);
+    f.finish();
+  }
 
   Reader s = m.map("safety");
   double margin_deg = 0.0;

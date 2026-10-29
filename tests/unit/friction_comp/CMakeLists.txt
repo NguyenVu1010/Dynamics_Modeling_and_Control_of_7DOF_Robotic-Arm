@@ -1,0 +1,1 @@
+cobot_add_test(test_friction_comp test_friction_compensation.cpp test_friction_comp_no_alloc.cpp)
