@@ -72,7 +72,7 @@ def test_friction_compensation_is_80_percent_of_realistic_plant_friction(cfg):
     # Nominal identified values: deliberately 80 % of the realistic profile's plant friction
     # (identification is never exact; under-compensation is the safe side).
     comp = cfg["friction_compensation"]
-    assert comp["enabled"] is True
+    assert comp["enabled"] is False  # off until SimPlant applies Coulomb friction stably
     assert comp["velocity_eps_rad_s"] == 0.01
     real = REPO / "config/imperfections/realistic.yaml"
     plant = yaml.safe_load(real.read_text(encoding="utf-8"))["imperfections"]["friction"]
