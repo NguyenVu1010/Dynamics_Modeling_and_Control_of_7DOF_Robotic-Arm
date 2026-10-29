@@ -89,9 +89,9 @@ Mọi thông số môi trường nằm trong file cấu hình, không cần sử
 
 ```bash
 tools/wsl/build.sh
-python tools/run_e2e.py --all --tag pr      --bench ~/cobot-build/main/bench/cobot_bench --out out/pr
-python tools/run_e2e.py --all --tag nightly --bench ~/cobot-build/main/bench/cobot_bench --out out/nightly
-~/cobot-build/main/bench/cobot_bench timing --config config/default.yaml --steps 100000
+python tools/run_e2e.py --all --tag pr      --bench ~/projects/7dof_dynamic_control/build/main/bench/cobot_bench --out out/pr
+python tools/run_e2e.py --all --tag nightly --bench ~/projects/7dof_dynamic_control/build/main/bench/cobot_bench --out out/nightly
+~/projects/7dof_dynamic_control/build/main/bench/cobot_bench timing --config config/default.yaml --steps 100000
 tools/wsl/sim.sh build && source tools/wsl/env.sh
 python tools/run_e2e.py --all --tag gazebo --out out/gazebo
 ```

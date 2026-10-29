@@ -162,11 +162,12 @@ The C++ toolchain lives in WSL. From PowerShell run the scripts as
 
 | Command | What it does |
 | --- | --- |
-| `tools/wsl/setup.sh` | prints the `sudo apt install` line to type, creates `.venv`, installs the Python package |
+| `tools/wsl/setup.sh` | prints the `sudo apt install` line to type, creates the venv (`$COBOT_ROOT/venv`), installs the Python package |
 | `tools/wsl/build.sh [--asan] [--target T]` | configure + build + ctest with `-Werror`; `--asan` builds Debug with ASan/UBSan |
 | `tools/wsl/pytest.sh` | runs `pytest` in `.venv` |
 | `tools/wsl/lint.sh` | clang-format, clang-tidy on changed files, ruff check and format |
 | `tools/wsl/sim.sh {build\|check\|smoke}` | colcon build of `sim/`, offline asset check, headless Gazebo smoke test |
+| `tools/wsl/prune.sh [--dry-run]` | removes `$COBOT_ROOT/build` and `colcon` entries of deleted branches; run after a merge |
 | `source tools/wsl/env.sh` | ROS 2 + colcon workspace, with this project's own ROS domain (42) and Gazebo partition |
 
 Do not pass inline `bash -lc "..."` commands containing `(`, `)` or `$` through `wsl`; put

@@ -5,7 +5,9 @@ set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=git_env.sh
 source "$repo/tools/wsl/git_env.sh" "$repo"
-venv="${COBOT_VENV:-$HOME/.venvs/cobot}"
+# shellcheck source=paths.sh
+source "$repo/tools/wsl/paths.sh" "$repo"
+venv="$(cobot_venv)"
 fix=0
 base="origin/main"
 while [ $# -gt 0 ]; do
@@ -31,8 +33,7 @@ else
   "$venv/bin/ruff" format --check .
 fi
 
-branch="$(git rev-parse --abbrev-ref HEAD)"
-build_dir="$HOME/cobot-build/${branch//\//-}"
+build_dir="$(cobot_build_dir)"
 # ros2_node needs the ROS headers: `sim.sh tidy` checks it (gazebo CI job).
 mapfile -t changed < <(git diff --name-only --diff-filter=AM "$base"...HEAD -- '*.cpp' ':!ros2_node/**' 2>/dev/null || true)
 if [ "${#changed[@]}" -gt 0 ] && [ -f "$build_dir/compile_commands.json" ]; then

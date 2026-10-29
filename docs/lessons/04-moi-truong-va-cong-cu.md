@@ -43,12 +43,20 @@
   rồi `git worktree prune`.
 - **Bài học:** kiểm tra kết quả của lệnh xoá (thư mục còn hay không), đừng chỉ tin mã thoát.
 
-## 5. Thư mục build cũ chiếm 25 GB
+## 5. Thư mục build cũ chiếm 25 GB, rồi lại 16 GB
 
 - **Nguyên nhân:** mỗi nhánh có thư mục build riêng (Release, ASan, coverage) và workspace colcon
-  riêng; nhánh merge xong không ai dọn.
-- **Xử lý:** dọn còn workspace của main; kết quả chạy gom vào `~/cobot-build/out/`.
-- **Bài học:** quy trình xoá worktree sau khi merge phải xoá cả thư mục build tương ứng.
+  riêng; nhánh merge xong không ai dọn. Lần dọn tay đầu tiên không sửa gốc, nên chỉ vài giờ sau
+  một đợt 6 tính năng đã sinh lại 16 GB (bản ASan 2.6–3.4 GB mỗi nhánh). Các thư mục của dự án
+  nằm rải rác (`~/cobot-build`, `~/.venvs/cobot`, kết quả chạy trong `~`), lẫn với thư mục của dự
+  án khác.
+- **Xử lý:** mọi thứ của dự án nằm dưới một thư mục `~/projects/7dof_dynamic_control/`
+  (`build/<nhánh>[-asan|-cov]`, `colcon/<nhánh>`, `venv`, `out`), đường dẫn tính ở một chỗ
+  (`tools/wsl/paths.sh`). Workspace colcon theo nhánh nên hết cảnh hai worktree dùng chung một
+  workspace. `tools/wsl/prune.sh` xoá build và workspace của các nhánh không còn; chạy sau mỗi lần
+  merge.
+- **Bài học:** dọn tay một lần không phải là cách sửa; phải sửa chỗ sinh ra rác và tự động hoá
+  bước dọn.
 
 ## 6. `git pull` trong WSL bị từ chối (publickey)
 

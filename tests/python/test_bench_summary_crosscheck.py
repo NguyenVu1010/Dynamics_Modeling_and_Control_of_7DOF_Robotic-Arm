@@ -2,7 +2,7 @@
 
 Runs the real `cobot_bench montecarlo --keep-runs` for two short runs of the realistic profile
 and recomputes every metric column from each kept Run CSV. Needs the built binary: set
-COBOT_BENCH to its path (tools/wsl/build.sh builds it under ~/cobot-build/<branch>/bench), or
+COBOT_BENCH to its path (tools/wsl/build.sh: $COBOT_ROOT/build/<branch>/bench), or
 build/bench/cobot_bench in the repository; skipped otherwise (the CI python job has no C++).
 """
 
