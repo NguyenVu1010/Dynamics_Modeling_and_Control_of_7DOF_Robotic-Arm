@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# ROS 2 / Gazebo side of the repo (colcon packages under sim/, ros2_interfaces/ and ros2_node/).
-# Usage: sim.sh build | check | tidy | smoke [seconds]
+# ROS 2 / Gazebo side of the repo (colcon packages under sim/, ros2_interfaces/, ros2_node/ and
+# ros2_gui/).
+# Usage: sim.sh build | check | tidy | test | smoke [seconds]
 set -eo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # ROS 2, the workspace when built, and this project's ROS domain / Gazebo partition.
@@ -11,6 +12,7 @@ set -u
 
 paths=("$repo/sim" "$repo/ros2_interfaces")
 if [ -f "$repo/ros2_node/package.xml" ]; then paths+=("$repo/ros2_node"); fi
+if [ -f "$repo/ros2_gui/package.xml" ]; then paths+=("$repo/ros2_gui"); fi
 
 cmd="${1:-build}"
 case "$cmd" in
@@ -29,7 +31,24 @@ case "$cmd" in
     db="$ws/build/cobot_ros2"
     if [ ! -f "$db/compile_commands.json" ]; then echo "run sim.sh build first" >&2; exit 2; fi
     clang-tidy-18 -p "$db" --quiet --warnings-as-errors='*' "$repo"/ros2_node/src/*.cpp
+    gui="$ws/build/cobot_gui"
+    if [ -f "$gui/compile_commands.json" ]; then
+      # OGRE (via rviz_common) forward-declares its own Pose next to cobot::common::Pose.
+      clang-tidy-18 -p "$gui" --quiet --warnings-as-errors='*' \
+        --checks=-bugprone-forward-declaration-namespace "$repo"/ros2_gui/src/*.cpp
+    fi
     echo "TIDY OK"
+    ;;
+  test)
+    # Unit tests of the ROS packages (cobot_gui data model); fails when a test fails.
+    set +u
+    # shellcheck disable=SC1091
+    source "$ws/install/setup.bash"
+    set -u
+    colcon --log-base "$ws/log" test --paths "${paths[@]}" --packages-select cobot_gui \
+      --build-base "$ws/build" --install-base "$ws/install"
+    colcon test-result --test-result-base "$ws/build/cobot_gui" --verbose
+    echo "TEST OK"
     ;;
   smoke)
     secs="${2:-25}"
@@ -68,7 +87,7 @@ EOF
     echo "SMOKE OK"
     ;;
   *)
-    echo "usage: $0 build | check | tidy | smoke [seconds]" >&2
+    echo "usage: $0 build | check | tidy | test | smoke [seconds]" >&2
     exit 2
     ;;
 esac

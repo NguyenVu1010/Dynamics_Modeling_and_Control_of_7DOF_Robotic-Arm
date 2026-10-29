@@ -1,0 +1,31 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>cobot_gui</name>
+  <version>0.1.0</version>
+  <description>RViz2 panel (cobot_gui/WaypointPanel) editing, previewing and running waypoint lists of the 7-DOF arm controller.</description>
+  <maintainer email="181816886+NguyenVu1010@users.noreply.github.com">NguyenVu1010</maintainer>
+  <license>MIT</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <depend>cobot_interfaces</depend>
+  <depend>geometry_msgs</depend>
+  <depend>interactive_markers</depend>
+  <depend>nav_msgs</depend>
+  <depend>pluginlib</depend>
+  <depend>rclcpp</depend>
+  <depend>rclcpp_action</depend>
+  <depend>rviz_common</depend>
+  <depend>std_srvs</depend>
+  <depend>visualization_msgs</depend>
+  <depend>qtbase5-dev</depend>
+  <depend>eigen</depend>
+  <depend>tinyxml2</depend>
+  <depend>yaml-cpp</depend>
+  <exec_depend>rviz2</exec_depend>
+  <test_depend>ament_cmake_gtest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

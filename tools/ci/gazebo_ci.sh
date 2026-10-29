@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Runs inside docker/ros.Dockerfile with the repo mounted at the working directory:
-# colcon build of the ROS packages (cobot_interfaces, cobot_ros2), static asset check, clang-tidy
-# on ros2_node, smoke test, then every scenario tagged gazebo (E2E-07, E2E-09, E2E-11 waypoint
-# goal, E2E-11b canceled goal) when one exists (features `ros2-controller`, `waypoint-ros`).
+# colcon build of the ROS packages (cobot_interfaces, cobot_ros2, cobot_gui), static asset check,
+# clang-tidy on ros2_node and ros2_gui, unit tests of cobot_gui, smoke test, then every scenario
+# tagged gazebo (E2E-07, E2E-09, E2E-11 waypoint goal, E2E-11b canceled goal) when one exists
+# (features `ros2-controller`, `waypoint-ros`).
 set -euo pipefail
 repo="$(pwd)"
 export COBOT_COLCON_WS=/tmp/colcon
 bash "$repo/tools/wsl/sim.sh" build
 bash "$repo/tools/wsl/sim.sh" check
 if [ -f "$repo/ros2_node/package.xml" ]; then bash "$repo/tools/wsl/sim.sh" tidy; fi
+bash "$repo/tools/wsl/sim.sh" test
 bash "$repo/tools/wsl/sim.sh" smoke 90
 if ls "$repo"/tests/e2e/scenarios/*.yaml >/dev/null 2>&1 && grep -lq "runner: gazebo" "$repo"/tests/e2e/scenarios/*.yaml; then
   # shellcheck disable=SC1091
