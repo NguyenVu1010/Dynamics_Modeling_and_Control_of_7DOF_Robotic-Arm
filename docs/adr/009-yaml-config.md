@@ -1,6 +1,6 @@
 # ADR-009: Cấu hình: YAML là nguồn tham số duy nhất của lõi
 
-- Trạng thái: đề xuất
+- Trạng thái: chấp nhận (MVP, 2026-10-29)
 - Ngày: 2026-10-29
 - Liên quan: thiết kế mục 5.6, 11.1, 11.2; ADR-002, ADR-015
 

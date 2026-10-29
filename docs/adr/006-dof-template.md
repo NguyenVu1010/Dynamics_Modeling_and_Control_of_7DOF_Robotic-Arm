@@ -1,6 +1,6 @@
 # ADR-006: Số bậc tự do là tham số template `N`, alias `Arm7`
 
-- Trạng thái: đề xuất
+- Trạng thái: chấp nhận (MVP, 2026-10-29)
 - Ngày: 2026-10-29
 - Liên quan: thiết kế mục 2 (G1), 4 (D6), 5.2; ADR-002; `docs/conventions.md`
 

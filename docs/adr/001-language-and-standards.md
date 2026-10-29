@@ -1,6 +1,6 @@
 # ADR-001: Ngôn ngữ: C++17 cho lõi, Python 3.12 cho đánh giá và công cụ
 
-- Trạng thái: đề xuất
+- Trạng thái: chấp nhận (MVP, 2026-10-29)
 - Ngày: 2026-10-29
 - Liên quan: thiết kế mục 1, 2 (G1, G5), 6; quyết định D1 của chủ dự án
 

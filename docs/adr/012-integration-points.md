@@ -64,3 +64,7 @@ thời gian mô phỏng (Gazebo có thể chạy chậm hơn thời gian thực)
 
 Bench và Gazebo dùng cùng `ControlLoop` và cùng profile nhiễu. Hai adapter phải được giữ mỏng và
 cùng hành vi; E2E-01 (bench) và E2E-07 (Gazebo) dùng cùng quỹ đạo và ngưỡng để phát hiện lệch.
+
+## Kết quả MVP (2026-10-29)
+
+Cả hai điểm cắm đã có. Plugin ros2_control cobot_controller bọc ControlLoop cho Gazebo, còn hal::JointInterface được SimJointInterface và ImperfectJointInterface dùng trong bench. Cùng một lõi cho kết quả đạt ở cả hai đường. Phần Pi5 (ADR-014) vẫn để mở cho tới khi có phần cứng.

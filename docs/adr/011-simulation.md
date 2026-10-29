@@ -49,3 +49,7 @@ với bước 1 ms.
 Demo Gazebo dùng đúng URDF với bộ điều khiển. Bước vật lý 1 ms trùng nhịp điều khiển nên không
 có jitter topic. Đổi lại, kết quả Gazebo phụ thuộc bộ giải vật lý của nó; so sánh với `SimPlant`
 (E2E-01 so với E2E-07) cho biết chênh lệch đó.
+
+## Kết quả MVP (2026-10-29)
+
+E2E-07 đạt trên Gazebo Harmonic 8 qua gz_ros2_control, giao tiếp effort, bước 1 ms: sai số vị trí cuối 0.000 mm, RMS khớp 3.7e-6 rad. Chạy 17 s thời gian mô phỏng mất khoảng 23 s thời gian thực trong WSL. Job CI gazebo chạy trong image ros:jazzy. Vẫn chờ bàn: có cần thêm kịch bản Gazebo với nhiễu (hiện chỉ có profile ideal) hay không.

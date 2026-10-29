@@ -82,3 +82,7 @@ nguồn từng số. URDF gốc: `sim/urdf/cobot30_5_original.urdf`; URDF đã s
 Bộ điều khiển và Gazebo dùng cùng một file URDF đã sửa. Mọi số khối lượng truy được về một nguồn
 trong `mass_budget.yaml`. Khi có phần cứng, cập nhật bảng (bản T, cân thật) là một PR đổi YAML,
 sinh lại URDF và fixture KDL (ADR-004).
+
+## Kết quả MVP (2026-10-29)
+
+Khối lượng chuyển động sau khi sửa là 17.05 kg (bản cũ 6.06 kg). Với mô hình này, mô-men trọng trường lớn nhất bằng 0.889 lần mô-men định mức ở khớp 2. Mô-men đỉnh khi bám quỹ đạo MVP là 52 % τ_max ở kịch bản lý tưởng, và tối đa 76 % trong Monte Carlo realistic. Sweep cho thấy sai số khối lượng link tới 20 % vẫn đạt, nhưng tải đầu cuối không khai báo 1 kg thì trượt. Còn chờ bàn: số liệu eRob và vật liệu ống nhôm cần chủ dự án xác nhận theo bản vẽ thật.

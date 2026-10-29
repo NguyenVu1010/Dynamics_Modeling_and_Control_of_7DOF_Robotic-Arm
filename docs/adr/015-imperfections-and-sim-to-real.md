@@ -1,6 +1,6 @@
 # ADR-015: Mô hình không hoàn hảo cấu hình được và phân tích độ nhạy sim-to-real
 
-- Trạng thái: đề xuất
+- Trạng thái: chấp nhận (MVP, 2026-10-29)
 - Ngày: 2026-10-29
 - Liên quan: thiết kế mục 11.1, 11.2; ADR-005, ADR-009, ADR-012, ADR-013, ADR-014
 

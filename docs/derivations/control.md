@@ -78,3 +78,28 @@ làm các khớp có dải khác nhau bị phạt cùng thang. Khớp không có
 continuous) có `∂h/∂q_i = 0`. Trong không gian không, `-k_null ∇h - k_damp q̇` là hệ bậc hai
 kéo `q` về giữa dải với giảm chấn `k_damp`; với `k_null = 1`, `k_damp = 2` và gradient cỡ `1e-2`,
 chuyển động chậm (khớp 1 từ 2.8 rad đi khoảng 7e-3 rad trong 5 s) và không vượt quá.
+
+## Chỉnh gain computed torque (MVP)
+
+Luật computed torque `τ = M(q)(q̈_ref + k_d ė + k_p e) + C q̇ + G` cho động học sai số
+`ë + k_d ė + k_p e = 0` trên mô hình danh định. Khi có nhiễu mô-men `d` mà mô hình không biết
+(ma sát, sai số độ phân giải lệnh, sai lệch hệ số mô-men), sai số xác lập của khớp `i` xấp xỉ
+
+    e_i ≈ d_i / (M_ii k_p,i)
+
+nên độ cứng thực tế là `M_ii k_p,i` (Nm/rad). Cổ tay có `M_ii` nhỏ, và với gain cũ của bản
+Python (`k_p,7 = 20`, tức `ω = 4.5 rad/s`), ma sát Coulomb 0.24 Nm của profile realistic đẩy
+khớp 7 lệch khoảng 0.5 rad RMS (E2E-02: 42 mm, 44°).
+
+Gain mới đặt mọi khớp tắt dần tới hạn ở `ω = 80 rad/s`: `k_p = ω² = 6400`, `k_d = 2ω = 160`.
+Độ cứng tăng khoảng 320 lần ở khớp 7. Vòng 1 kHz có trễ khoảng 3 chu kỳ (cảm biến 1, lệnh 1,
+hằng số thời gian động cơ 1 ms). Ở tần số cắt cỡ `k_d = 160 rad/s`, trễ đó gây lệch pha khoảng
+`0.003 · 160 = 0.48 rad`, tức 27°, vẫn còn biên pha.
+
+| ω (rad/s) | E2E-02, seed 7 (vị trí / hướng / RMS khớp) |
+|---|---|
+| 4.5 (gain cũ, khớp 7) | 42 mm / 44° / 0.489 rad: trượt |
+| 30 | 2.5° / 0.067 rad: trượt |
+| 60 | 0.31 mm / 0.55° / 0.018 rad: đạt sát ngưỡng |
+| **80** | **0.17 mm / 0.31° / 0.010 rad: đạt** |
+| 100 | 0.11 mm / 0.19° / 0.007 rad: đạt, ít biên pha hơn |

@@ -58,3 +58,7 @@ Mặc định trong lúc chờ: hai tầng. Hàm `h(q)` và cách tính `λ` do 
 Mỗi tầng test riêng: CLIK trên `Model` không cần `dynamics`, computed torque với `SimPlant` biết
 trước đáp án. Gains có hai bộ (`clik.*` và `computed_torque.*`) cần tinh chỉnh; giá trị khởi điểm
 lấy từ bản cũ và ghi lại cách chỉnh ở giai đoạn `mvp-results`.
+
+## Kết quả MVP (2026-10-29)
+
+Kiến trúc hai tầng đạt G3 trong bench và Gazebo (xem docs/results/mvp/README.md). Gain computed torque của bản Python cũ không chịu được nhiễu realistic, nên đã chỉnh thành tắt dần tới hạn ở ω = 80 rad/s; lý do và bảng so sánh nằm trong docs/derivations/control.md. Ma sát Coulomb và độ phân giải lệnh mô-men là hai yếu tố nhạy nhất. Hướng tiếp theo cần bàn là bù ma sát feedforward, hoặc khâu tích phân, trước khi lên phần cứng.

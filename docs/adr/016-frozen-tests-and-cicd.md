@@ -1,6 +1,6 @@
 # ADR-016: Quy trình test trước, test bị khoá, CI/CD và bảo vệ `main`
 
-- Trạng thái: đề xuất
+- Trạng thái: chấp nhận (MVP, 2026-10-29)
 - Ngày: 2026-10-29
 - Liên quan: thiết kế mục 6, 11.3, 11.4, 11.5; ADR-010, ADR-017; `CONTRIBUTING.md`
 

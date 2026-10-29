@@ -1,6 +1,6 @@
 # ADR-003: Lõi không ROS, adapter mỏng
 
-- Trạng thái: đề xuất
+- Trạng thái: chấp nhận (MVP, 2026-10-29)
 - Ngày: 2026-10-29
 - Liên quan: thiết kế mục 2 (phản mục tiêu), 5.1, 5.5; D1, D3 của chủ dự án; ADR-012
 
