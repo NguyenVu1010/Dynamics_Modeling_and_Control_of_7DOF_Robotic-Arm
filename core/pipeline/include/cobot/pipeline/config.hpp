@@ -9,7 +9,9 @@
 #include "cobot/control/computed_torque.hpp"
 #include "cobot/control/friction_compensation.hpp"
 #include "cobot/imperfect/config.hpp"
+#include "cobot/pipeline/path_validation.hpp"
 #include "cobot/planning/clik.hpp"
+#include "cobot/planning/waypoint_trajectory.hpp"
 
 // Configuration (feature `pipeline-config`). pipeline is the only module that parses YAML
 // (yaml-cpp). Unknown keys, missing keys, wrong types and out-of-range values are errors;
@@ -33,6 +35,18 @@ struct SafetyConfig {
   double hal_timeout_s = 0.005;     // no fresh read for this long -> hold
 };
 
+// Where the loop's trajectories come from (docs/design/2026-10-29-waypoint-gui-design.md 6.3),
+// YAML `command_source: config | external`:
+//   kConfig    start() plans `trajectory` from the config (the MVP code path);
+//   kExternal  start() holds the measured pose in standby, trajectories arrive through load().
+enum class CommandSource { kConfig, kExternal };
+
+// Tool centre point in the tip frame (link_7). YAML `tcp_offset: {position_m: [3], rpy_deg: [3]}`,
+// R = Rz(yaw) Ry(pitch) Rx(roll); identity (no tool) by default.
+struct TcpOffset {
+  common::Pose T_tip_tcp;
+};
+
 template <int N>
 struct Config {
   std::filesystem::path urdf_path;  // resolved relative to the YAML file's directory
@@ -48,6 +62,14 @@ struct Config {
   control::FrictionCompensationConfig<N> friction_compensation;  // optional section: disabled
   SafetyConfig safety;
   std::filesystem::path log_output_dir = "results";
+  // Optional sections (feature `loop-external`); a missing one keeps these defaults.
+  CommandSource command_source = CommandSource::kConfig;
+  planning::CartesianLimits cartesian_limits;  // auto segment durations of waypoint trajectories
+  double stop_time_s = 0.5;                    // > 0, duration of the request_stop() ramp
+  TcpOffset tcp_offset;
+  // YAML {reach_pos_m, reach_rot_deg, joint_margin_deg, torque_ratio, max_stretch}; dt_s and
+  // path_sample_dt_s keep their defaults.
+  ValidationLimits path_validation;
 };
 
 template <int N>

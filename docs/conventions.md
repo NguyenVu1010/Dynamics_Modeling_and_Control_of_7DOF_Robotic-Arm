@@ -117,7 +117,7 @@ e1..e6, step_us
 | Columns | Meaning |
 | --- | --- |
 | `t_ns` | `Timestamp` of the cycle |
-| `mode` | one of `idle`, `tracking`, `holding`, `finished`, `fault` |
+| `mode` | one of `idle`, `tracking`, `holding`, `finished`, `fault`, `standby` (external command mode: holding a fixed Cartesian reference through CLIK and computed torque, waiting for a trajectory; not counted as tracking error) |
 | `q*`, `qd*` | measured joint position (rad) and velocity (rad/s) |
 | `qref*`, `qdref*` | CLIK reference `q_d`, `q̇_d` |
 | `tau*` | commanded torque (N·m), after clamping |
@@ -135,3 +135,27 @@ run_id,param,level,seed,final_pos_err_m,final_rot_err_rad,rms_joint_err_rad,peak
 ```
 
 `held` and `passed` are `0`/`1`; `param` is `none` for Monte Carlo runs.
+
+### Waypoint file
+
+A list of Cartesian waypoints for the external command mode, shared by the GUI, the bench and
+the E2E scenarios (`pipeline::load_waypoints` / `save_waypoints`, design
+`docs/design/2026-10-29-waypoint-gui-design.md` 6.6):
+
+```yaml
+frame: base_link            # must equal cobot.base_link of the config
+waypoints:
+  - {position_m: [-0.5, -0.6, 0.9], rpy_deg: [0, 0, 90], duration_s: 0, stop: false}
+  - {position_m: [-0.3, -0.6, 0.7], rpy_deg: [0, 0, 90], duration_s: 4.0, stop: true}
+```
+
+| Key | Meaning |
+| --- | --- |
+| `position_m`, `rpy_deg` | TCP pose in `frame`; `R = Rz(yaw) Ry(pitch) Rx(roll)` |
+| `duration_s` | optional, default 0: time from the previous point (s); 0 means computed from `cobot.cartesian_limits` |
+| `stop` | optional, default `false`: come to rest at this point (the last point always stops) |
+
+The poses are of the TCP; the loader returns tip (`link_7`) poses
+`T_b_tip = T_b_tcp * T_tip_tcp^-1` with `T_tip_tcp` from `cobot.tcp_offset`, and the writer
+stores `T_b_tcp = T_b_tip * T_tip_tcp`. Numbers are written with `%.17g`, so a saved list
+loads back within 1e-9. Errors name the file and the key (`waypoints[2].rpy_deg: ...`).

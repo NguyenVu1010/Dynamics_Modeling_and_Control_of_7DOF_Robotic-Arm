@@ -19,9 +19,9 @@ using common::Timestamp;
 using common::Vec6;
 using common::VecN;
 
-enum class LoopMode { kIdle, kTracking, kHolding, kFinished, kFault };
+enum class LoopMode { kIdle, kTracking, kHolding, kFinished, kFault, kStandby };
 
-// "idle", "tracking", "holding", "finished", "fault"
+// "idle", "tracking", "holding", "finished", "fault", "standby"
 const char* to_string(LoopMode mode);
 
 template <int N>
