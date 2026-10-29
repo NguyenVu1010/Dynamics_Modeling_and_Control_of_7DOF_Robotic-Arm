@@ -20,7 +20,8 @@
 // `command_source` ("" = the config file's, "config" or "external") picks the trajectory source.
 // External (feature waypoint-ros): the loop waits in standby and WaypointServer offers
 // ~/follow_waypoints, ~/preview_waypoints, ~/reset and the latched ~/reference_path; update()
-// hands its commands to the loop and publishes a LoopSnapshot (waypoint_server.hpp).
+// hands its commands to the loop, accumulates the goal metrics from each step's record and
+// publishes them in a LoopSnapshot (waypoint_server.hpp).
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -276,6 +277,7 @@ class CobotController final : public ci::ControllerInterface {
       for (int i = 0; i < kN; ++i) {
         tau_max_(i) = model.joints[static_cast<std::size_t>(i)].tau_max;
       }
+      runs_ = RunAccumulator(tau_max_);
       if (c.command_source == cobot::pipeline::CommandSource::kExternal) {
         link_ = std::make_unique<LoopLink>();
         server_ = std::make_unique<WaypointServer>(get_node(), *link_, model, c);
@@ -341,6 +343,17 @@ class CobotController final : public ci::ControllerInterface {
     cobot::pipeline::write_csv_header<kN>(csv_);
     writer_stop_.store(false, std::memory_order_release);
     writer_ = std::thread([this] { drain_log(); });
+    if (link_) {
+      // A command or reset left in the link while inactive belongs to an aborted goal or a
+      // failed request: skip it instead of running it on the new start.
+      const WaypointCommand* pending = link_->command.readFromNonRT();
+      if (pending != nullptr) {
+        loaded_id_ = pending->id;
+      }
+      reset_id_ = link_->reset_requested.load(std::memory_order_acquire);
+      link_->stop_requested.store(false, std::memory_order_release);
+      link_->active.store(true, std::memory_order_release);
+    }
     RCLCPP_INFO(log, "active, writing %s", csv.c_str());
     return CallbackReturn::SUCCESS;
   }
@@ -348,6 +361,12 @@ class CobotController final : public ci::ControllerInterface {
   CallbackReturn on_deactivate(const rclcpp_lifecycle::State& /*previous_state*/) override {
     for (LoanedCommandInterface& cmd : command_interfaces_) {
       static_cast<void>(cmd.set_value(0.0));
+    }
+    if (link_) {
+      // update() stops: goals are rejected from now on and the server aborts a running one.
+      link_->active.store(false, std::memory_order_release);
+      const std::lock_guard<std::mutex> lock(link_->mutex);
+      link_->snapshot.mode = cobot::pipeline::LoopMode::kIdle;
     }
     stop_writer();
     return CallbackReturn::SUCCESS;
@@ -394,8 +413,10 @@ class CobotController final : public ci::ControllerInterface {
     }
   }
 
-  // External mode, after step(): the snapshot, skipped for this cycle when the lock is busy.
+  // External mode, after step(): the goal metrics of this step, then the snapshot, skipped for
+  // this cycle when the lock is busy (the metrics are cumulative, the next cycle catches up).
   void publish_snapshot() {
+    runs_.add(loop_->last_record());
     const cobot::pipeline::LoopMode mode = loop_->mode();
     if (mode == cobot::pipeline::LoopMode::kStandby && last_mode_ != mode) {
       standby_q_ = state_.q;
@@ -413,6 +434,7 @@ class CobotController final : public ci::ControllerInterface {
     s.standby_reference = standby_reference_;
     s.segment = loop_->segment();
     s.t_s = loop_->trajectory_time_s();
+    s.stats = runs_.stats();
     if (s.loaded_id != loaded_id_) {
       s.loaded_id = loaded_id_;
       s.load_ok = load_status_.is_ok();
@@ -425,26 +447,19 @@ class CobotController final : public ci::ControllerInterface {
     }
   }
 
-  // Writer thread: flushes after every batch so the rows survive an abrupt end of Gazebo; in
-  // external mode it also accumulates the goal metrics from the rows.
+  // Writer thread: flushes after every batch so the rows survive an abrupt end of Gazebo.
   void drain_log() {
     cobot::pipeline::LogRecord<kN> r;
-    RunAccumulator runs(tau_max_);
     bool last = false;
     while (!last) {
       last = writer_stop_.load(std::memory_order_acquire);
       bool any = false;
       while (loop_->log().pop(r)) {
         cobot::pipeline::write_csv_row<kN>(csv_, r);
-        runs.add(r);
         any = true;
       }
       if (any) {
         csv_.flush();
-        if (link_) {
-          const std::lock_guard<std::mutex> lock(link_->mutex);
-          link_->stats = runs.stats();
-        }
       } else if (!last) {
         std::this_thread::sleep_for(kWriterIdle);
       }
@@ -485,6 +500,7 @@ class CobotController final : public ci::ControllerInterface {
   // External mode (null otherwise); the server goes before the link it refers to.
   std::unique_ptr<LoopLink> link_;
   std::unique_ptr<WaypointServer> server_;
+  RunAccumulator runs_{cobot::common::VecN<kN>::Ones()};
   std::uint64_t loaded_id_ = 0;
   std::uint64_t reset_id_ = 0;
   cobot::common::Status load_status_ = cobot::common::Status::ok();

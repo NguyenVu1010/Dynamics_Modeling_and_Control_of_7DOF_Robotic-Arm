@@ -177,8 +177,17 @@ def run_preview(node: Any, rclpy: Any, waypoints: list[dict]) -> int:
         return 1
     future = client.call_async(build_preview_request(waypoints))
     _spin_until(node, future, rclpy)
+    if future.result() is None:
+        print(f"error: {PREVIEW} call failed: {future.exception()}", file=sys.stderr)
+        return 1
     response = preview_to_dict(future.result())
     print(yaml.safe_dump(response, sort_keys=False), end="")
+    if not response["ok"] and not response["issues"]:
+        print(
+            "error: preview refused without issues (the controller is not active or its loop "
+            "has not been in standby yet; see the controller log)",
+            file=sys.stderr,
+        )
     return 0 if response["ok"] else 1
 
 

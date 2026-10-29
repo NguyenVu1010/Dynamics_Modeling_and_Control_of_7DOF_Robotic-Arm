@@ -6,9 +6,11 @@
 // update() exchanges data with them only through LoopLink:
 //   non-RT -> update()  a validated trajectory (RealtimeBuffer: copy on the writer side, pointer
 //                       swap on the RT side), the stop request and the reset request (atomics);
-//   update() -> non-RT  LoopSnapshot, written under try_lock (update() never waits);
-//   writer   -> non-RT  RunStats, accumulated by the CSV writer thread from the log rows, which
-//                       carry q_ref, tau and the task error of every step.
+//   update() -> non-RT  LoopSnapshot with the goal metrics (RunStats, accumulated in update()
+//                       from ControlLoop::last_record() of every step, fixed size), written under
+//                       try_lock (update() never waits; a skipped cycle is caught up by the next);
+//   lifecycle -> non-RT `active`: false while the controller is inactive, so goals are rejected
+//                       and a running or pending goal is aborted.
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -45,6 +47,17 @@ struct WaypointCommand {
   std::optional<cobot::planning::WaypointTrajectory> trajectory;
 };
 
+struct RunStats {
+  std::uint64_t runs_done = 0;  // tracking phases that ended
+  cobot::pipeline::LoopMode end_mode = cobot::pipeline::LoopMode::kIdle;  // mode that ended it
+  double final_pos_err_m = 0.0;
+  double final_rot_err_rad = 0.0;
+  double rms_joint_err_rad = 0.0;  // largest per-joint RMS of q_ref - q over the tracking rows
+  double peak_tau_ratio = 0.0;
+  double pos_err_m = 0.0;  // latest row
+  double rot_err_rad = 0.0;
+};
+
 struct LoopSnapshot {
   cobot::pipeline::LoopMode mode = cobot::pipeline::LoopMode::kIdle;
   bool standby_seen = false;
@@ -58,29 +71,19 @@ struct LoopSnapshot {
   std::uint64_t reset_id = 0;  // last reset request passed to ControlLoop::reset
   bool reset_ok = false;
   std::string reset_message;
-};
-
-struct RunStats {
-  std::uint64_t runs_done = 0;  // tracking phases that ended
-  cobot::pipeline::LoopMode end_mode = cobot::pipeline::LoopMode::kIdle;  // mode that ended it
-  double final_pos_err_m = 0.0;
-  double final_rot_err_rad = 0.0;
-  double rms_joint_err_rad = 0.0;  // largest per-joint RMS of q_ref - q over the tracking rows
-  double peak_tau_ratio = 0.0;
-  double pos_err_m = 0.0;  // latest row
-  double rot_err_rad = 0.0;
+  RunStats stats;  // goal metrics, see RunAccumulator
 };
 
 struct LoopLink {
   realtime_tools::RealtimeBuffer<WaypointCommand> command;
   std::atomic<bool> stop_requested{false};
   std::atomic<std::uint64_t> reset_requested{0};
-  std::mutex mutex;  // guards snapshot and stats
+  std::atomic<bool> active{false};  // controller active (set by on_activate / on_deactivate)
+  std::mutex mutex;                 // guards snapshot
   LoopSnapshot snapshot;
-  RunStats stats;
 };
 
-// Writer thread: RunStats over the log rows, one run per tracking phase. No allocation.
+// update(): RunStats over the steps' records, one run per tracking phase. No allocation.
 class RunAccumulator {
  public:
   explicit RunAccumulator(const cobot::common::VecN<kN>& tau_max) : tau_max_(tau_max) {}
@@ -135,6 +138,7 @@ class WaypointServer {
   std::shared_ptr<GoalHandle> goal_;
   std::uint64_t goal_id_ = 0;
   std::uint64_t runs_before_ = 0;  // RunStats::runs_done when the goal was accepted
+  int load_wait_ticks_ = 0;        // ticks since the goal was handed to update()
   double goal_duration_s_ = 0.0;
   std::uint64_t reset_id_ = 0;
 };

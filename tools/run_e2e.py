@@ -21,7 +21,9 @@ gazebo scenario with `waypoints: FILE` launches with command_source:=external in
 Without cancel_after_s it passes on client exit 0 and the thresholds; with it, on client exit 3
 (canceled as requested), last row in standby, max |qd| over the last rest_window_s (0.5 s) <
 rest_qd_max_rad_s (0.01 rad/s) and peak |tau| / tau_max <= peak_tau_ratio (1); these optional
-thresholds keep the defaults in parentheses. cancel_after_s without waypoints fails.
+thresholds keep the defaults in parentheses (E2E-11b sets rest_qd_max_rad_s to 0.03 rad/s: the
+CSV qd is the measured, quantized and filtered velocity, whose noise at rest in Gazebo has std
+0.0047 rad/s per joint). cancel_after_s without waypoints fails.
 Scenarios tagged nightly run only with --tag nightly or --scenario. Exit 0 all pass, 1 any
 fails, 2 bad arguments.
 """

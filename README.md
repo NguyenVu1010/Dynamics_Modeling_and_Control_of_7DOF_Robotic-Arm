@@ -198,7 +198,7 @@ Unit and known-answer component tests cover every module. End-to-end scenarios l
 | E2E-08 | arm64 (Pi 5) container under QEMU: build, unit, E2E-01..04 | pass | every PR |
 | E2E-09 | headless Gazebo, real controller, `realistic`, seed 7 (friction in the physics) | 5 mm, 2°, 0.02 rad | every PR |
 | E2E-11 | headless Gazebo, E2E-10 waypoints sent through `follow_waypoints`, `realistic`, seed 7 | 5 mm, 2°, 0.02 rad | every PR |
-| E2E-11b | as E2E-11, goal canceled after 3 s | canceled, ends in standby at rest, torque in limits | every PR |
+| E2E-11b | as E2E-11, goal canceled after 3 s | canceled, ends in standby, max \|qd\| < 0.03 rad/s over the last 0.5 s (measured velocity: encoder noise std 0.0047 rad/s at rest), torque in limits | every PR |
 | PF-01 | `ControlLoop` step time | p50/p95 reported; p95 < 1 ms on CI, 200 µs measured on desktop | every PR |
 
 ## Documentation
