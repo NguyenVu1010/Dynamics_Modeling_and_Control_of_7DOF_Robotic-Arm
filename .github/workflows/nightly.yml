@@ -22,7 +22,7 @@ jobs:
       - name: Monte Carlo and sensitivity scenarios
         run: |
           if ls tests/e2e/scenarios/*.yaml >/dev/null 2>&1; then
-            python tools/run_e2e.py --all --tag nightly --bench build/bench/cobot_bench --out results/nightly-${{ github.run_id }}
+            python tools/run_e2e.py --all --tag nightly --bench build/src/bench/cobot_bench --out results/nightly-${{ github.run_id }}
           else
             echo "no e2e scenarios yet"
           fi

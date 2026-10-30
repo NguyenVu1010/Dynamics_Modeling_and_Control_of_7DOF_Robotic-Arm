@@ -49,7 +49,7 @@ model::Model<1> horizontal(double q_lim = 3.0) {
 }
 
 model::Arm7 load_arm() {
-  const std::string urdf = std::string(COBOT_REPO_DIR) + "/sim/urdf/cobot30_5.urdf";
+  const std::string urdf = std::string(COBOT_REPO_DIR) + "/src/sim/urdf/cobot30_5.urdf";
   const auto chain = model::parse_urdf_chain(urdf, "base_link", "link_7");
   EXPECT_TRUE(chain.is_ok()) << chain.reason();
   const auto arm = model::make_model<7>(chain.value(), Vec3(0.0, 0.0, -kG));

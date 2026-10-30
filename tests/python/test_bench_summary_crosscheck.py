@@ -15,8 +15,8 @@ import pytest
 from cobot_eval import metrics
 
 REPO = Path(__file__).resolve().parents[2]
-BENCH = Path(os.environ.get("COBOT_BENCH", REPO / "build/bench/cobot_bench"))
-URDF = REPO / "sim/urdf/cobot30_5.urdf"
+BENCH = Path(os.environ.get("COBOT_BENCH", REPO / "build/src/bench/cobot_bench"))
+URDF = REPO / "src/sim/urdf/cobot30_5.urdf"
 
 
 @pytest.mark.skipif(not BENCH.is_file(), reason=f"cobot_bench not built ({BENCH})")

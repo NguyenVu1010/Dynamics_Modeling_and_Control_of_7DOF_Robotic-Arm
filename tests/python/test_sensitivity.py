@@ -145,7 +145,7 @@ def run_cli(tmp_path, summary):
     thresholds.write_bytes(THRESHOLDS.encode())
     out = tmp_path / "out"
     env = dict(os.environ, MPLBACKEND="Agg")
-    env["PYTHONPATH"] = os.pathsep.join([str(REPO / "eval"), env.get("PYTHONPATH", "")])
+    env["PYTHONPATH"] = os.pathsep.join([str(REPO / "src/eval"), env.get("PYTHONPATH", "")])
     cmd = [sys.executable, "-m", "cobot_eval.sensitivity", "--summary", str(summary)]
     cmd += ["--thresholds", str(thresholds), "--out", str(out)]
     proc = subprocess.run(cmd, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=300)

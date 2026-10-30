@@ -10,9 +10,9 @@ source "$repo/tools/wsl/env.sh"
 ws="$cobot_ws"
 set -u
 
-paths=("$repo/sim" "$repo/ros2_interfaces")
-if [ -f "$repo/ros2_node/package.xml" ]; then paths+=("$repo/ros2_node"); fi
-if [ -f "$repo/ros2_gui/package.xml" ]; then paths+=("$repo/ros2_gui"); fi
+paths=("$repo/src/sim" "$repo/src/ros2_interfaces")
+if [ -f "$repo/src/ros2_node/package.xml" ]; then paths+=("$repo/src/ros2_node"); fi
+if [ -f "$repo/src/ros2_gui/package.xml" ]; then paths+=("$repo/src/ros2_gui"); fi
 
 cmd="${1:-build}"
 case "$cmd" in
@@ -30,12 +30,12 @@ case "$cmd" in
     # clang-tidy on the ROS controller sources (the lint job cannot: no ROS headers there).
     db="$ws/build/cobot_ros2"
     if [ ! -f "$db/compile_commands.json" ]; then echo "run sim.sh build first" >&2; exit 2; fi
-    clang-tidy-18 -p "$db" --quiet --warnings-as-errors='*' "$repo"/ros2_node/src/*.cpp
+    clang-tidy-18 -p "$db" --quiet --warnings-as-errors='*' "$repo"/src/ros2_node/src/*.cpp
     gui="$ws/build/cobot_gui"
     if [ -f "$gui/compile_commands.json" ]; then
       # OGRE (via rviz_common) forward-declares its own Pose next to cobot::common::Pose.
       clang-tidy-18 -p "$gui" --quiet --warnings-as-errors='*' \
-        --checks=-bugprone-forward-declaration-namespace "$repo"/ros2_gui/src/*.cpp
+        --checks=-bugprone-forward-declaration-namespace "$repo"/src/ros2_gui/src/*.cpp
     fi
     echo "TIDY OK"
     ;;

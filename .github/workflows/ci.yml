@@ -32,7 +32,7 @@ jobs:
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_BUILD_TYPE=Release
           # ros2_node and ros2_gui need the ROS headers: the gazebo job runs clang-tidy on them (sim.sh tidy).
-          files=$(git diff --name-only --diff-filter=AM origin/${{ github.base_ref }}...HEAD -- '*.cpp' ':!ros2_node/**' ':!ros2_gui/**')
+          files=$(git diff --name-only --diff-filter=AM origin/${{ github.base_ref }}...HEAD -- '*.cpp' ':!src/ros2_node/**' ':!src/ros2_gui/**')
           if [ -n "$files" ]; then clang-tidy-18 -p build --quiet --warnings-as-errors='*' $files; fi
 
   frozen-tests:
@@ -77,10 +77,10 @@ jobs:
       - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCOBOT_COVERAGE=ON
       - run: cmake --build build --parallel 4
       - run: ctest --test-dir build --output-on-failure --parallel 4
-      - name: Line coverage of core/ >= 80 %
+      - name: Line coverage of src/core/ >= 80 %
         run: >
           mkdir -p coverage &&
-          gcovr --root . --filter 'core/' --exclude-unreachable-branches
+          gcovr --root . --filter 'src/core/' --exclude-unreachable-branches
           --print-summary --fail-under-line 80
           --html-details coverage/index.html --xml coverage/coverage.xml build
       - uses: actions/upload-artifact@v4
@@ -109,7 +109,7 @@ jobs:
       - name: E2E-01..04 and PF-01 (bench, design 11.3)
         run: |
           if ls tests/e2e/scenarios/*.yaml >/dev/null 2>&1; then
-            python tools/run_e2e.py --all --tag pr --bench build/bench/cobot_bench --out results/ci-${{ github.run_id }}
+            python tools/run_e2e.py --all --tag pr --bench build/src/bench/cobot_bench --out results/ci-${{ github.run_id }}
           else
             echo "no e2e scenarios yet"
           fi

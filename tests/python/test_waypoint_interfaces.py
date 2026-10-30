@@ -19,7 +19,7 @@ import pytest
 from test_sim_launch_realism import run_launch  # noqa: F401  (fixture)
 
 REPO = Path(__file__).resolve().parents[2]
-PKG = REPO / "ros2_interfaces"
+PKG = REPO / "src/ros2_interfaces"
 PKG_NAME = "cobot_interfaces"
 
 WAYPOINT = {"pose": "geometry_msgs/Pose", "duration_s": "float64", "stop": "bool"}
@@ -152,16 +152,16 @@ def test_sim_sh_builds_the_interfaces_package():
 
 
 def test_controller_package_depends_on_interfaces():
-    _, deps = package_xml(REPO / "ros2_node/package.xml")
+    _, deps = package_xml(REPO / "src/ros2_node/package.xml")
     runtime = all_deps(deps, "depend", "build_depend")
     assert {PKG_NAME, "rclcpp_action", "std_srvs", "nav_msgs"} <= runtime
-    cmake = (REPO / "ros2_node/CMakeLists.txt").read_text(encoding="utf-8")
+    cmake = (REPO / "src/ros2_node/CMakeLists.txt").read_text(encoding="utf-8")
     assert re.search(rf"find_package\(\s*{PKG_NAME}\s+REQUIRED", cmake)
     assert re.search(r"find_package\(\s*rclcpp_action\s+REQUIRED", cmake)
 
 
 def test_controller_installs_send_waypoints():
-    cmake = (REPO / "ros2_node/CMakeLists.txt").read_text(encoding="utf-8")
+    cmake = (REPO / "src/ros2_node/CMakeLists.txt").read_text(encoding="utf-8")
     match = re.search(r"install\(\s*PROGRAMS([^)]*send_waypoints\.py[^)]*)\)", cmake, re.S)
     assert match, "tools/send_waypoints.py not installed with install(PROGRAMS ...)"
     assert re.search(r"DESTINATION\s+lib/(\$\{PROJECT_NAME\}|cobot_ros2)\b", match.group(1))
@@ -170,7 +170,7 @@ def test_controller_installs_send_waypoints():
 
 def test_controller_declares_external_endpoints():
     src = "\n".join(
-        p.read_text(encoding="utf-8") for p in sorted((REPO / "ros2_node/src").glob("*.[ch]pp"))
+        p.read_text(encoding="utf-8") for p in sorted((REPO / "src/ros2_node/src").glob("*.[ch]pp"))
     )
     assert re.search(r'auto_declare<std::string>\(\s*"command_source"', src)
     for name in ("~/follow_waypoints", "~/preview_waypoints", "~/reset", "~/reference_path"):

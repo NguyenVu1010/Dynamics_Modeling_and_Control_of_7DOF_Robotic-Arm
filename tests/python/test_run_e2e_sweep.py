@@ -70,7 +70,7 @@ def run_e2e(tmp_path, bench, args, mode="", report=True):
     """Run the runner from an unrelated cwd; returns (exit code, output, bench argv list)."""
     exe, log = bench
     env = dict(os.environ, FAKE_BENCH_MODE=mode, FAKE_BENCH_LOG=str(log), MPLBACKEND="Agg")
-    env["PYTHONPATH"] = str(REPO / "eval")
+    env["PYTHONPATH"] = str(REPO / "src/eval")
     args = [str(a) for a in args] + ([] if report else ["--no-report"])
     cmd = [sys.executable, str(REPO / "tools/run_e2e.py"), *args, "--bench", str(exe)]
     cmd += ["--out", str(tmp_path / "out")]

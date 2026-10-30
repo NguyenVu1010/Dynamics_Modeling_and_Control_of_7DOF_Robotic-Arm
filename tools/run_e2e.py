@@ -42,7 +42,7 @@ import numpy as np
 import yaml
 
 REPO = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(REPO / "eval"))
+sys.path.insert(0, str(REPO / "src/eval"))
 
 from cobot_eval import sensitivity  # noqa: E402
 from cobot_eval.metrics import (  # noqa: E402

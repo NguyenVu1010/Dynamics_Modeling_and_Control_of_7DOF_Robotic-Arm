@@ -21,7 +21,7 @@ inline std::string fixture(const std::string& name) {
   return repo_path("tests/data/urdf/" + name);
 }
 inline std::string real_urdf() {
-  return repo_path("sim/urdf/cobot30_5.urdf");
+  return repo_path("src/sim/urdf/cobot30_5.urdf");
 }
 
 inline Mat3 rpy(double r, double p, double y) {

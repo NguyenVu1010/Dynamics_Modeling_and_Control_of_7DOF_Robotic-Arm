@@ -16,7 +16,7 @@ from cobot_eval.metrics import (
 from run_csv_fixture import Run, run_header
 
 REPO = Path(__file__).resolve().parents[2]
-URDF = REPO / "sim/urdf/cobot30_5.urdf"
+URDF = REPO / "src/sim/urdf/cobot30_5.urdf"
 TAU_MAX = [87.0, 87.0, 87.0, 87.0, 12.0, 12.0, 12.0]
 LOOSE = Thresholds(final_pos_err_m=0.002, final_rot_err_deg=1.0, rms_joint_err_rad=0.01)
 

@@ -85,7 +85,7 @@ def run_e2e(tmp_path, ros2, args, mode="", env_extra=None):
     bindir, log = ros2
     env = dict(os.environ, FAKE_ROS2_MODE=mode, FAKE_ROS2_LOG=str(log), **(env_extra or {}))
     env["PATH"] = os.pathsep.join([str(bindir), env.get("PATH", "")])
-    env["PYTHONPATH"] = str(REPO / "eval")
+    env["PYTHONPATH"] = str(REPO / "src/eval")
     cmd = [sys.executable, str(REPO / "tools/run_e2e.py"), *map(str, args), "--no-report"]
     cmd += ["--out", str(tmp_path / "out")]
     start = time.monotonic()

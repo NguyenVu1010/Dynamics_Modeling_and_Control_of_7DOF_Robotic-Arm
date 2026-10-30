@@ -14,7 +14,7 @@ from cobot_eval import metrics, report, sensitivity
 from run_csv_fixture import Run
 
 REPO = Path(__file__).resolve().parents[2]
-URDF = REPO / "sim/urdf/cobot30_5.urdf"
+URDF = REPO / "src/sim/urdf/cobot30_5.urdf"
 SCENARIO = """\
 id: T
 thresholds:

@@ -25,15 +25,15 @@ import pytest
 import yaml
 
 REPO = Path(__file__).resolve().parents[2]
-GUI = REPO / "ros2_gui"
+GUI = REPO / "src/ros2_gui"
 PLUGIN_XML = GUI / "plugin_description.xml"
-RVIZ = REPO / "sim/rviz/waypoints.rviz"
-LAUNCH = REPO / "sim/launch/sim.launch.py"
+RVIZ = REPO / "src/sim/rviz/waypoints.rviz"
+LAUNCH = REPO / "src/sim/launch/sim.launch.py"
 SIM_SH = REPO / "tools/wsl/sim.sh"
 GAZEBO_CI = REPO / "tools/ci/gazebo_ci.sh"
 ROS_DOCKERFILE = REPO / "docker/ros.Dockerfile"
 README = REPO / "README.md"
-SHARES = {"cobot_sim": REPO / "sim", "cobot_ros2": REPO, "cobot_gui": GUI}
+SHARES = {"cobot_sim": REPO / "src/sim", "cobot_ros2": REPO, "cobot_gui": GUI}
 CONTROLLER = "cobot_controller"
 PANEL = "cobot_gui/WaypointPanel"
 REFERENCE_TOPIC = "/cobot_controller/reference_path"
@@ -136,7 +136,7 @@ def test_rviz_config_fixed_frame_is_base_link(rviz_config):
 
 
 def test_sim_package_installs_the_rviz_config():
-    cmake = (REPO / "sim/CMakeLists.txt").read_text(encoding="utf-8")
+    cmake = (REPO / "src/sim/CMakeLists.txt").read_text(encoding="utf-8")
     install = [line for line in cmake.splitlines() if "install(DIRECTORY" in line]
     assert any("rviz" in line.split() for line in install), "sim/CMakeLists.txt must install rviz/"
 

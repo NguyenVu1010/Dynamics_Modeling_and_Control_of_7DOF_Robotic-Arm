@@ -23,7 +23,7 @@ SCENARIOS = REPO / "tests/e2e/scenarios"
 E2E_10 = SCENARIOS / "e2e_10_waypoints.yaml"
 E2E_10_WAYPOINTS = REPO / "tests/e2e/waypoints/e2e_10.yaml"
 G3_REAL = {"final_pos_err_m": 0.005, "final_rot_err_deg": 2.0, "rms_joint_err_rad": 0.02}
-BENCH = Path(os.environ.get("COBOT_BENCH", REPO / "build/bench/cobot_bench"))
+BENCH = Path(os.environ.get("COBOT_BENCH", REPO / "build/src/bench/cobot_bench"))
 
 
 def load(path):
@@ -52,7 +52,7 @@ def run_e2e(tmp_path, bench, args, mode=""):
     """Runner from an unrelated cwd, --no-report; returns (exit code, output, bench argv list)."""
     exe, log = bench
     env = dict(os.environ, FAKE_BENCH_MODE=mode, FAKE_BENCH_LOG=str(log))
-    env["PYTHONPATH"] = str(REPO / "eval")
+    env["PYTHONPATH"] = str(REPO / "src/eval")
     cmd = [sys.executable, str(REPO / "tools/run_e2e.py"), *map(str, args), "--no-report"]
     cmd += ["--bench", str(exe), "--out", str(tmp_path / "out")]
     proc = subprocess.run(cmd, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=300)
@@ -156,7 +156,7 @@ def test_e2e_10_passes_with_the_real_bench(tmp_path):
     # and the realistic run meets the thresholds.
     cmd = [sys.executable, str(REPO / "tools/run_e2e.py"), "--scenario", str(E2E_10)]
     cmd += ["--bench", str(BENCH), "--out", str(tmp_path / "out"), "--no-report"]
-    env = dict(os.environ, PYTHONPATH=str(REPO / "eval"))
+    env = dict(os.environ, PYTHONPATH=str(REPO / "src/eval"))
     proc = subprocess.run(cmd, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=600)
     assert proc.returncode == 0, proc.stdout + proc.stderr
     assert "PASS" in proc.stdout

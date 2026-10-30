@@ -21,12 +21,12 @@ import pytest
 import yaml
 
 REPO = Path(__file__).resolve().parents[2]
-LAUNCH = REPO / "sim/launch/sim.launch.py"
-XACRO = REPO / "sim/urdf/cobot30_5.urdf.xacro"
+LAUNCH = REPO / "src/sim/launch/sim.launch.py"
+XACRO = REPO / "src/sim/urdf/cobot30_5.urdf.xacro"
 REALISTIC = REPO / "config/imperfections/realistic.yaml"
 IDEAL = REPO / "config/imperfections/ideal.yaml"
 PESSIMISTIC = REPO / "config/imperfections/pessimistic.yaml"
-SHARES = {"cobot_sim": REPO / "sim", "cobot_ros2": REPO}  # installed share = source layout
+SHARES = {"cobot_sim": REPO / "src/sim", "cobot_ros2": REPO}  # installed share = source layout
 N = 7
 CONTROLLER = "cobot_controller"
 
@@ -288,7 +288,7 @@ def test_scalar_friction_applies_to_every_joint(run_launch, tmp_path):
 def test_xacro_still_gets_controllers_yaml(run_launch):
     launched = run_launch(imperfections_path=str(REALISTIC))
     assert Path(launched.xacro_calls[0]["path"]) == XACRO
-    assert Path(launched.mappings["controllers_yaml"]) == REPO / "sim/config/controllers.yaml"
+    assert Path(launched.mappings["controllers_yaml"]) == REPO / "src/sim/config/controllers.yaml"
 
 
 def test_xacro_declares_friction_args_with_zero_default():

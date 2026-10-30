@@ -24,7 +24,7 @@ constexpr double kDt = 1e-3;  // s
 constexpr double kPi = 3.14159265358979323846;
 
 model::Arm7 load_arm_zero_gravity() {
-  const std::string urdf = std::string(COBOT_REPO_DIR) + "/sim/urdf/cobot30_5.urdf";
+  const std::string urdf = std::string(COBOT_REPO_DIR) + "/src/sim/urdf/cobot30_5.urdf";
   const auto chain = model::parse_urdf_chain(urdf, "base_link", "link_7");
   EXPECT_TRUE(chain.is_ok()) << chain.reason();
   const auto arm = model::make_model<7>(chain.value(), Vec3::Zero());

@@ -46,8 +46,8 @@ fs::path write_temp(const std::string& name, const std::string& text) {
 // config/default.yaml with an absolute URDF path, so the copy is valid in any directory.
 std::string default_text() {
   return replace(read_file(kRepo / "config/default.yaml"),
-                 "../sim/urdf/cobot30_5.urdf",
-                 (kRepo / "sim/urdf/cobot30_5.urdf").string());
+                 "../src/sim/urdf/cobot30_5.urdf",
+                 (kRepo / "src/sim/urdf/cobot30_5.urdf").string());
 }
 std::string ideal_text() {
   return read_file(kRepo / "config/imperfections/ideal.yaml");
@@ -72,7 +72,7 @@ TEST(LoadConfig, DefaultFile) {
   EXPECT_DOUBLE_EQ(c.trajectory.hold_s, 2.0);
   EXPECT_TRUE(c.urdf_path.is_absolute());
   EXPECT_TRUE(fs::exists(c.urdf_path)) << c.urdf_path;
-  EXPECT_EQ(c.urdf_path, (kRepo / "sim/urdf/cobot30_5.urdf").lexically_normal());
+  EXPECT_EQ(c.urdf_path, (kRepo / "src/sim/urdf/cobot30_5.urdf").lexically_normal());
   EXPECT_EQ(c.log_output_dir, (kRepo / "results").lexically_normal());
   EXPECT_EQ(c.base_link, "base_link");
   EXPECT_EQ(c.tip_link, "link_7");
@@ -92,10 +92,10 @@ TEST(LoadConfig, DefaultFile) {
 }
 
 TEST(LoadConfig, RelativePathsFollowTheYamlDirectory) {
-  const fs::path p = write_temp(
-      "relative.yaml",
-      replace(
-          read_file(kRepo / "config/default.yaml"), "../sim/urdf/cobot30_5.urdf", "robot.urdf"));
+  const fs::path p = write_temp("relative.yaml",
+                                replace(read_file(kRepo / "config/default.yaml"),
+                                        "../src/sim/urdf/cobot30_5.urdf",
+                                        "robot.urdf"));
   const auto r = load_config<7>(p);
   ASSERT_TRUE(r.is_ok()) << r.reason();
   const fs::path dir = fs::absolute(p).parent_path();

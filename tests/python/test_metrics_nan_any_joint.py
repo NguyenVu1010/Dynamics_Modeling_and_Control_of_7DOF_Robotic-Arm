@@ -12,7 +12,7 @@ from cobot_eval import metrics
 
 from run_csv_fixture import Run
 
-URDF = Path(__file__).resolve().parents[2] / "sim/urdf/cobot30_5.urdf"
+URDF = Path(__file__).resolve().parents[2] / "src/sim/urdf/cobot30_5.urdf"
 TH = metrics.Thresholds(1.0, 1.0, 1.0)
 
 
