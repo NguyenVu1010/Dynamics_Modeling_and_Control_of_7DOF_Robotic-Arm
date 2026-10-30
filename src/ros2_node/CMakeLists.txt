@@ -19,8 +19,8 @@ find_package(realtime_tools REQUIRED)
 find_package(std_msgs REQUIRED)
 find_package(std_srvs REQUIRED)
 
-set(COBOT_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
-add_subdirectory("${COBOT_REPO_ROOT}/core" "${CMAKE_CURRENT_BINARY_DIR}/core")
+set(COBOT_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+add_subdirectory("${COBOT_REPO_ROOT}/src/core" "${CMAKE_CURRENT_BINARY_DIR}/core")
 
 add_library(${PROJECT_NAME} SHARED src/cobot_controller.cpp src/waypoint_server.cpp)
 cobot_set_target_defaults(${PROJECT_NAME})
@@ -49,6 +49,6 @@ install(PROGRAMS "${COBOT_REPO_ROOT}/tools/send_waypoints.py" DESTINATION lib/co
 # Its log.output_dir is not used: without log_path the CSV goes to results/<run-id>/run.csv
 # under the working directory of the controller manager (ADR-012).
 install(DIRECTORY "${COBOT_REPO_ROOT}/config" DESTINATION share/${PROJECT_NAME})
-install(FILES "${COBOT_REPO_ROOT}/sim/urdf/cobot30_5.urdf" DESTINATION share/${PROJECT_NAME}/sim/urdf)
+install(FILES "${COBOT_REPO_ROOT}/src/sim/urdf/cobot30_5.urdf" DESTINATION share/${PROJECT_NAME}/sim/urdf)
 
 ament_package()

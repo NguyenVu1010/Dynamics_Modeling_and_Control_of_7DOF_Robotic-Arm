@@ -17,8 +17,8 @@ find_package(std_srvs REQUIRED)
 find_package(visualization_msgs REQUIRED)
 find_package(Qt5 REQUIRED COMPONENTS Widgets)
 
-set(COBOT_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
-add_subdirectory("${COBOT_REPO_ROOT}/core" "${CMAKE_CURRENT_BINARY_DIR}/core")
+set(COBOT_REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../..")
+add_subdirectory("${COBOT_REPO_ROOT}/src/core" "${CMAKE_CURRENT_BINARY_DIR}/core")
 
 # Data model without Qt, shared by the panel and the unit test.
 add_library(cobot_gui_model STATIC src/waypoint_table.cpp)
