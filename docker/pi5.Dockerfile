@@ -11,13 +11,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /src
 COPY CMakeLists.txt ./
 COPY cmake cmake
-COPY core core
 COPY tests tests
 COPY config config
-COPY sim/urdf sim/urdf
+COPY src/core src/core
+COPY src/bench src/bench
+COPY src/eval src/eval
+COPY src/sim/urdf src/sim/urdf
 COPY tools tools
-COPY eval eval
-COPY bench bench
 RUN cmake -S . -B /build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCOBOT_WERROR=ON \
       "-DCOBOT_ARCH_FLAGS=-mcpu=cortex-a76" -DCMAKE_INSTALL_PREFIX=/opt/cobot \
     && cmake --build /build --parallel "$(nproc)" \
@@ -27,7 +27,7 @@ FROM build AS test
 # Unit/component tests, then the bench e2e scenarios tagged for arm64 (E2E-08).
 RUN ctest --test-dir /build --output-on-failure --parallel "$(nproc)" \
     && if ls tests/e2e/scenarios/*.yaml >/dev/null 2>&1; then \
-         python3 tools/run_e2e.py --all --tag arm64 --bench /build/bench/cobot_bench \
+         python3 tools/run_e2e.py --all --tag arm64 --bench /build/src/bench/cobot_bench \
            --out /tmp/e2e --no-report; \
        else echo "no e2e scenarios yet"; fi
 
@@ -39,7 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && useradd --create-home --uid 1001 cobot
 COPY --from=build /opt/cobot /opt/cobot
 COPY --from=build /src/config /opt/cobot/share/cobot/config
-COPY --from=build /src/sim/urdf /opt/cobot/share/cobot/sim/urdf
+COPY --from=build /src/src/sim/urdf /opt/cobot/share/cobot/src/sim/urdf
 ENV PATH=/opt/cobot/bin:$PATH
 USER cobot
 WORKDIR /home/cobot

@@ -15,21 +15,22 @@ install with `apt`, which is the later hardware target.
 ## Layout
 
 ```
-core/         C++17, no ROS; one target cobot::<module> per directory
-  common/       VecN, MatN, Pose, Timestamp, Result, logger, so3_exp/so3_log
-  model/        URDF -> Model<N> (fixed joints merged)
-  kinematics/   FK, Jacobian J_e_b, Jdot*qdot
-  dynamics/     RNEA, CRBA, G, C*qdot, forward dynamics, SimPlant
-  planning/     quintic Cartesian trajectory, CLIK reference
-  control/      computed torque, hold mode
-  hal/          JointInterface<N>
-  imperfect/    sensor/actuator/model imperfections
-  pipeline/     ControlLoop, YAML config, SPSC ring, CSV
-ros2_node/    ros2_control controller plugin around ControlLoop
-ros2_interfaces/ cobot_interfaces: FollowWaypoints action, PreviewWaypoints service
-bench/        cobot_bench: ControlLoop + SimPlant, run / montecarlo / sweep / timing
-sim/          cobot_sim: URDF/xacro, meshes, world, controllers, launch
-eval/         Python reports and sensitivity analysis (reads CSV only)
+src/
+  core/         C++17, no ROS; one target cobot::<module> per directory
+    common/       VecN, MatN, Pose, Timestamp, Result, logger, so3_exp/so3_log
+    model/        URDF -> Model<N> (fixed joints merged)
+    kinematics/   FK, Jacobian J_e_b, Jdot*qdot
+    dynamics/     RNEA, CRBA, G, C*qdot, forward dynamics, SimPlant
+    planning/     quintic Cartesian trajectory, CLIK reference
+    control/      computed torque, hold mode
+    hal/          JointInterface<N>
+    imperfect/    sensor/actuator/model imperfections
+    pipeline/     ControlLoop, YAML config, SPSC ring, CSV
+  ros2_node/    ros2_control controller plugin around ControlLoop
+  ros2_interfaces/ cobot_interfaces: FollowWaypoints action, PreviewWaypoints service
+  bench/        cobot_bench: ControlLoop + SimPlant, run / montecarlo / sweep / timing
+  sim/          cobot_sim: URDF/xacro, meshes, world, controllers, launch
+  eval/         Python reports and sensitivity analysis (reads CSV only)
 config/       default.yaml, imperfections/, sweeps/
 docker/       Pi 5 (arm64) and ROS 2 + Gazebo images
 tests/        unit/, component/, e2e/scenarios/, python/, data/
@@ -107,7 +108,7 @@ The main gain came from modelling the gearbox-reflected rotor inertia (armature,
 without it the wrist inertia was about 1300× too small and its effective stiffness
 `M_ii k_p` about 1 N·m/rad. The MVP friction numbers were also optimistic, because the old plant
 lost Coulomb friction numerically. Armature values are assumed until the eRob H-series datasheet
-is confirmed (`sim/urdf/mass_budget.yaml`).
+is confirmed (`src/sim/urdf/mass_budget.yaml`).
 
 The sweep over 12 sensor, motor, model and timing parameters gives a
 [hardware requirement table](docs/results/realism/hardware_requirements.md): sensor delay
@@ -116,7 +117,7 @@ The sweep over 12 sensor, motor, model and timing parameters gives a
 
 Environment parameters are edited in config files, not code: `config/imperfections/*.yaml`
 (sensor, motor, friction, model mismatch, timing, seed), `config/default.yaml` (gains, friction
-compensation) and `sim/urdf/mass_budget.yaml` (masses, armature). Gazebo takes the profile with
+compensation) and `src/sim/urdf/mass_budget.yaml` (masses, armature). Gazebo takes the profile with
 `imperfections_path:=` and `seed:=`.
 
 ## Build
@@ -135,7 +136,7 @@ tools/wsl/build.sh --asan          # Debug with ASan + UBSan
 tools/wsl/build.sh --target T      # one target
 tools/wsl/pytest.sh                # Python tests
 tools/wsl/lint.sh                  # clang-format, clang-tidy, ruff
-tools/wsl/sim.sh build             # colcon build of sim/, ros2_interfaces/, ros2_node/, ros2_gui/
+tools/wsl/sim.sh build             # colcon build of src/sim, src/ros2_interfaces, src/ros2_node, src/ros2_gui
 tools/wsl/sim.sh check             # xacro + check_urdf + gz sdf, no Gazebo needed
 tools/wsl/sim.sh test              # colcon test of cobot_gui (panel data model)
 tools/wsl/sim.sh smoke             # headless Gazebo, 20 s
@@ -166,14 +167,14 @@ ros2 run cobot_ros2 send_waypoints.py tests/e2e/waypoints/e2e_10.yaml [--preview
 
 ## Waypoint GUI
 
-An RViz2 panel (`cobot_gui/WaypointPanel`, package `ros2_gui/`) edits a waypoint list and drives
+An RViz2 panel (`cobot_gui/WaypointPanel`, package `src/ros2_gui/`) edits a waypoint list and drives
 the external command mode. After `sim.sh build` and `source tools/wsl/env.sh`:
 
 ```bash
 ros2 launch cobot_sim sim.launch.py controller:=cobot_controller rviz:=true [gui:=true]
 ```
 
-`rviz:=true` opens RViz2 with `sim/rviz/waypoints.rviz` (robot, TF, interactive markers, the
+`rviz:=true` opens RViz2 with `src/sim/rviz/waypoints.rviz` (robot, TF, interactive markers, the
 preview and reference paths, the panel docked) and starts the controller with
 `command_source:=external` unless `command_source` is given. Workflow:
 

@@ -4,7 +4,7 @@
 cmake_minimum_required(VERSION 3.22)
 project(cobot_core VERSION 0.1.0 LANGUAGES CXX)
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../cmake")
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/../../cmake")
 include(GNUInstallDirs)
 include(cobot_warnings)
 
@@ -25,7 +25,7 @@ install(TARGETS ${COBOT_TARGETS} EXPORT cobot_coreTargets
         LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(EXPORT cobot_coreTargets NAMESPACE cobot:: DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/cobot_core)
 include(CMakePackageConfigHelpers)
-configure_package_config_file(../cmake/cobot_coreConfig.cmake.in
+configure_package_config_file(../../cmake/cobot_coreConfig.cmake.in
   "${CMAKE_CURRENT_BINARY_DIR}/cobot_coreConfig.cmake"
   INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/cobot_core)
 install(FILES "${CMAKE_CURRENT_BINARY_DIR}/cobot_coreConfig.cmake"

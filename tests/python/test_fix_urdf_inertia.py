@@ -8,9 +8,9 @@ import yaml
 from fix_urdf_inertia import fix_urdf
 
 REPO = Path(__file__).resolve().parents[2]
-ORIGINAL = REPO / "sim/urdf/cobot30_5_original.urdf"
-BUDGET = REPO / "sim/urdf/mass_budget.yaml"
-COMMITTED = REPO / "sim/urdf/cobot30_5.urdf"
+ORIGINAL = REPO / "src/sim/urdf/cobot30_5_original.urdf"
+BUDGET = REPO / "src/sim/urdf/mass_budget.yaml"
+COMMITTED = REPO / "src/sim/urdf/cobot30_5.urdf"
 
 
 def inertials(path):
@@ -79,7 +79,7 @@ def test_mesh_uris_point_to_cobot_sim(fixed):
     assert meshes, "no meshes found"
     for uri in meshes:
         assert uri.startswith("package://cobot_sim/meshes/"), uri
-        assert (REPO / "sim/meshes" / Path(uri).name).is_file(), uri
+        assert (REPO / "src/sim/meshes" / Path(uri).name).is_file(), uri
 
 
 def test_ros1_tags_removed(fixed):

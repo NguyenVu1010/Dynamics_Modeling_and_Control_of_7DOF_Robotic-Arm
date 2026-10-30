@@ -23,9 +23,9 @@ import yaml
 from fix_urdf_inertia import fix_urdf
 
 REPO = Path(__file__).resolve().parents[2]
-ORIGINAL = REPO / "sim/urdf/cobot30_5_original.urdf"
-BUDGET = REPO / "sim/urdf/mass_budget.yaml"
-COMMITTED = REPO / "sim/urdf/cobot30_5.urdf"
+ORIGINAL = REPO / "src/sim/urdf/cobot30_5_original.urdf"
+BUDGET = REPO / "src/sim/urdf/mass_budget.yaml"
+COMMITTED = REPO / "src/sim/urdf/cobot30_5.urdf"
 
 JOINTS = [f"joint_{k}" for k in range(1, 8)]
 G_MM2_TO_KG_M2 = 1e-9  # 1 g mm^2 = 1e-3 kg * 1e-6 m^2

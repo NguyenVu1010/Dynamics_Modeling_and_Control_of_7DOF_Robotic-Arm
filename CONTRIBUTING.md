@@ -11,22 +11,23 @@ goes against an ADR, write a new ADR first. The design behind all of this is
 ## Repository layout
 
 ```
-core/        C++17 library, no ROS. One CMake target per module:
-  common/      fixed-size types (VecN, MatN, Pose, Timestamp), Result/Status, logger
-               interface, so3_exp/so3_log/pose_error
-  model/       Model<N>: URDF parser (tinyxml2) -> flat joint chain, limits, inertia
-  kinematics/  FK, geometric Jacobian 6xN, Jdot*qdot
-  dynamics/    RNEA, CRBA, G, C*qdot, forward dynamics, SimPlant (RK4)
-  planning/    quintic Cartesian trajectory, second-order CLIK reference generator
-  control/     joint-space computed torque, safe hold controller
-  hal/         JointInterface<N>, JointState<N>, JointCommand<N>
-  imperfect/   configurable sensor/actuator/model imperfections (decorator on hal)
-  pipeline/    ControlLoop, Config from YAML (only place that parses YAML), SPSC ring,
-               CSV writer, SimJointInterface
-ros2_node/   ament package: ros2_control ControllerInterface wrapping ControlLoop
-bench/       cobot_bench binary without ROS: ControlLoop + SimPlant, run/montecarlo/sweep/timing
-sim/         ament package cobot_sim: URDF/xacro, meshes, world SDF, controller config, launch
-eval/        Python (cobot_eval): metrics, reports, sensitivity analysis; never imports core
+src/
+  core/        C++17 library, no ROS. One CMake target per module:
+    common/      fixed-size types (VecN, MatN, Pose, Timestamp), Result/Status, logger
+                 interface, so3_exp/so3_log/pose_error
+    model/       Model<N>: URDF parser (tinyxml2) -> flat joint chain, limits, inertia
+    kinematics/  FK, geometric Jacobian 6xN, Jdot*qdot
+    dynamics/    RNEA, CRBA, G, C*qdot, forward dynamics, SimPlant (RK4)
+    planning/    quintic Cartesian trajectory, second-order CLIK reference generator
+    control/     joint-space computed torque, safe hold controller
+    hal/         JointInterface<N>, JointState<N>, JointCommand<N>
+    imperfect/   configurable sensor/actuator/model imperfections (decorator on hal)
+    pipeline/    ControlLoop, Config from YAML (only place that parses YAML), SPSC ring,
+                 CSV writer, SimJointInterface
+  ros2_node/   ament package: ros2_control ControllerInterface wrapping ControlLoop
+  bench/       cobot_bench binary without ROS: ControlLoop + SimPlant, run/montecarlo/sweep/timing
+  sim/         ament package cobot_sim: URDF/xacro, meshes, world SDF, controller config, launch
+  eval/        Python (cobot_eval): metrics, reports, sensitivity analysis; never imports core
 config/      default.yaml, imperfections/<profile>.yaml, sweeps/<name>.yaml
 docs/        conventions.md, derivations/, adr/, design/, results/
 docker/      pi5.Dockerfile (arm64, apt-only core deps), ros.Dockerfile (Jazzy + Gazebo)
@@ -50,13 +51,13 @@ hal      -> common
 ```
 
 - `ros2_node` and `bench` link only `cobot::pipeline`.
-- `core/` never includes ROS, Gazebo, KDL or Pinocchio headers.
-- External dependencies of `core/`: Eigen 3.4 (all), tinyxml2 (`model`), yaml-cpp
+- `src/core/` never includes ROS, Gazebo, KDL or Pinocchio headers.
+- External dependencies of `src/core/`: Eigen 3.4 (all), tinyxml2 (`model`), yaml-cpp
   (`pipeline`). Tests add GTest. Everything must be installable with `apt` on Ubuntu 24.04
   and Raspberry Pi OS. Adding anything else needs an ADR.
 - KDL is allowed only in `tools/gen_reference_dynamics.cpp`, built with
   `-DCOBOT_WITH_KDL_REF=ON`, to produce the committed test fixture.
-- `eval/` never links against or imports core. It reads only the Run CSV and Summary CSV
+- `src/eval/` never links against or imports core. It reads only the Run CSV and Summary CSV
   defined in `docs/conventions.md`.
 - CMake options and variables are prefixed `COBOT_`.
 
@@ -104,7 +105,7 @@ hal      -> common
   `pipeline::SpscRing`.
 - Logging goes through the core logger interface; `ros2_node` adapts it to rclcpp. No
   `std::cout` in core.
-- Interface headers under `core/<module>/include/cobot/<module>/*.hpp` are the contract
+- Interface headers under `src/core/<module>/include/cobot/<module>/*.hpp` are the contract
   between test and implementation work. Changing a signature needs the owner's agreement
   and a note in the PR.
 
@@ -148,7 +149,7 @@ hal      -> common
    `test-change` fixes it. Never relax a test or a threshold to make code pass; G3 and
    spec 11.3 thresholds change only with the owner's agreement.
 
-## Python (eval/, tools/, sim/launch)
+## Python (src/eval/, tools/, src/sim/launch)
 
 - Python 3.12, type hints, `ruff` for lint and format (line length 100), `pytest`. One
   `pyproject.toml` at the root.
@@ -166,7 +167,7 @@ The C++ toolchain lives in WSL. From PowerShell run the scripts as
 | `tools/wsl/build.sh [--asan] [--target T]` | configure + build + ctest with `-Werror`; `--asan` builds Debug with ASan/UBSan |
 | `tools/wsl/pytest.sh` | runs `pytest` in `.venv` |
 | `tools/wsl/lint.sh` | clang-format, clang-tidy on changed files, ruff check and format |
-| `tools/wsl/sim.sh {build\|check\|smoke}` | colcon build of `sim/`, offline asset check, headless Gazebo smoke test |
+| `tools/wsl/sim.sh {build\|check\|smoke}` | colcon build of `src/sim/`, offline asset check, headless Gazebo smoke test |
 | `tools/wsl/prune.sh [--dry-run]` | removes `$COBOT_ROOT/build` and `colcon` entries of deleted branches; run after a merge |
 | `source tools/wsl/env.sh` | ROS 2 + colcon workspace, with this project's own ROS domain (42) and Gazebo partition |
 
@@ -189,7 +190,7 @@ them in a script file.
   numbers and step time, with numbers or "no change expected". Gazebo demo runs attach
   the CSV report and plots.
 - Required checks: `lint`, `frozen-tests`, `core`, `sanitizers`, `coverage` (≥ 80 % lines
-  of `core/`), `python`, `e2e`, `gazebo`, `arm64`. A job with nothing to run yet still
+  of `src/core/`), `python`, `e2e`, `gazebo`, `arm64`. A job with nothing to run yet still
   exists and passes, so the list never changes. `nightly` (E2E-05/06) is scheduled and not
   required; `deploy` pushes the Pi 5 image to GHCR on every push to `main`.
 - Squash merge only, and only when every required check is green. The branch is deleted

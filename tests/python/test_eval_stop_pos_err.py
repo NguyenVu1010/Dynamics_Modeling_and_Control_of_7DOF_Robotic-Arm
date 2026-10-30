@@ -32,7 +32,7 @@ from cobot_eval import metrics
 from run_csv_fixture import Run
 
 REPO = Path(__file__).resolve().parents[2]
-URDF = REPO / "sim/urdf/cobot30_5.urdf"
+URDF = REPO / "src/sim/urdf/cobot30_5.urdf"
 TAU_MAX = [87.0, 87.0, 87.0, 87.0, 12.0, 12.0, 12.0]
 G3_REAL = {"final_pos_err_m": 0.005, "final_rot_err_deg": 2.0, "rms_joint_err_rad": 0.02}
 
@@ -167,7 +167,7 @@ def run_report(tmp_path, with_meta, stop_threshold):
     scenario = tmp_path / "scenario.yaml"
     scenario.write_bytes(yaml.safe_dump({"id": "E2E-10", "thresholds": th}).encode())
     env = dict(os.environ)
-    env["PYTHONPATH"] = os.pathsep.join([str(REPO / "eval"), env.get("PYTHONPATH", "")])
+    env["PYTHONPATH"] = os.pathsep.join([str(REPO / "src/eval"), env.get("PYTHONPATH", "")])
     env["MPLBACKEND"] = "Agg"
     out = tmp_path / "out"
     cmd = [sys.executable, "-m", "cobot_eval.report", "--csv", str(csv), "--urdf", str(URDF)]

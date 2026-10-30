@@ -29,7 +29,7 @@ inline std::string repo_path(const std::string& rel) {
 // Arm7 from sim/urdf/cobot30_5.urdf, chain base_link -> link_7, gravity (0, 0, -9.80665).
 inline ::testing::AssertionResult load_arm(Arm7& out) {
   const common::Result<model::UrdfChain> chain =
-      model::parse_urdf_chain(repo_path("sim/urdf/cobot30_5.urdf"), "base_link", "link_7");
+      model::parse_urdf_chain(repo_path("src/sim/urdf/cobot30_5.urdf"), "base_link", "link_7");
   if (!chain.is_ok()) {
     return ::testing::AssertionFailure() << "parse_urdf_chain: " << chain.reason();
   }

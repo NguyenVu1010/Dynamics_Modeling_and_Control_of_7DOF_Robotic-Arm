@@ -54,8 +54,8 @@ std::string replace(std::string text, const std::string& from, const std::string
 // config/default.yaml with an absolute URDF path, so the copy is valid in any directory.
 std::string default_text() {
   return replace(read_file(kRepo / "config/default.yaml"),
-                 "../sim/urdf/cobot30_5.urdf",
-                 (kRepo / "sim/urdf/cobot30_5.urdf").string());
+                 "../src/sim/urdf/cobot30_5.urdf",
+                 (kRepo / "src/sim/urdf/cobot30_5.urdf").string());
 }
 
 // Removes each `  <key>:` entry of the cobot map (its line and every following line indented by

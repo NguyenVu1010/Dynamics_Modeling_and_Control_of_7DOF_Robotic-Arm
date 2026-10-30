@@ -105,7 +105,7 @@ TEST(KinematicsNoAlloc, CounterSeesAllocations) {
 
 TEST(KinematicsNoAlloc, HotPathFunctionsDoNotAllocate) {
   const auto chain = model::parse_urdf_chain(
-      std::string(COBOT_REPO_DIR) + "/sim/urdf/cobot30_5.urdf", "base_link", "link_7");
+      std::string(COBOT_REPO_DIR) + "/src/sim/urdf/cobot30_5.urdf", "base_link", "link_7");
   ASSERT_TRUE(chain.is_ok()) << chain.reason();
   const auto arm = model::make_model<kN>(chain.value(), Vec3(0.0, 0.0, -9.80665));
   ASSERT_TRUE(arm.is_ok()) << arm.reason();

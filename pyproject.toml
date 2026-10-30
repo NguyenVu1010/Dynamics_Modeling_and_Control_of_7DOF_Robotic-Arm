@@ -14,12 +14,12 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
-where = ["eval"]
+where = ["src/eval"]
 
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-src = ["eval", "tools", "tests/python"]
+src = ["src/eval", "tools", "tests/python"]
 extend-exclude = ["docs"]
 
 [tool.ruff.lint]
@@ -36,4 +36,4 @@ known-third-party = ["launch", "launch_ros", "cobot_eval"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests/python"]
-pythonpath = ["eval", "tools"]
+pythonpath = ["src/eval", "tools"]

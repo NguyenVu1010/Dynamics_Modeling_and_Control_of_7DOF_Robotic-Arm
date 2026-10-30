@@ -155,7 +155,8 @@ TEST(Planar2Link, JdotQdotMatchesClosedForm) {
 class ArmKinematics : public ::testing::Test {
  protected:
   static void SetUpTestSuite() {
-    auto chain = model::parse_urdf_chain(kRepo / "sim/urdf/cobot30_5.urdf", "base_link", "link_7");
+    auto chain =
+        model::parse_urdf_chain(kRepo / "src/sim/urdf/cobot30_5.urdf", "base_link", "link_7");
     ASSERT_TRUE(chain.is_ok()) << chain.reason();
     arm_chain = new model::UrdfChain(chain.value());
     auto m = model::make_model<7>(chain.value(), Vec3(0.0, 0.0, -9.80665));

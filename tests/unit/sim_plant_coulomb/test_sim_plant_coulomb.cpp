@@ -160,7 +160,7 @@ TEST(SimPlantCoulomb, CoastDeceleratesAtCoulombOverInertiaAndStops) {
 }
 
 model::Arm7 load_arm_zero_gravity() {
-  const std::string urdf = std::string(COBOT_REPO_DIR) + "/sim/urdf/cobot30_5.urdf";
+  const std::string urdf = std::string(COBOT_REPO_DIR) + "/src/sim/urdf/cobot30_5.urdf";
   const auto chain = model::parse_urdf_chain(urdf, "base_link", "link_7");
   EXPECT_TRUE(chain.is_ok()) << chain.reason();
   // Zero gravity: the mechanical energy is the kinetic energy 1/2 qd^T M(q) qd alone.

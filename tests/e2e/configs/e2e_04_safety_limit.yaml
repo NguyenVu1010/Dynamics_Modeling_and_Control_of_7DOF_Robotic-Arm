@@ -8,7 +8,7 @@
 # every other joint >= 44.9 deg from its limits; the full line would need q4 > -0.4 rad.
 # friction_compensation is copied unchanged from default.yaml.
 cobot:
-  urdf_path: ../../../sim/urdf/cobot30_5.urdf
+  urdf_path: ../../../src/sim/urdf/cobot30_5.urdf
   base_link: base_link
   tip_link: link_7
   gravity_b: [0.0, 0.0, -9.80665]

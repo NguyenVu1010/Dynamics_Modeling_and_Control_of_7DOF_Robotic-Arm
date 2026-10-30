@@ -16,8 +16,8 @@ import pytest
 from fix_urdf_inertia import gazebo_urdf
 
 REPO = Path(__file__).resolve().parents[2]
-MODEL = REPO / "sim/urdf/cobot30_5.urdf"
-GAZEBO = REPO / "sim/urdf/cobot30_5_gazebo.urdf"
+MODEL = REPO / "src/sim/urdf/cobot30_5.urdf"
+GAZEBO = REPO / "src/sim/urdf/cobot30_5_gazebo.urdf"
 JOINTS = [f"joint_{k}" for k in range(1, 8)]
 
 
