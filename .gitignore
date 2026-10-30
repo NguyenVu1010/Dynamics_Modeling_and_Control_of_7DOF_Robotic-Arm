@@ -2,6 +2,10 @@
 build/
 build-*/
 install/
+# WSL project folder when the repo is cloned into it (tools/wsl/paths.sh)
+/colcon/
+/venv/
+/out/
 log/
 # python
 __pycache__/
