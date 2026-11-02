@@ -61,8 +61,9 @@ class RunMetrics:
     final_rot_err_rad: float
     rms_joint_err_rad: float
     rms_joint_err_per_joint_rad: tuple[float, ...]
-    peak_tau_ratio: float
+    peak_tau_ratio: float  # max |tau| / tau_max (the peak torque P of the config limits)
     sat_time_s: float
+    rms_tau_ratio: float  # max over joints of RMS(tau) in ERROR_MODES rows / rated torque R
     held: bool
     final_t_s: float
     stop_pos_err_m: float | None = None  # None: the run has no waypoint meta keys
@@ -160,19 +161,30 @@ def stop_pos_err_m(df: pd.DataFrame, meta: dict | None) -> float | None:
     return float(np.max(errors)) if errors else None  # np.max keeps a NaN
 
 
+def _joint_limits(name: str, values: Sequence[float], n: int) -> np.ndarray:
+    """`values` as an (n,) array; ValueError unless each entry is finite and > 0."""
+    limits = np.asarray(values, dtype=float)
+    if limits.shape != (n,):
+        raise ValueError(f"{name} has {limits.size} entries, run has {n} joints")
+    bad = np.flatnonzero(~(np.isfinite(limits) & (limits > 0)))
+    if bad.size:
+        raise ValueError(f"{name} of joint {bad[0] + 1} is {limits[bad[0]]}, must be > 0")
+    return limits
+
+
 def compute_metrics(
     df: pd.DataFrame,
     tau_max: Sequence[float],
     t_eval_s: float | None = None,
     meta: dict | None = None,
+    rated_torque: Sequence[float] | None = None,
 ) -> RunMetrics:
+    """Metrics of one run. `tau_max` is the peak torque P (peak_tau_ratio, sat_time_s) and
+    `rated_torque` the rated torque R (rms_tau_ratio), both from read_torque_limits; without
+    `rated_torque` the RMS is taken against `tau_max`."""
     n = joint_count(df)
-    limits = np.asarray(tau_max, dtype=float)
-    if limits.shape != (n,):
-        raise ValueError(f"tau_max has {limits.size} entries, run has {n} joints")
-    bad = np.flatnonzero(~(np.isfinite(limits) & (limits > 0)))
-    if bad.size:
-        raise ValueError(f"tau_max of joint {bad[0] + 1} is {limits[bad[0]]}, must be > 0")
+    limits = _joint_limits("tau_max", tau_max, n)
+    rated = limits if rated_torque is None else _joint_limits("rated_torque", rated_torque, n)
     t_ns = df["t_ns"].to_numpy(dtype=np.int64)
     k = len(df) - 1
     if t_eval_s is not None:
@@ -185,13 +197,17 @@ def compute_metrics(
 
     mode = df["mode"].astype(str).to_numpy()
     err = joint_array(df, "qref") - joint_array(df, "q")
-    sel = err[np.isin(mode, ERROR_MODES)]
+    in_window = np.isin(mode, ERROR_MODES)
+    sel = err[in_window]
+    tau = joint_array(df, "tau")
     if sel.size:
         per_joint = tuple(float(v) for v in np.sqrt(np.mean(sel**2, axis=0)))
+        rms_tau = np.sqrt(np.mean(tau[in_window] ** 2, axis=0))
     else:
         per_joint = (0.0,) * n
+        rms_tau = np.zeros(n)
 
-    ratio = np.abs(joint_array(df, "tau")) / limits
+    ratio = np.abs(tau) / limits
     saturated = np.any(ratio >= SAT_FRACTION, axis=1)
     return RunMetrics(
         final_pos_err_m=float(pos[0]),
@@ -200,6 +216,7 @@ def compute_metrics(
         rms_joint_err_per_joint_rad=per_joint,
         peak_tau_ratio=float(ratio.max()),
         sat_time_s=float(_row_durations_s(t_ns)[saturated].sum()),
+        rms_tau_ratio=float(np.max(rms_tau / rated)),  # np.max keeps a NaN on any joint
         held=bool(np.any(mode == "holding")),
         final_t_s=float(t_ns[k]) * 1e-9,
         stop_pos_err_m=stop_pos_err_m(df, meta),
@@ -260,3 +277,24 @@ def read_tau_max(urdf: Path) -> list[float]:
     if not efforts:
         raise ValueError(f"{urdf}: no revolute joints")
     return efforts
+
+
+def read_torque_limits(config: Path) -> tuple[list[float], list[float]]:
+    """(peak, rated) torques (N·m) per joint from the config file's `cobot.limits`
+    (peak_torque_nm, rated_torque_nm). Without that section both are read_tau_max of the config's
+    `cobot.urdf_path` (relative to the config's directory), the URDF effort."""
+    try:
+        data = yaml.safe_load(Path(config).read_text(encoding="utf-8"))
+        cobot = data["cobot"]
+    except (TypeError, KeyError) as err:
+        raise ValueError(f"{config}: no cobot section") from err
+    limits = cobot.get("limits")
+    if limits is None:
+        effort = read_tau_max(Path(config).parent / cobot["urdf_path"])
+        return effort, list(effort)
+    try:
+        peak = [float(v) for v in limits["peak_torque_nm"]]
+        rated = [float(v) for v in limits["rated_torque_nm"]]
+    except (TypeError, KeyError, ValueError) as err:
+        raise ValueError(f"{config}: cobot.limits: {err}") from err
+    return peak, rated

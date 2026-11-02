@@ -45,8 +45,11 @@ constexpr std::size_t kMaxInFlight = pipeline::kLogCapacity - 2;
 constexpr std::chrono::microseconds kWriterIdle{200};
 constexpr double kSatFraction = 0.999;  // cobot_eval.metrics.SAT_FRACTION
 
+// `urdf` is the plant's model (tau_max = URDF effort M); `nominal` is the controller's model
+// (pipeline::controller_model, tau_max = peak torque P), used by the loop and validate_path.
 struct Setup {
   pipeline::Config<kN> config;
+  model::Arm7 urdf;
   model::Arm7 nominal;
 };
 
@@ -65,7 +68,7 @@ common::Result<Setup> load_setup(const std::filesystem::path& config_yaml) {
   if (!arm) {
     return Out::error(c.urdf_path.string() + ": " + arm.reason());
   }
-  return Out::ok(Setup{c, arm.value()});
+  return Out::ok(Setup{c, arm.value(), pipeline::controller_model<kN>(arm.value(), c)});
 }
 
 void write_list(std::ostream& os, const char* key, const Vec& v) {
@@ -109,8 +112,9 @@ void write_waypoint_meta(std::ostream& os,
 // RunSummary of the logged rows, fed one record at a time by the writer thread.
 class Metrics {
  public:
-  Metrics(const Vec& tau_max, std::int64_t t_eval_ns) : t_eval_ns_(t_eval_ns) {
+  Metrics(const Vec& tau_max, const Vec& rated, std::int64_t t_eval_ns) : t_eval_ns_(t_eval_ns) {
     tau_max_ = tau_max;
+    rated_ = rated;
   }
 
   void add(const pipeline::LogRecord<kN>& r) {
@@ -136,6 +140,7 @@ class Metrics {
     if (r.mode == pipeline::LoopMode::kTracking || r.mode == pipeline::LoopMode::kFinished) {
       const Vec e = r.q_ref - r.q;
       sum_sq_ += e.cwiseProduct(e);
+      tau_sum_sq_ += r.tau.cwiseProduct(r.tau);
       ++error_rows_;
     }
   }
@@ -147,6 +152,9 @@ class Metrics {
     if (error_rows_ > 0) {
       const Vec mean_sq = sum_sq_ / static_cast<double>(error_rows_);
       s.rms_joint_err_rad = mean_sq.cwiseSqrt().maxCoeff<Eigen::PropagateNaN>();
+      const Vec tau_mean_sq = tau_sum_sq_ / static_cast<double>(error_rows_);
+      s.rms_tau_ratio =
+          (tau_mean_sq.cwiseSqrt().array() / rated_.array()).maxCoeff<Eigen::PropagateNaN>();
     }
     const std::int64_t sat_ns = sat_ns_ + (prev_sat_ && rows_ > 1 ? last_dt_ns_ : 0);
     s.sat_time_s = static_cast<double>(sat_ns) / static_cast<double>(common::kNanosecondsPerSecond);
@@ -155,11 +163,13 @@ class Metrics {
 
  private:
   Vec tau_max_ = Vec::Zero();
+  Vec rated_ = Vec::Zero();
   std::int64_t t_eval_ns_;
   RunSummary s_;
   common::Pose final_e_;
   common::Pose final_d_;
   Vec sum_sq_ = Vec::Zero();
+  Vec tau_sum_sq_ = Vec::Zero();
   std::size_t rows_ = 0;
   std::size_t error_rows_ = 0;
   std::int64_t prev_t_ns_ = 0;
@@ -253,12 +263,13 @@ common::Result<RunSummary> run_profile(const std::filesystem::path& config_yaml,
   for (int i = 0; i < kN; ++i) {
     tau_max(i) = setup.value().nominal.joints[static_cast<std::size_t>(i)].tau_max;
   }
-  Metrics metrics(tau_max, 0);
+  const Vec rated = config.limits.rated_torque_nm;
+  Metrics metrics(tau_max, rated, 0);
   try {
-    // The controller keeps the nominal model; the plant gets the perturbed one, with friction
-    // and motor lag, so the I/O decorator does not apply them again.
+    // The controller keeps the nominal model; the plant gets the perturbed URDF one (torque cap
+    // M), with friction and motor lag, so the I/O decorator does not apply them again.
     const model::Arm7 plant_model =
-        imperfect::perturb_model(setup.value().nominal, imperfections.model, imperfections.seed);
+        imperfect::perturb_model(setup.value().urdf, imperfections.model, imperfections.seed);
     dynamics::SimPlant<kN> plant(
         plant_model, config.home_q_rad, imperfect::plant_effects(imperfections));
     pipeline::SimJointInterface<kN> sim(
@@ -310,6 +321,7 @@ common::Result<RunSummary> run_profile(const std::filesystem::path& config_yaml,
     const std::int64_t cycles =
         std::llround(duration_s.value_or(planned_s) * config.control_rate_hz);
     metrics = Metrics(tau_max,
+                      rated,
                       std::llround(planned_s * static_cast<double>(common::kNanosecondsPerSecond)));
 
     if (keep) {
@@ -400,7 +412,7 @@ common::Result<TimingStats> timing(const std::filesystem::path& config_yaml, std
   config.deterministic = false;
   const double period_s = 1.0 / config.control_rate_hz;
   try {
-    dynamics::SimPlant<kN> plant(setup.value().nominal, config.home_q_rad);
+    dynamics::SimPlant<kN> plant(setup.value().urdf, config.home_q_rad);
     pipeline::SimJointInterface<kN> sim(plant, period_s);
     const std::unique_ptr<Loop> loop = std::make_unique<Loop>(setup.value().nominal, config);
     hal::JointState<kN> state;

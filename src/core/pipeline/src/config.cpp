@@ -1,11 +1,13 @@
 #include "cobot/pipeline/config.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <limits>
 #include <set>
 #include <string>
 #include <system_error>
@@ -16,6 +18,7 @@
 #include <yaml-cpp/yaml.h>
 
 #include "cobot/common/dof.hpp"
+#include "cobot/model/model.hpp"
 #include "cobot/pipeline/sweep_config.hpp"
 #include "cobot/pipeline/waypoint_file.hpp"
 
@@ -337,6 +340,43 @@ void read_external(Reader& m, Config<N>& c) {
   }
 }
 
+// `limits` (feature joint-limits), read after the URDF path and links: the URDF <limit effort>
+// (momentary torque M) is the default of both lists and the upper bound of the peak torque. A
+// URDF that cannot be read leaves the bound out; building the model reports that file later.
+template <int N>
+void read_limits(Reader& m, Config<N>& c) {
+  VecN<N> effort = VecN<N>::Constant(std::numeric_limits<double>::infinity());
+  const Result<model::UrdfChain> chain =
+      model::parse_urdf_chain(c.urdf_path, c.base_link, c.tip_link);
+  if (chain && chain.value().joints.size() == static_cast<std::size_t>(N)) {
+    for (int j = 0; j < N; ++j) {
+      effort[j] = chain.value().joints[static_cast<std::size_t>(j)].tau_max;
+    }
+  }
+  if (!m.has("limits")) {
+    c.limits.rated_torque_nm = effort;
+    c.limits.peak_torque_nm = effort;
+    return;
+  }
+  Reader l = m.map("limits");
+  l.vector<N>("rated_torque_nm", kPositive, false, c.limits.rated_torque_nm);
+  l.vector<N>("peak_torque_nm", kPositive, false, c.limits.peak_torque_nm);
+  for (int j = 0; j < N; ++j) {
+    const double peak = c.limits.peak_torque_nm[j];
+    if (std::isfinite(peak) && peak > effort[j]) {
+      std::array<char, 96> text{};
+      std::snprintf(text.data(),
+                    text.size(),
+                    "must be <= the URDF effort %.17g N m of joint %d, got %.17g",
+                    effort[j],
+                    j + 1,
+                    peak);
+      l.fail("peak_torque_nm[" + std::to_string(j) + "]", text.data());
+    }
+  }
+  l.finish();
+}
+
 template <int N>
 void read_config(Reader& root, const fs::path& dir, Config<N>& c) {
   Reader m = root.map("cobot");
@@ -393,6 +433,7 @@ void read_config(Reader& root, const fs::path& dir, Config<N>& c) {
   l.scalar("output_dir", text);
   c.log_output_dir = (dir / text).lexically_normal();
   read_external<N>(m, c);
+  read_limits<N>(m, c);
   for (Reader* r : {&t, &k, &g, &s, &l, &m}) {
     r->finish();
   }
@@ -544,6 +585,16 @@ Result<Config<N>> load_config(const fs::path& yaml) {
   return load<Config<N>>(yaml, [&dir](Reader& r, Config<N>& c) { read_config<N>(r, dir, c); });
 }
 
+template <int N>
+model::Model<N> controller_model(const model::Model<N>& urdf_model, const Config<N>& config) {
+  model::Model<N> out = urdf_model;
+  for (int j = 0; j < N; ++j) {
+    double& tau_max = out.joints[static_cast<std::size_t>(j)].tau_max;
+    tau_max = std::min(config.limits.peak_torque_nm[j], tau_max);
+  }
+  return out;
+}
+
 // Declared in waypoint_file.hpp; parsed here with the strict reader of the config files.
 Result<std::vector<planning::Waypoint>> load_waypoints(const fs::path& yaml,
                                                        const std::string& base_link,
@@ -583,6 +634,7 @@ Result<imperfect::ImperfectionConfig<N>> load_imperfections(const fs::path& yaml
 // NOLINTBEGIN(bugprone-macro-parentheses): N is a template argument
 #define COBOT_INSTANTIATE(N)                                                                \
   template Result<Config<N>> load_config<N>(const fs::path&);                               \
+  template model::Model<N> controller_model<N>(const model::Model<N>&, const Config<N>&);   \
   template Result<imperfect::ImperfectionConfig<N>> load_imperfections<N>(const fs::path&); \
   template Result<imperfect::ImperfectionConfig<N>> load_imperfections_with<N>(             \
       const fs::path&, const std::string&, double);

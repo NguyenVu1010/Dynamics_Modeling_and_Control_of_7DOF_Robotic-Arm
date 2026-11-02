@@ -1,7 +1,9 @@
 """Markdown + PNG report of one Run CSV against scenario thresholds.
 
 Usage: python -m cobot_eval.report --csv RUN.csv --urdf URDF --thresholds YAML --out DIR
-       [--t-eval S] [--title T]
+       [--config CONFIG] [--t-eval S] [--title T]
+Torque ratios use the URDF effort, or with --config the config's `cobot.limits` (peak torque for
+peak_tau_ratio and sat_time_s, rated torque for rms_tau_ratio; see metrics.read_torque_limits).
 stop_pos_err_m is read from the waypoint keys of `<csv>.meta.yaml` when that file exists.
 Exit code: 0 all thresholds pass, 1 a threshold fails, 2 bad input.
 """
@@ -28,6 +30,7 @@ from cobot_eval.metrics import (  # noqa: E402
     load_meta,
     load_run,
     read_tau_max,
+    read_torque_limits,
     task_errors,
     within,
 )
@@ -83,6 +86,7 @@ def render_markdown(title: str, csv: Path, m: RunMetrics, th: Thresholds) -> str
         f"| final_rot_err_rad | {m.final_rot_err_rad:.6g} | | |",
         f"| peak_tau_ratio | {m.peak_tau_ratio:.4g} | | |",
         f"| sat_time_s | {m.sat_time_s:.4g} | | |",
+        f"| rms_tau_ratio | {m.rms_tau_ratio:.4g} | | |",
         f"| held | {'yes' if m.held else 'no'} | | |",
         "",
         "## Joint tracking RMS (tracking and finished rows)",
@@ -142,6 +146,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--csv", type=Path, required=True)
     parser.add_argument("--urdf", type=Path, required=True)
     parser.add_argument("--thresholds", type=Path, required=True)
+    parser.add_argument("--config", type=Path, default=None)
     parser.add_argument("--out", type=Path, required=True)
     parser.add_argument("--t-eval", type=float, default=None)
     parser.add_argument("--title", default=None)
@@ -149,9 +154,13 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         df = load_run(args.csv)
-        tau_max = read_tau_max(args.urdf)
+        if args.config is None:
+            tau_max = rated = read_tau_max(args.urdf)
+        else:
+            tau_max, rated = read_torque_limits(args.config)
         thresholds = load_thresholds(args.thresholds)
-        metrics = compute_metrics(df, tau_max, args.t_eval, load_meta(args.csv))
+        meta = load_meta(args.csv)
+        metrics = compute_metrics(df, tau_max, args.t_eval, meta, rated_torque=rated)
     except (OSError, ValueError, yaml.YAMLError, pd.errors.ParserError) as err:
         print(f"error: {err}", file=sys.stderr)
         return EXIT_BAD_INPUT

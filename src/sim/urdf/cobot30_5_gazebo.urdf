@@ -54,7 +54,7 @@
     <parent link="base_link" />
     <child link="link_1" />
     <axis xyz="0 0 1" />
-    <limit acceleration="15" lower="-2.9671" effort="87" upper="2.9671" velocity="2.5" />
+    <limit acceleration="15" lower="-2.9671" effort="369.0" upper="2.9671" velocity="2.1" />
     <dynamics damping="$(arg joint_1_damping)" friction="$(arg joint_1_friction)" />
   </joint>
   <link name="link_2">
@@ -84,7 +84,7 @@
     <parent link="link_1" />
     <child link="link_2" />
     <axis xyz="0 0 1" />
-    <limit acceleration="7.5" lower="-1.8326" effort="87.0" upper="1.8326" velocity="2.5" />
+    <limit acceleration="7.5" lower="-1.8326" effort="369.0" upper="1.8326" velocity="2.1" />
     <dynamics damping="$(arg joint_2_damping)" friction="$(arg joint_2_friction)" />
   </joint>
   <link name="link_3">
@@ -114,7 +114,7 @@
     <parent link="link_2" />
     <child link="link_3" />
     <axis xyz="0 0 1" />
-    <limit acceleration="12.5" lower="-2.9671" effort="87" upper="2.9671" velocity="2.5" />
+    <limit acceleration="12.5" lower="-2.9671" effort="191.0" upper="2.9671" velocity="2.1" />
     <dynamics damping="$(arg joint_3_damping)" friction="$(arg joint_3_friction)" />
   </joint>
   <link name="link_4">
@@ -144,7 +144,7 @@
     <parent link="link_3" />
     <child link="link_4" />
     <axis xyz="0 0 1" />
-    <limit acceleration="12.5" lower="-3.1416" effort="87.0" upper="-0.4" velocity="2.5" />
+    <limit acceleration="12.5" lower="-3.1416" effort="191.0" upper="-0.4" velocity="2.1" />
     <dynamics damping="$(arg joint_4_damping)" friction="$(arg joint_4_friction)" />
   </joint>
   <link name="link_5">
@@ -174,7 +174,7 @@
     <parent link="link_4" />
     <child link="link_5" />
     <axis xyz="0 0 1" />
-    <limit acceleration="15" lower="-2.9671" effort="12" upper="2.9671" velocity="3" />
+    <limit acceleration="15" lower="-2.9671" effort="70.0" upper="2.9671" velocity="3.1" />
     <dynamics damping="$(arg joint_5_damping)" friction="$(arg joint_5_friction)" />
   </joint>
   <link name="link_6">
@@ -204,7 +204,7 @@
     <parent link="link_5" />
     <child link="link_6" />
     <axis xyz="0 0 1" />
-    <limit acceleration="20" lower="-0.0873" effort="12" upper="3.8223" velocity="3" />
+    <limit acceleration="20" lower="-0.0873" effort="70.0" upper="3.8223" velocity="3.1" />
     <dynamics damping="$(arg joint_6_damping)" friction="$(arg joint_6_friction)" />
   </joint>
   <link name="link_6_2">
@@ -262,7 +262,7 @@
     <parent link="link_6_2" />
     <child link="link_7" />
     <axis xyz="0 0 1" />
-    <limit acceleration="20" lower="-2.9671" effort="12" upper="2.9671" velocity="3" />
+    <limit acceleration="20" lower="-2.9671" effort="70.0" upper="2.9671" velocity="3.1" />
     <dynamics damping="$(arg joint_7_damping)" friction="$(arg joint_7_friction)" />
   </joint>
 </robot>

@@ -56,7 +56,7 @@ Status run_jobs(const std::filesystem::path& config_yaml,
     return Status::error("cannot open " + path.string() + " for writing");
   }
   csv << "run_id,param,level,seed,final_pos_err_m,final_rot_err_rad,rms_joint_err_rad,"
-         "peak_tau_ratio,sat_time_s,held,passed\n";
+         "peak_tau_ratio,sat_time_s,rms_tau_ratio,held,passed\n";
   for (std::size_t k = 0; k < jobs.size(); ++k) {
     std::array<char, 24> id{};
     std::snprintf(id.data(), id.size(), "%04zu", k);
@@ -71,8 +71,8 @@ Status run_jobs(const std::filesystem::path& config_yaml,
     csv << id.data() << ',' << jobs[k].param << ',' << number(jobs[k].level) << ','
         << jobs[k].profile.seed << ',' << number(s.final_pos_err_m) << ','
         << number(s.final_rot_err_rad) << ',' << number(s.rms_joint_err_rad) << ','
-        << number(s.peak_tau_ratio) << ',' << number(s.sat_time_s) << ',' << (s.held ? 1 : 0) << ','
-        << (passes(s) ? 1 : 0) << '\n';
+        << number(s.peak_tau_ratio) << ',' << number(s.sat_time_s) << ',' << number(s.rms_tau_ratio)
+        << ',' << (s.held ? 1 : 0) << ',' << (passes(s) ? 1 : 0) << '\n';
   }
   csv.flush();
   return csv ? Status::ok() : Status::error("cannot write " + path.string());

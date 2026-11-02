@@ -270,9 +270,10 @@ class CobotController final : public ci::ControllerInterface {
     server_.reset();
     link_.reset();
     try {
-      // Model mismatch: the controller's model is perturbed instead of the plant.
-      const cobot::model::Arm7 model =
-          cobot::imperfect::perturb_model(arm.value(), profile.model, profile.seed);
+      // Model mismatch: the controller's model is perturbed instead of the plant. Its tau_max
+      // is the peak torque P of cobot.limits; Gazebo enforces the URDF effort M.
+      const cobot::model::Arm7 model = cobot::imperfect::perturb_model(
+          cobot::pipeline::controller_model<kN>(arm.value(), c), profile.model, profile.seed);
       loop_ = std::make_unique<cobot::pipeline::ControlLoop<kN>>(model, c);
       for (int i = 0; i < kN; ++i) {
         tau_max_(i) = model.joints[static_cast<std::size_t>(i)].tau_max;
