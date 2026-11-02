@@ -486,10 +486,20 @@ void read_transmission(Reader& x, imperfect::TransmissionConfig<N>& t) {
   x.vector<N>("stiffness_k3_nm_rad", kNonNegative, true, t.stiffness_k3_nm_rad);
   x.vector<N>("torque_t1_nm", kNonNegative, true, t.torque_t1_nm);
   x.vector<N>("torque_t2_nm", kNonNegative, true, t.torque_t2_nm);
-  x.vector<N>("damping_ratio", kNonNegative, true, t.damping_ratio);
-  x.vector<N>("error_amp_rad", kNonNegative, true, t.error_amp_rad);
-  x.vector<N>("lost_motion_rad", kNonNegative, true, t.lost_motion_rad);
-  x.vector<N>("ratio", kPositive, true, t.ratio);
+  // Optional: an absent key keeps the TransmissionConfig default (1 % damping, no error, no
+  // lost motion, ratio 100).
+  if (x.has("damping_ratio")) {
+    x.vector<N>("damping_ratio", kNonNegative, true, t.damping_ratio);
+  }
+  if (x.has("error_amp_rad")) {
+    x.vector<N>("error_amp_rad", kNonNegative, true, t.error_amp_rad);
+  }
+  if (x.has("lost_motion_rad")) {
+    x.vector<N>("lost_motion_rad", kNonNegative, true, t.lost_motion_rad);
+  }
+  if (x.has("ratio")) {
+    x.vector<N>("ratio", kPositive, true, t.ratio);
+  }
   for (int j = 0; j < N; ++j) {
     if (!(t.stiffness_k3_nm_rad[j] > 0.0)) {
       continue;
