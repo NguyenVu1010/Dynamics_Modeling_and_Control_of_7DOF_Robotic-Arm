@@ -12,6 +12,9 @@ namespace cobot::imperfect {
 
 using common::VecN;
 
+// Which encoder gives the measured position and velocity (feature transmission).
+enum class PositionSource { kLink, kMotor };
+
 template <int N>
 struct SensorConfig {
   VecN<N> encoder_bits = VecN<N>::Zero();           // 0 = no quantisation; else step 2*pi / 2^bits
@@ -21,6 +24,9 @@ struct SensorConfig {
   VecN<N> qd_filter_hz = VecN<N>::Constant(200.0);  // cut-off of that low-pass, Hz
   VecN<N> qd_noise_std_rad_s = VecN<N>::Zero();     // white noise per sample (qd_from_diff=false)
   int sensor_delay_cycles = 0;                      // measurement age in control cycles, >= 0
+  // kMotor: q_motor / qd_motor are the raw position and velocity when the inner interface
+  // reports motor_valid, else the link values. YAML `position_source: link | motor`.
+  PositionSource position_source = PositionSource::kLink;
 };
 
 template <int N>
@@ -79,6 +85,22 @@ struct CommConfig {
   int burst_cycles = 0;             // reads that repeat the last output, [0, kMaxDelayCycles]
 };
 
+// Elastic Harmonic Drive transmission (realism-2 design 6.2), YAML `transmission`, optional
+// group; bench only. Stiffness in three segments split at torques t1, t2 (catalog K1/K2/K3,
+// T1/T2); k3 == 0 is a rigid joint and its other values are ignored.
+template <int N>
+struct TransmissionConfig {
+  VecN<N> stiffness_k1_nm_rad = VecN<N>::Zero();  // N m / rad, >= 0
+  VecN<N> stiffness_k2_nm_rad = VecN<N>::Zero();
+  VecN<N> stiffness_k3_nm_rad = VecN<N>::Zero();  // 0: rigid joint
+  VecN<N> torque_t1_nm = VecN<N>::Zero();         // N m, 0 < t1 < t2 when elastic
+  VecN<N> torque_t2_nm = VecN<N>::Zero();
+  VecN<N> damping_ratio = VecN<N>::Constant(0.01);  // of 2 sqrt(k1 * B_j), >= 0
+  VecN<N> error_amp_rad = VecN<N>::Zero();          // transmission error amplitude
+  VecN<N> lost_motion_rad = VecN<N>::Zero();        // total width of the dead zone, >= 0
+  VecN<N> ratio = VecN<N>::Constant(100.0);         // gear ratio, > 0
+};
+
 template <int N>
 struct ImperfectionConfig {
   SensorConfig<N> sensor;
@@ -87,6 +109,7 @@ struct ImperfectionConfig {
   ModelMismatchConfig<N> model;
   TimingConfig timing;
   CommConfig comm;
+  TransmissionConfig<N> transmission;
   std::uint64_t seed = 1;
 };
 

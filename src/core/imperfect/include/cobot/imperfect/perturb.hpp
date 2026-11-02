@@ -21,7 +21,9 @@ model::Model<N> perturb_model(const model::Model<N>& nominal,
                               const ModelMismatchConfig<N>& mismatch,
                               std::uint64_t seed);
 
-// Friction and motor lag for dynamics::SimPlant from the imperfection config.
+// Friction, motor lag and transmission for dynamics::SimPlant from the imperfection config; the
+// transmission error phase is drawn uniform in [0, 2 pi) per joint from
+// std::mt19937_64(seed ^ 0x7A45'0003).
 template <int N>
 dynamics::PlantEffects<N> plant_effects(const ImperfectionConfig<N>& config);
 

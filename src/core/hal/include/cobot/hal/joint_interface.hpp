@@ -19,6 +19,10 @@ struct JointState {
   VecN<N> qd = VecN<N>::Zero();            // rad/s
   VecN<N> tau_measured = VecN<N>::Zero();  // N m, valid only if tau_valid
   bool tau_valid = false;
+  // Motor-side encoder in link-side units (motor angle / ratio), valid only if motor_valid.
+  VecN<N> q_motor = VecN<N>::Zero();   // rad
+  VecN<N> qd_motor = VecN<N>::Zero();  // rad/s
+  bool motor_valid = false;
 };
 
 template <int N>
