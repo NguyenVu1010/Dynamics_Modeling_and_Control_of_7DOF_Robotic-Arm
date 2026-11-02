@@ -76,10 +76,11 @@ TEST(Csv, HeaderHasTheContractColumns) {
     expected.push_back("e" + std::to_string(i));
   }
   expected.emplace_back("step_us");
+  expected.emplace_back("hold");  // feature comm-timing
   std::ostringstream os;
   write_csv_header<7>(os);
   const auto cols = cells(os.str());
-  ASSERT_EQ(cols.size(), 56U);
+  ASSERT_EQ(cols.size(), 57U);
   EXPECT_EQ(cols, expected);
 }
 
@@ -88,7 +89,7 @@ TEST(Csv, RowRoundTripsBitExact) {
   std::ostringstream os;
   write_csv_row<7>(os, r);
   const auto cols = cells(os.str());
-  ASSERT_EQ(cols.size(), 56U);
+  ASSERT_EQ(cols.size(), 57U);
   for (const auto& c : cols) {
     EXPECT_FALSE(c.empty());
   }
@@ -115,6 +116,7 @@ TEST(Csv, RowRoundTripsBitExact) {
     EXPECT_EQ(num(49 + i), r.task_error[i]);
   }
   EXPECT_EQ(num(55), 42.5);
+  EXPECT_EQ(cols[56], "none");
 }
 
 TEST(Csv, DefaultRecordFaultMode) {
@@ -123,12 +125,13 @@ TEST(Csv, DefaultRecordFaultMode) {
   std::ostringstream os;
   write_csv_row<7>(os, r);
   const auto cols = cells(os.str());
-  ASSERT_EQ(cols.size(), 56U);
+  ASSERT_EQ(cols.size(), 57U);
   EXPECT_EQ(cols[0], "0");
   EXPECT_EQ(cols[1], "fault");
-  for (std::size_t i = 2; i < cols.size(); ++i) {
+  for (std::size_t i = 2; i + 1 < cols.size(); ++i) {
     EXPECT_EQ(std::strtod(cols[i].c_str(), nullptr), 0.0) << i;
   }
+  EXPECT_EQ(cols.back(), "none");
 }
 
 TEST(Csv, IdenticalRecordsGiveIdenticalBytes) {

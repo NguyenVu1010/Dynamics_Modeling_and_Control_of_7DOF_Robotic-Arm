@@ -45,6 +45,8 @@ COLUMNS = [
     "sat_time_s",
     "rms_tau_ratio",
     "held",
+    "hold_time_s",
+    "hold_reason",
     "passed",
 ]
 THRESHOLDS = """\
@@ -126,6 +128,8 @@ def write_summary(path, rows, drop=None):
             "sat_time_s": 0.0,
             "rms_tau_ratio": 0.3,
             "held": 0,
+            "hold_time_s": "",
+            "hold_reason": "none",
             "passed": int(passes(m)),
         }
         lines.append(
@@ -310,6 +314,8 @@ def test_hardware_sweep_file_matches_design():
         "actuator.torque_scale_asym_frac": [0, 0.01, 0.03, 0.1],
         "actuator.deadband_nm": [0, 0.01, 0.1, 0.5],
         "actuator.torque_slew_nm_s": [0, 1e5, 2e4, 5e3],
+        "comm.servo_rate_hz": [0, 500, 250],
+        "comm.packet_loss_prob": [0, 1e-5, 1e-4, 1e-3],
     }
     # Every swept name is a key of the base profile.
     base = yaml.safe_load((REPO / spec["base_profile"]).read_text(encoding="utf-8"))

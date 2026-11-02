@@ -66,7 +66,7 @@ std::vector<std::string> split(const std::string& text, char sep) {
 }
 
 // Built from the conventions contract, independently of pipeline::write_csv_header.
-// 2 + 5 * 7 + 12 + 6 + 1 = 56 columns.
+// 2 + 5 * 7 + 12 + 6 + step_us + hold = 57 columns (hold: feature comm-timing).
 std::string contract_header() {
   std::string h = "t_ns,mode";
   for (const char* prefix : {"q", "qd", "qref", "qdref", "tau"}) {
@@ -74,7 +74,7 @@ std::string contract_header() {
       h += "," + std::string(prefix) + std::to_string(j);
     }
   }
-  return h + ",px,py,pz,rx,ry,rz,pdx,pdy,pdz,rdx,rdy,rdz,e1,e2,e3,e4,e5,e6,step_us";
+  return h + ",px,py,pz,rx,ry,rz,pdx,pdy,pdz,rdx,rdy,rdz,e1,e2,e3,e4,e5,e6,step_us,hold";
 }
 
 TEST(BenchRun, IdealTwoSecondsWritesContractCsvWithOneRowPerCycle) {
@@ -93,14 +93,16 @@ TEST(BenchRun, IdealTwoSecondsWritesContractCsvWithOneRowPerCycle) {
   long long last_t = -1;
   for (std::size_t k = 1; k < lines.size(); ++k) {
     const std::vector<std::string> f = split(lines[k], ',');
-    ASSERT_EQ(f.size(), 56U) << "row " << k;
+    ASSERT_EQ(f.size(), 57U) << "row " << k;
     const long long t = std::stoll(f[0]);
     EXPECT_GT(t, last_t) << "row " << k;
     last_t = t;
     // 2 s is inside the 10 s MVP trajectory: the ideal arm is still tracking.
     EXPECT_EQ(f[1], "tracking") << "row " << k;
     // default.yaml has deterministic: true -> step_us written as 0.
-    EXPECT_EQ(f.back(), "0") << "row " << k;
+    EXPECT_EQ(f[55], "0") << "row " << k;
+    // The ideal arm never holds: hold reason none.
+    EXPECT_EQ(f.back(), "none") << "row " << k;
   }
 }
 

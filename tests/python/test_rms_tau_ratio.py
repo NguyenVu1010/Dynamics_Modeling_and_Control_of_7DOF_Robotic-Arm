@@ -41,6 +41,8 @@ SUMMARY_COLUMNS = [
     "sat_time_s",
     "rms_tau_ratio",
     "held",
+    "hold_time_s",
+    "hold_reason",
     "passed",
 ]
 

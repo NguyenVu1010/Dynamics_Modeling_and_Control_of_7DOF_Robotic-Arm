@@ -5,6 +5,8 @@ flags, empty = clean: mc_fail (two Monte Carlo runs over the 5 mm limit instead 
 (exit 3, no output). Every summary row says passed=1 on purpose: thresholds live in the
 scenario, so the runner judges from the metric columns, never from the bench's own flag.
 `run` and `timing` exit 3 (this fake only serves the nightly modes).
+Sweep param config.safety.hal_timeout_ms (feature comm-timing): a level below 8 ms holds
+(hold_time_s 0.006, hold_reason state_timeout), as one lost packet at servo 250 Hz would.
 """
 
 import argparse
@@ -17,12 +19,14 @@ import yaml
 
 COLUMNS = (
     "run_id,param,level,seed,final_pos_err_m,final_rot_err_rad,rms_joint_err_rad,"
-    "peak_tau_ratio,sat_time_s,rms_tau_ratio,held,passed"
+    "peak_tau_ratio,sat_time_s,rms_tau_ratio,held,hold_time_s,hold_reason,passed"
 )
+HAL_TIMEOUT = "config.safety.hal_timeout_ms"
 
 
-def row(run_id: int, param: str, level: object, seed: int, pos_err: float) -> str:
-    return f"{run_id},{param},{level},{seed},{pos_err},0.001,0.002,0.5,0,0.3,0,1"
+def row(run_id: int, param: str, level: object, seed: int, pos_err: float, held=False) -> str:
+    hold = "1,0.006,state_timeout" if held else "0,,none"
+    return f"{run_id},{param},{level},{seed},{pos_err},0.001,0.002,0.5,0,0.3,{hold},1"
 
 
 def montecarlo(args: argparse.Namespace, flags: set[str]) -> list[str]:
@@ -38,7 +42,8 @@ def sweep(args: argparse.Namespace) -> list[str]:
     for param in spec["params"]:
         for i, level in enumerate(param["levels"]):
             for seed in spec["seeds"]:
-                rows.append(row(len(rows), param["name"], level, seed, 0.001 * (i + 1)))
+                held = param["name"] == HAL_TIMEOUT and float(level) < 8
+                rows.append(row(len(rows), param["name"], level, seed, 0.001 * (i + 1), held))
     return rows
 
 

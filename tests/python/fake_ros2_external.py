@@ -46,7 +46,7 @@ def header() -> str:
     cols = ["t_ns", "mode"]
     cols += [f"{p}{j}" for p in ("q", "qd", "qref", "qdref", "tau") for j in range(1, 8)]
     cols += ["px", "py", "pz", "rx", "ry", "rz", "pdx", "pdy", "pdz", "rdx", "rdy", "rdz"]
-    cols += [f"e{k}" for k in range(1, 7)] + ["step_us"]
+    cols += [f"e{k}" for k in range(1, 7)] + ["step_us", "hold"]
     return ",".join(cols)
 
 
@@ -61,7 +61,7 @@ def row(k: int, rows: int, err: float, end_mode: str, flags: set[str]) -> str:
         tau[0] = 1000.0
     p = [PD[0] + err, PD[1], PD[2]]
     vals = [k * DT_NS, mode, *q, *qd, *q, *[0.0] * 7, *tau, *p, *[0.0] * 3]
-    vals += [*PD, *[0.0] * 3, *[0.0] * 6, 0]
+    vals += [*PD, *[0.0] * 3, *[0.0] * 6, 0, "state_timeout" if mode == "holding" else "none"]
     return ",".join(str(v) for v in vals)
 
 
