@@ -10,6 +10,7 @@ namespace cobot::imperfect {
 namespace {
 
 constexpr double kMinMassScale = 0.1;  // lower clamp of the mass scale factor
+constexpr double kSphereFactor = 0.4;  // solid sphere: I = 2/5 m r^2 about its centre
 
 // Inertia of a point mass m at offset d about the reference point (parallel-axis term).
 common::Mat3 point_inertia(double m, const common::Vec3& d) {
@@ -48,11 +49,19 @@ model::Model<N> perturb_model(const model::Model<N>& nominal,
 
   if (mismatch.payload_kg > 0.0) {
     model::LinkInertia& last = out.links[static_cast<std::size_t>(N) - 1];
-    const common::Vec3& tip = nominal.T_last_tip.p;  // payload at the tip origin, frame N
+    // Payload centre in frame N: the tip origin plus the offset rotated out of the tip frame.
+    // A zero offset adds exact zeros, so the point-mass-at-the-tip case is unchanged bit for bit.
+    const common::Vec3 tip =
+        nominal.T_last_tip.p + nominal.T_last_tip.R * mismatch.payload_offset_m;
     const double m_new = last.mass_kg + mismatch.payload_kg;
     const common::Vec3 com_new = (last.mass_kg * last.com_i + mismatch.payload_kg * tip) / m_new;
     last.I_com_i += point_inertia(last.mass_kg, last.com_i - com_new) +
                     point_inertia(mismatch.payload_kg, tip - com_new);
+    if (mismatch.payload_radius_m > 0.0) {
+      // Solid sphere about its own centre; isotropic, so the shift to com_new leaves it as is.
+      const double r = mismatch.payload_radius_m;
+      last.I_com_i.diagonal().array() += kSphereFactor * mismatch.payload_kg * r * r;
+    }
     last.mass_kg = m_new;
     last.com_i = com_new;
   }

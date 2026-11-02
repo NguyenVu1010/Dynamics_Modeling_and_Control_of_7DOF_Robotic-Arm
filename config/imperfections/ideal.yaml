@@ -28,6 +28,7 @@ imperfections:
     link_mass_scale_std: 0.0
     com_shift_std_m: 0.0
     payload_kg: 0.0
+    payload_radius_m: 0.0  # solid sphere, m; optional payload_offset_m: [x, y, z] in link_7, m
   timing:
     source: "ideal"
     period_jitter_std_us: 0.0

@@ -29,6 +29,7 @@ imperfections:
     link_mass_scale_std: 0.15
     com_shift_std_m: 0.01
     payload_kg: 1.0
+    payload_radius_m: 0.0  # solid sphere, m; optional payload_offset_m: [x, y, z] in link_7, m
   timing:
     source: "assumed: non-RT kernel scheduling jitter, worst-case bound"
     period_jitter_std_us: 100.0

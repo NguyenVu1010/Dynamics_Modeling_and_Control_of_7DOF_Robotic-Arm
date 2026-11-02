@@ -475,6 +475,13 @@ void read_imperfections(Reader& root, imperfect::ImperfectionConfig<N>& c) {
   d.vector<N>("link_mass_scale_std", kNonNegative, true, c.model.link_mass_scale_std);
   d.number("com_shift_std_m", kNonNegative, c.model.com_shift_std_m);
   d.number("payload_kg", kNonNegative, c.model.payload_kg);
+  // Optional (feature payload-inertia): absent keeps the point mass at the tip origin.
+  if (d.has("payload_offset_m")) {
+    d.vector<3>("payload_offset_m", kAny, false, c.model.payload_offset_m);
+  }
+  if (d.has("payload_radius_m")) {
+    d.number("payload_radius_m", kNonNegative, c.model.payload_radius_m);
+  }
 
   Reader t = m.map("timing");
   t.scalar("source", source);
@@ -562,6 +569,10 @@ Result<imperfect::ImperfectionConfig<N>> load_imperfections_with(const fs::path&
            g.first.Scalar() == group && g.second.IsMap() ? g.second : YAML::Node()) {
         found = found || k.first.Scalar() == key;
       }
+    }
+    // Checked first: the reason must not depend on whether the profile sets the key.
+    if (name == "model.payload_offset_m") {
+      return "sweep param " + name + " is a vector and cannot be swept";
     }
     if (key.empty() || key == "source" || !found) {
       return "unknown sweep param " + name + " (no key imperfections." + name + ")";

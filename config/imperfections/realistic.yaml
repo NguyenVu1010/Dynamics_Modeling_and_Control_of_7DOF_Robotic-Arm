@@ -29,6 +29,7 @@ imperfections:
     link_mass_scale_std: 0.05
     com_shift_std_m: 0.005
     payload_kg: 0.0
+    payload_radius_m: 0.0  # solid sphere, m; optional payload_offset_m: [x, y, z] in link_7, m
   timing:
     source: "assumed: typical harmonic-drive servo with 19-bit absolute encoder at 1 kHz EtherCAT"
     period_jitter_std_us: 20.0
