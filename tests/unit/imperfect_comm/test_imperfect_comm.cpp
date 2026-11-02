@@ -414,7 +414,7 @@ TEST(CommLatencyBurst, StampsNeverDecreaseUnderRandomConfigs) {
 
 // Outputs of `cycles` read/write cycles and the last command the inner received.
 struct Recording {
-  std::vector<JointState<kN>> states{};
+  std::vector<JointState<kN>> states;
   Vec last_tau = Vec::Zero();
 };
 
