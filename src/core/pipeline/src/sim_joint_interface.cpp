@@ -11,8 +11,16 @@ template <int N>
 SimJointInterface<N>::SimJointInterface(dynamics::SimPlant<N>& plant,
                                         double period_s,
                                         double jitter_std_s,
-                                        std::uint64_t seed)
-    : plant_(plant), period_s_(period_s), jitter_std_s_(jitter_std_s), rng_(seed) {}
+                                        std::uint64_t seed,
+                                        double overrun_prob,
+                                        int overrun_cycles)
+    : plant_(plant),
+      period_s_(period_s),
+      jitter_std_s_(jitter_std_s),
+      rng_(seed),
+      overrun_prob_(overrun_prob),
+      overrun_cycles_(overrun_cycles),
+      overrun_rng_(seed ^ kOverrunSalt) {}
 
 template <int N>
 common::Status SimJointInterface<N>::read(hal::JointState<N>& out) {
@@ -38,6 +46,14 @@ void SimJointInterface<N>::advance() {
     dt = std::clamp(period_s_ + jitter(rng_), 0.5 * period_s_, 1.5 * period_s_);
   }
   plant_.step(last_cmd_.tau, dt);
+  if (overrun_prob_ > 0.0) {
+    std::uniform_real_distribution<double> unit(0.0, 1.0);
+    if (unit(overrun_rng_) < overrun_prob_) {
+      for (int k = 0; k < overrun_cycles_; ++k) {
+        plant_.step(last_cmd_.tau, period_s_);
+      }
+    }
+  }
 }
 
 #define COBOT_PIPELINE_SIM_JOINT_INTERFACE_INSTANTIATE(N) template class SimJointInterface<(N)>;

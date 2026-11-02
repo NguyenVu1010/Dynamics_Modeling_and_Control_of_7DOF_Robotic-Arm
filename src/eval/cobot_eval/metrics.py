@@ -27,13 +27,13 @@ def run_columns(n: int) -> list[str]:
         cols += [f"{prefix}{j}" for j in range(1, n + 1)]
     cols += list(_TASK_COLUMNS)
     cols += [f"e{k}" for k in range(1, 7)]
-    cols.append("step_us")
+    cols += ["step_us", "hold"]
     return cols
 
 
 def load_run(path: Path) -> pd.DataFrame:
     """Read a Run CSV; raise ValueError naming the first column that breaks the contract."""
-    df = pd.read_csv(path, dtype={"mode": str})
+    df = pd.read_csv(path, dtype={"mode": str, "hold": str})
     actual = [str(c) for c in df.columns]
     n = sum(1 for c in actual if re.fullmatch(r"q\d+", c))
     if n == 0:
@@ -67,6 +67,8 @@ class RunMetrics:
     held: bool
     final_t_s: float
     stop_pos_err_m: float | None = None  # None: the run has no waypoint meta keys
+    hold_time_s: float | None = None  # first holding row t - first row t; None: never held
+    hold_reason: str = "none"  # `hold` of the first holding row
 
 
 @dataclass(frozen=True)
@@ -209,6 +211,11 @@ def compute_metrics(
 
     ratio = np.abs(tau) / limits
     saturated = np.any(ratio >= SAT_FRACTION, axis=1)
+    holding = np.flatnonzero(mode == "holding")
+    hold_time_s, hold_reason = None, "none"
+    if holding.size:
+        hold_time_s = float(t_ns[holding[0]] - t_ns[0]) * 1e-9
+        hold_reason = str(df["hold"].iloc[holding[0]])
     return RunMetrics(
         final_pos_err_m=float(pos[0]),
         final_rot_err_rad=float(rot[0]),
@@ -217,9 +224,11 @@ def compute_metrics(
         peak_tau_ratio=float(ratio.max()),
         sat_time_s=float(_row_durations_s(t_ns)[saturated].sum()),
         rms_tau_ratio=float(np.max(rms_tau / rated)),  # np.max keeps a NaN on any joint
-        held=bool(np.any(mode == "holding")),
+        held=bool(holding.size),
         final_t_s=float(t_ns[k]) * 1e-9,
         stop_pos_err_m=stop_pos_err_m(df, meta),
+        hold_time_s=hold_time_s,
+        hold_reason=hold_reason,
     )
 
 

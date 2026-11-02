@@ -63,6 +63,20 @@ struct ModelMismatchConfig {
 
 struct TimingConfig {
   double period_jitter_std_us = 0.0;  // plant step = nominal dt + N(0, std), bench only
+  // Bench only: with this probability per plant advance, the plant runs 1 + overrun_cycles
+  // periods with the last command (the control step came too late).
+  double overrun_prob = 0.0;  // [0, 1]
+  int overrun_cycles = 0;     // >= 0
+};
+
+// Servo bus timing (realism-2 design 5 and 6.3), YAML `comm`, optional group; all 0 = off.
+struct CommConfig {
+  // 0 = a servo packet every control cycle; else control_rate_hz / servo_rate_hz must be an
+  // integer >= 1 and a packet comes every that many cycles (zero-order hold in between).
+  double servo_rate_hz = 0.0;
+  double packet_loss_prob = 0.0;    // per servo packet (both directions), [0, 1]
+  double latency_burst_prob = 0.0;  // per control cycle while no burst is active, [0, 1]
+  int burst_cycles = 0;             // reads that repeat the last output, [0, kMaxDelayCycles]
 };
 
 template <int N>
@@ -72,6 +86,7 @@ struct ImperfectionConfig {
   FrictionConfig<N> friction;
   ModelMismatchConfig<N> model;
   TimingConfig timing;
+  CommConfig comm;
   std::uint64_t seed = 1;
 };
 

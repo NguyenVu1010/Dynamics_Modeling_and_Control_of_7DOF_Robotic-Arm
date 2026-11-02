@@ -45,6 +45,7 @@ const Rule kPositive{[](double v) { return v > 0.0; }, "must be > 0"};
 const Rule kNonNegative{[](double v) { return v >= 0.0; }, "must be >= 0"};
 const Rule kAboveOne{[](double v) { return v > 1.0; }, "must be > 1"};
 const Rule kFraction{[](double v) { return v >= 0.0 && v < 1.0; }, "must be in [0, 1)"};
+const Rule kProbability{[](double v) { return v >= 0.0 && v <= 1.0; }, "must be in [0, 1]"};
 const Rule kEncoderBits{
     [](double v) {
       return v == 0.0 || (v == std::floor(v) && v >= kMinEncoderBits && v <= kMaxEncoderBits);
@@ -524,6 +525,22 @@ void read_imperfections(Reader& root, imperfect::ImperfectionConfig<N>& c) {
   Reader t = m.map("timing");
   t.scalar("source", source);
   t.number("period_jitter_std_us", kNonNegative, c.timing.period_jitter_std_us);
+  // Optional (feature comm-timing): absent keys keep the effect off.
+  optional_number(t, "overrun_prob", kProbability, c.timing.overrun_prob);
+  if (t.has("overrun_cycles") && t.scalar("overrun_cycles", c.timing.overrun_cycles) &&
+      c.timing.overrun_cycles < 0) {
+    t.fail("overrun_cycles", "must be >= 0, got " + std::to_string(c.timing.overrun_cycles));
+  }
+  if (m.has("comm")) {
+    Reader k = m.map("comm");
+    imperfect::CommConfig& comm = c.comm;
+    k.scalar("source", source);
+    k.number("servo_rate_hz", kNonNegative, comm.servo_rate_hz);
+    k.number("packet_loss_prob", kProbability, comm.packet_loss_prob);
+    k.number("latency_burst_prob", kProbability, comm.latency_burst_prob);
+    delay(k, "burst_cycles", comm.burst_cycles);
+    k.finish();
+  }
   for (Reader* r : {&s, &a, &f, &d, &t, &m}) {
     r->finish();
   }
@@ -635,6 +652,37 @@ Result<Config<N>> load_config(const fs::path& yaml) {
 }
 
 template <int N>
+Result<Config<N>> load_config_with(const fs::path& yaml, const std::string& key, double level) {
+  const auto edit = [&key, level](YAML::Node& root) -> std::string {
+    const std::string prefix = "config.";
+    const std::size_t dot = key.find('.', prefix.size());
+    const bool shaped = key.compare(0, prefix.size(), prefix) == 0 && dot != std::string::npos;
+    const std::string section = shaped ? key.substr(prefix.size(), dot - prefix.size()) : "";
+    const std::string name = shaped ? key.substr(dot + 1) : "";
+    // Iterated, not looked up: a lookup of a missing key yields an invalid node that throws.
+    bool scalar = false;
+    for (const auto& s : root["cobot"]) {
+      for (const auto& k :
+           s.first.Scalar() == section && s.second.IsMap() ? s.second : YAML::Node()) {
+        scalar = scalar || (k.first.Scalar() == name && k.second.IsScalar());
+      }
+    }
+    if (!scalar) {
+      return "config param " + key + " is not sweepable (no scalar cobot." + section + "." + name +
+             ")";
+    }
+    std::array<char, 32> text{};
+    std::snprintf(text.data(), text.size(), "%.17g", level);
+    root["cobot"][section][name] = std::string(text.data());
+    return {};
+  };
+  std::error_code ec;
+  const fs::path dir = fs::absolute(yaml, ec).parent_path();
+  return load<Config<N>>(
+      yaml, [&dir](Reader& r, Config<N>& c) { read_config<N>(r, dir, c); }, edit);
+}
+
+template <int N>
 model::Model<N> controller_model(const model::Model<N>& urdf_model, const Config<N>& config) {
   model::Model<N> out = urdf_model;
   for (int j = 0; j < N; ++j) {
@@ -681,11 +729,12 @@ Result<imperfect::ImperfectionConfig<N>> load_imperfections(const fs::path& yaml
 }
 
 // NOLINTBEGIN(bugprone-macro-parentheses): N is a template argument
-#define COBOT_INSTANTIATE(N)                                                                \
-  template Result<Config<N>> load_config<N>(const fs::path&);                               \
-  template model::Model<N> controller_model<N>(const model::Model<N>&, const Config<N>&);   \
-  template Result<imperfect::ImperfectionConfig<N>> load_imperfections<N>(const fs::path&); \
-  template Result<imperfect::ImperfectionConfig<N>> load_imperfections_with<N>(             \
+#define COBOT_INSTANTIATE(N)                                                                   \
+  template Result<Config<N>> load_config<N>(const fs::path&);                                  \
+  template Result<Config<N>> load_config_with<N>(const fs::path&, const std::string&, double); \
+  template model::Model<N> controller_model<N>(const model::Model<N>&, const Config<N>&);      \
+  template Result<imperfect::ImperfectionConfig<N>> load_imperfections<N>(const fs::path&);    \
+  template Result<imperfect::ImperfectionConfig<N>> load_imperfections_with<N>(                \
       const fs::path&, const std::string&, double);
 COBOT_INSTANTIATE_DOF(COBOT_INSTANTIATE)
 #undef COBOT_INSTANTIATE

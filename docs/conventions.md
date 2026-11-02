@@ -111,7 +111,7 @@ doubles printed with `%.17g`. Columns in this order:
 t_ns,mode,
 q1..q7, qd1..qd7, qref1..qref7, qdref1..qdref7, tau1..tau7,
 px,py,pz, rx,ry,rz, pdx,pdy,pdz, rdx,rdy,rdz,
-e1..e6, step_us
+e1..e6, step_us, hold
 ```
 
 | Columns | Meaning |
@@ -125,16 +125,21 @@ e1..e6, step_us
 | `pdx..pdz`, `rdx..rdz` | same for `T_b_d` |
 | `e1..e6` | CLIK `task_error`, order `[v; ω]`; 0 in `holding` rows (CLIK is not stepped there, `qref*` is the hold target and `qdref*` is 0) |
 | `step_us` | wall time of `ControlLoop::step()` (µs); written as 0 when `deterministic: true` so that runs compare byte for byte (timing comes from `cobot_bench timing`) |
+| `hold` | why `ControlLoop` entered `holding`, kept in every row until a reset: `none` (never held), `non_finite` (a non-finite q or qd), `stamp_backwards` (state stamp older than the newest seen), `state_timeout` (no fresh stamp for more than `safety.hal_timeout_ms`), `joint_limit` (q within the soft margin of a limit), `overspeed` (\|qd\| above qd_max); the first in this order wins when several hold at once |
 
 ### Summary CSV
 
 One row per run of `cobot_bench montecarlo` / `sweep`:
 
 ```
-run_id,param,level,seed,final_pos_err_m,final_rot_err_rad,rms_joint_err_rad,peak_tau_ratio,sat_time_s,rms_tau_ratio,held,passed
+run_id,param,level,seed,final_pos_err_m,final_rot_err_rad,rms_joint_err_rad,peak_tau_ratio,sat_time_s,rms_tau_ratio,held,hold_time_s,hold_reason,passed
 ```
 
-`held` and `passed` are `0`/`1`; `param` is `none` for Monte Carlo runs. `peak_tau_ratio` (max
+`held` and `passed` are `0`/`1`; `param` is `none` for Monte Carlo runs. `hold_time_s` is `t` of
+the first `holding` row minus `t` of the first row (s), empty when the run never held;
+`hold_reason` is the `hold` value of that row, `none` when the run never held. A sweep `param`
+named `config.<section>.<key>` (such as `config.safety.hal_timeout_ms`) replaces that scalar of
+the controller config instead of an imperfection key. `peak_tau_ratio` (max
 `|tau| / P`) and `sat_time_s` (time with any `|tau| >= 0.999 P`) use the peak torque P of
 `cobot.limits.peak_torque_nm`, the controller's `tau_max`; `rms_tau_ratio` is the max over joints
 of `RMS(tau_j) / R_j` over the `tracking`/`finished` rows, R the rated torque

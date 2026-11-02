@@ -3,7 +3,9 @@
 Usage: python -m cobot_eval.sensitivity --summary S --thresholds YAML --out DIR
 Thresholds come from a scenario file's `thresholds:` mapping. Writes, for sweep rows, one PNG per
 param (level -> each metric, mean and max over seeds, threshold line where one applies),
-tornado.png and hardware_requirements.md; for Monte Carlo rows (param = none), montecarlo.md.
+tornado.png, hardware_requirements.md and hold_rate.md; for Monte Carlo rows (param = none),
+montecarlo.md. The hold rate is the fraction of runs with held = 1, per param and level
+(hold_rate.md) and per profile (montecarlo.md).
 Exit 0 when the report is written (failing levels are results), 2 on bad input.
 
 A level passes when every seed meets every threshold. A param's levels are walked in severity
@@ -36,6 +38,8 @@ COLUMNS = (
     "sat_time_s",
     "rms_tau_ratio",
     "held",
+    "hold_time_s",
+    "hold_reason",
     "passed",
 )
 METRICS = COLUMNS[4:10]
@@ -48,11 +52,11 @@ EXIT_OK, EXIT_BAD_INPUT = 0, 2
 
 def load_summary(path: Path) -> pd.DataFrame:
     """Read a Summary CSV; raise ValueError naming the first missing column."""
-    df = pd.read_csv(path, dtype={"param": str, "run_id": str})
+    df = pd.read_csv(path, dtype={"param": str, "run_id": str, "hold_reason": str})
     for col in COLUMNS:
         if col not in df.columns:
             raise ValueError(f"{path}: missing column {col}")
-    for col in ("level", *METRICS, "held", "passed"):
+    for col in ("level", *METRICS, "held", "hold_time_s", "passed"):
         df[col] = pd.to_numeric(df[col], errors="coerce")
     return df
 
@@ -156,10 +160,13 @@ def tornado(
 
 def montecarlo_markdown(df: pd.DataFrame, th: Thresholds) -> str:
     ok = passes(df, th)
+    held = df["held"] == 1
     lines = [
         "# Monte Carlo",
         "",
         f"Pass rate: {ok.mean():.4g} ({int(ok.sum())} of {len(df)} runs)",
+        "",
+        f"Hold rate: {held.mean():.4g} ({int(held.sum())} of {len(df)} runs)",
         "",
         "| metric | p50 | p95 | max |",
         "| --- | --- | --- | --- |",
@@ -225,6 +232,24 @@ def requirements_markdown(rows: list[tuple[str, str, str, str]]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def hold_rate_markdown(summary: pd.DataFrame) -> str:
+    """Fraction of runs with held = 1 per sweep param and level."""
+    lines = [
+        "# Hold rate",
+        "",
+        "Fraction of the runs at each level that entered the safety hold.",
+        "",
+        "| param | level | hold rate | runs |",
+        "| --- | --- | --- | --- |",
+    ]
+    for param in sweep_params(summary):
+        df = summary[summary["param"] == param]
+        for level, rows in df.groupby("level", sort=True):
+            rate = float((rows["held"] == 1).mean())
+            lines.append(f"| `{param}` | {level:g} | {rate:.4g} | {len(rows)} |")
+    return "\n".join(lines) + "\n"
+
+
 def write_tables(summary: pd.DataFrame, th: Thresholds, out: Path) -> None:
     """montecarlo.md for param = none rows and hardware_requirements.md for sweep rows; needs no
     matplotlib, so the runner writes them even under --no-report."""
@@ -235,6 +260,7 @@ def write_tables(summary: pd.DataFrame, th: Thresholds, out: Path) -> None:
     if sweep_params(summary):
         text = requirements_markdown(requirements(summary, th))
         (out / "hardware_requirements.md").write_text(text, encoding="utf-8")
+        (out / "hold_rate.md").write_text(hold_rate_markdown(summary), encoding="utf-8")
 
 
 def main(argv: list[str] | None = None) -> int:

@@ -53,9 +53,13 @@ struct Setup {
   model::Arm7 nominal;
 };
 
-common::Result<Setup> load_setup(const std::filesystem::path& config_yaml) {
+common::Result<Setup> load_setup(const std::filesystem::path& config_yaml,
+                                 const std::optional<ConfigOverride>& config_override) {
   using Out = common::Result<Setup>;
-  const common::Result<pipeline::Config<kN>> config = pipeline::load_config<kN>(config_yaml);
+  const common::Result<pipeline::Config<kN>> config =
+      config_override ? pipeline::load_config_with<kN>(
+                            config_yaml, config_override->first, config_override->second)
+                      : pipeline::load_config<kN>(config_yaml);
   if (!config) {
     return Out::error(config.reason());
   }
@@ -122,6 +126,14 @@ class Metrics {
       last_dt_ns_ = r.t.ns - prev_t_ns_;
       sat_ns_ += prev_sat_ ? last_dt_ns_ : 0;
     }
+    if (rows_ == 0) {
+      first_t_ns_ = r.t.ns;
+    }
+    if (!s_.held && r.mode == pipeline::LoopMode::kHolding) {
+      s_.hold_time_s = static_cast<double>(r.t.ns - first_t_ns_) /
+                       static_cast<double>(common::kNanosecondsPerSecond);
+      s_.hold_reason = r.hold_reason;
+    }
     if (rows_ == 0 || r.t.ns <= t_eval_ns_) {
       final_e_ = r.T_b_e;
       final_d_ = r.T_b_d;
@@ -173,6 +185,7 @@ class Metrics {
   std::size_t rows_ = 0;
   std::size_t error_rows_ = 0;
   std::int64_t prev_t_ns_ = 0;
+  std::int64_t first_t_ns_ = 0;
   std::int64_t last_dt_ns_ = 0;
   std::int64_t sat_ns_ = 0;
   bool prev_sat_ = false;
@@ -235,9 +248,10 @@ common::Result<RunSummary> run_profile(const std::filesystem::path& config_yaml,
                                        const std::filesystem::path& label,
                                        const std::filesystem::path& out_csv,
                                        std::optional<double> duration_s,
-                                       WaypointInput* waypoints) {
+                                       WaypointInput* waypoints,
+                                       const std::optional<ConfigOverride>& config_override) {
   using Out = common::Result<RunSummary>;
-  const common::Result<Setup> setup = load_setup(config_yaml);
+  const common::Result<Setup> setup = load_setup(config_yaml, config_override);
   if (!setup) {
     return Out::error(setup.reason());
   }
@@ -272,8 +286,12 @@ common::Result<RunSummary> run_profile(const std::filesystem::path& config_yaml,
         imperfect::perturb_model(setup.value().urdf, imperfections.model, imperfections.seed);
     dynamics::SimPlant<kN> plant(
         plant_model, config.home_q_rad, imperfect::plant_effects(imperfections));
-    pipeline::SimJointInterface<kN> sim(
-        plant, period_s, imperfections.timing.period_jitter_std_us / kUsPerS, imperfections.seed);
+    pipeline::SimJointInterface<kN> sim(plant,
+                                        period_s,
+                                        imperfections.timing.period_jitter_std_us / kUsPerS,
+                                        imperfections.seed,
+                                        imperfections.timing.overrun_prob,
+                                        imperfections.timing.overrun_cycles);
     imperfect::ImperfectJointInterface<kN> io(
         sim, imperfections, period_s, false, config.limits.peak_torque_nm);
     const std::unique_ptr<Loop> loop = std::make_unique<Loop>(setup.value().nominal, config);
@@ -405,7 +423,7 @@ common::Result<RunSummary> run_profile(const std::filesystem::path& config_yaml,
 
 common::Result<TimingStats> timing(const std::filesystem::path& config_yaml, std::int64_t steps) {
   using Out = common::Result<TimingStats>;
-  const common::Result<Setup> setup = load_setup(config_yaml);
+  const common::Result<Setup> setup = load_setup(config_yaml, std::nullopt);
   if (!setup || steps <= 0) {
     return Out::error(setup ? "steps must be > 0" : setup.reason());
   }

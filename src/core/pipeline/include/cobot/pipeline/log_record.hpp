@@ -7,7 +7,7 @@
 
 // One row of the run CSV (contract in docs/conventions.md, feature `pipeline-config`).
 // Columns: t_ns,mode,q1..qN,qd1..qdN,qref1..qrefN,qdref1..qdrefN,tau1..tauN,
-//          px,py,pz,rx,ry,rz,pdx,pdy,pdz,rdx,rdy,rdz,e1..e6,step_us
+//          px,py,pz,rx,ry,rz,pdx,pdy,pdz,rdx,rdy,rdz,e1..e6,step_us,hold
 // p/r = position and so3_log rotation vector of T_b_e; pd/rd the same for T_b_d.
 // In holding rows q_ref is the hold target, qd_ref and e1..e6 are 0 (CLIK is not stepped).
 // Doubles printed with %.17g so that runs can be compared byte for byte; step_us is written
@@ -24,6 +24,19 @@ enum class LoopMode { kIdle, kTracking, kHolding, kFinished, kFault, kStandby };
 // "idle", "tracking", "holding", "finished", "fault", "standby"
 const char* to_string(LoopMode mode);
 
+// Why ControlLoop entered kHolding (the first matching one in this order), kept until reset().
+enum class HoldReason {
+  kNone,
+  kNonFinite,
+  kStampBackwards,
+  kStateTimeout,
+  kJointLimit,
+  kOverspeed
+};
+
+// "none", "non_finite", "stamp_backwards", "state_timeout", "joint_limit", "overspeed"
+const char* to_string(HoldReason reason);
+
 template <int N>
 struct LogRecord {
   Timestamp t;
@@ -37,6 +50,7 @@ struct LogRecord {
   Pose T_b_d;
   Vec6 task_error = Vec6::Zero();
   double step_time_us = 0.0;
+  HoldReason hold_reason = HoldReason::kNone;  // CSV column `hold`
 };
 
 template <int N>

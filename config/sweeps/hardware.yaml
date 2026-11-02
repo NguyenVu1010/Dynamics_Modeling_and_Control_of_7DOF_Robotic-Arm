@@ -34,3 +34,7 @@ params:
     levels: [0, 0.5, 1, 2, 3]
   - name: timing.period_jitter_std_us
     levels: [0, 20, 100, 300]
+  - name: comm.servo_rate_hz
+    levels: [0, 500, 250]
+  - name: comm.packet_loss_prob
+    levels: [0, 1.0e-5, 1.0e-4, 1.0e-3]

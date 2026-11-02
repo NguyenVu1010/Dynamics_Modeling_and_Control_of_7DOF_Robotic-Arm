@@ -59,8 +59,10 @@ common::Status montecarlo(const std::filesystem::path& config_yaml,
                           std::optional<double> duration_s);
 
 // sweep: one at a time (config/sweeps/*.yaml): for each param, level and seed, the base profile
-// with that one key replaced (scalar broadcast to every joint). Every param and level is
-// validated before the first run; an unknown param is an error naming it.
+// with that one key replaced (scalar broadcast to every joint). A param `config.<section>.<key>`
+// replaces that scalar of config_yaml instead (pipeline::load_config_with) and runs the base
+// profile. Every param and level is validated before the first run; an unknown param is an error
+// naming it.
 common::Status sweep(const std::filesystem::path& config_yaml,
                      const std::filesystem::path& sweep_yaml,
                      const std::filesystem::path& out_dir,

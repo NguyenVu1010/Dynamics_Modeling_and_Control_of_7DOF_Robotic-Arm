@@ -39,3 +39,12 @@ imperfections:
   timing:
     source: "ideal"
     period_jitter_std_us: 0.0
+    overrun_prob: 0.0              # bench: per plant advance, runs 1 + overrun_cycles periods
+    overrun_cycles: 0
+  # Servo bus (realism-2 design 6.3), optional group, all 0 = off.
+  comm:
+    source: "ideal"
+    servo_rate_hz: 0.0             # 0 = every control cycle; else control rate / it is an integer
+    packet_loss_prob: 0.0          # per servo packet, both directions
+    latency_burst_prob: 0.0        # per cycle while no burst is active
+    burst_cycles: 0                # reads that repeat the last sample, [0, 32]
