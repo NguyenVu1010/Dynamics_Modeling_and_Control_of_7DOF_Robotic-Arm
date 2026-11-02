@@ -4,6 +4,7 @@
 //   phi1 < |phi| <= phi2           -> t1 + k2 (|phi| - phi1),  phi2 = phi1 + (t2 - t1) / k2
 //   |phi| > phi2                   -> t2 + k3 (|phi| - phi2)
 // with the sign of phi.
+#include <algorithm>
 #include <array>
 
 #include <gtest/gtest.h>
@@ -47,9 +48,11 @@ TEST(HarmonicSpring, OddAndContinuousForEveryGear) {
       EXPECT_EQ(torque(-phi, g), -torque(phi, g)) << "phi " << phi;
       EXPECT_GE(torque(phi, g), 0.0) << "phi " << phi;
     }
-    // No jump at either breakpoint (1e-12 rad either side moves the torque by at most k3 * 1e-12).
+    // No jump at either breakpoint: 1e-12 rad either side moves the torque by at most
+    // (k_left + k_right) * 1e-12 <= 2e-12 * max(k1, k2, k3).
+    const double k_max = std::max({g.k1, g.k2, g.k3});
     for (const double b : {phi1, phi2}) {
-      EXPECT_NEAR(torque(b - 1e-12, g), torque(b + 1e-12, g), 2e-12 * g.k3 + kTol);
+      EXPECT_NEAR(torque(b - 1e-12, g), torque(b + 1e-12, g), 2e-12 * k_max + kTol);
     }
   }
 }
