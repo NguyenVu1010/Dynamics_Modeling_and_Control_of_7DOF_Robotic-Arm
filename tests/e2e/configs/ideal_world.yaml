@@ -50,3 +50,6 @@ cobot:
     joint_margin_deg: 2.0
     torque_ratio: 0.9
     max_stretch: 3.0
+  limits:
+    rated_torque_nm: [87, 87, 52, 52, 10, 10, 10]
+    peak_torque_nm: [204, 204, 107, 107, 36, 36, 36]

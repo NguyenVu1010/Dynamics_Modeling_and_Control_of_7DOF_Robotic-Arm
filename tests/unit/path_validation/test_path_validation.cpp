@@ -21,18 +21,22 @@
 
 // pipeline::validate_path (feature path-validation, design 2026-10-29-waypoint-gui-design.md 6.2):
 // CLIK run offline at 1 ms along WaypointTrajectory::create(T_b_start, waypoints, cartesian) on
-// the real arm (sim/urdf/cobot30_5.urdf) with the gains and friction of config/default.yaml.
+// the real arm (sim/urdf/cobot30_5.urdf) with the gains and friction of config/default.yaml, as
+// the controller sees it (pipeline::controller_model): tau_max = peak torque P of cobot.limits
+// (204/204/107/107/36/36/36 N m), qd_max = URDF velocity (2.1 rad/s joints 1-4, 3.1 rad/s 5-7).
 //
-// The scenario numbers below come from running ClikReference along CartesianTrajectory (which a
-// single stop waypoint must reproduce) on this arm, with RNEA + friction feed-forward:
+// The scenario numbers below come from running validate_path on this arm (a single stop waypoint
+// reproduces CartesianTrajectory), with RNEA + friction feed-forward:
 //   home q = (0, 30, 0, -90, 0, 60, 0) deg, tip at p = (0.110, -0.807, 0.389) m.
 //   MVP goal (-0.5, -0.6, 0.9) m, rpy (0, 0, 90) deg: 0.822 m and 90 deg away. Auto duration with
-//     the default CartesianLimits ~6.2 s; worst |qd|/qd_max 0.12, |tau|/tau_max 0.54, joint margin
+//     the default CartesianLimits ~6.2 s; worst |qd|/qd_max 0.11, |tau|/P 0.23, joint margin
 //     >= 12.7 deg, task error at the node 3.6e-6 m / 6.9e-6 rad -> no issue.
-//   home + (0, 0, -0.4) m in 0.3 s: |qd_2| = 1.24 qd_max, |qd_6| = 1.33 qd_max, |tau_2| = 3.5
-//     tau_max, task error at the node 3.8e-4 m. The same move in 3.0 s: |qd|/qd_max <= 0.13,
-//     |tau|/tau_max <= 0.67 -> ok. |tau_2|/tau_max against T: 0.34 s 2.90, 0.53 s 1.57,
-//     0.83 s 1.02, 1.0 s 0.90, 1.04 s 0.88, 1.2 s 0.82: below 0.9 only for T >~ 1.01 s.
+//   home + (0, 0, -0.4) m in 0.3 s: |qd_2| = 3.10 rad/s = 1.48 qd_max, |tau_2| = 1.51 P. The same
+//     move in 3.0 s: |qd|/qd_max <= 0.15, |tau|/P <= 0.29 -> ok. Worst joint (joint_2) against T:
+//       T [s]       0.25  0.30  0.34  0.39  0.40  0.42  0.44  0.45  0.49  0.50  0.60
+//       |qd_2|      3.72  3.10  2.73  2.38  2.32  2.21  2.11  2.06  1.90  1.85  1.54  rad/s
+//       |tau_2|/P   2.06  1.51  1.24  1.00  0.97  0.90  0.85  0.82  0.74  0.72  0.58
+//     |qd_2| <= 2.1 rad/s and |tau_2| < 0.9 P only for T >~ 0.442 s (0.44 s fails, 0.45 s passes).
 //   home + (2, 0, 0) m: the CLIK task error stays > 2 m -> unreachable.
 namespace cobot::pipeline {
 namespace {
@@ -64,7 +68,8 @@ Arm load_arm() {
   EXPECT_TRUE(chain.is_ok()) << chain.reason();
   const auto m = model::make_model<7>(chain.value(), out.cfg.gravity_b);
   EXPECT_TRUE(m.is_ok()) << m.reason();
-  out.model = m.value();
+  // The controller's model, as every real caller builds it: tau_max = peak torque P.
+  out.model = controller_model<7>(m.value(), out.cfg);
   return out;
 }
 
@@ -212,12 +217,13 @@ bool bit_equal(const Pose& a, const Pose& b) {
 }
 
 // Fast Cartesian limits make the auto duration of the 0.4 m move short. For a quintic:
-//   max(1.875 * 0.4 / 1.5, sqrt(5.7735 * 0.4 / 10)) = max(0.5, 0.48) = 0.5 s,
-// where |tau_2| ~ 1.6 tau_max (header table): a stretch factor of about 2 or more is needed.
+//   max(1.875 * 0.4 / 3.0, sqrt(5.7735 * 0.4 / 40)) = max(0.25, 0.24) = 0.25 s,
+// where |qd_2| = 1.77 qd_max and |tau_2| = 2.06 P (header table): a stretch factor of about 1.8
+// or more is needed (0.25 * 1.25^3 = 0.49 s is the first that passes).
 CartesianLimits fast_cartesian() {
   CartesianLimits c;
-  c.v_max_m_s = 1.5;
-  c.a_max_m_s2 = 10.0;
+  c.v_max_m_s = 3.0;
+  c.a_max_m_s2 = 40.0;
   c.w_max_rad_s = 8.0;
   c.alpha_max_rad_s2 = 16.0;
   return c;
@@ -313,7 +319,7 @@ TEST(PathValidation, PointNearJoint2LimitIsJointLimitOnJoint2) {
   // Target = FK(q*), q* = home with q_2 = 1.82 rad and q_4 = -1.57 rad: p = (0.110, -0.441,
   // -0.556) m. joint_2 upper limit 1.8326 rad: 1.8326 - 1.82 = 0.0126 rad = 0.72 deg < 2 deg.
   // CLIK from home reaches q_2 = 1.821 rad (0.69 deg from the limit); every other joint stays
-  // more than 50 deg from its limits, |tau|/tau_max <= 0.64, |qd|/qd_max <= 0.16, task error
+  // more than 50 deg from its limits, |tau|/P <= 0.27, |qd|/qd_max <= 0.18, task error
   // at the node 2.5e-6 m.
   VecN<7> q_star = home_q();
   q_star(1) = 1.82;
@@ -335,7 +341,7 @@ TEST(PathValidation, PointNearJoint2LimitIsJointLimitOnJoint2) {
 
 TEST(PathValidation, ShortUserDurationIsReportedAndNeverStretched) {
   // 0.4 m straight down in 0.3 s: peak tip speed 1.875 * 0.4 / 0.3 = 2.5 m/s;
-  // |qd_6| = 1.33 qd_max and |tau_2| = 3.5 tau_max on the reference.
+  // |qd_2| = 1.48 qd_max and |tau_2| = 1.51 P (header table).
   const Pose goal = shifted(home_pose(), Vec3(0.0, 0.0, -0.4));
   ValidationLimits limits;
   limits.max_stretch = 20.0;  // even a large allowance must not touch a user duration
@@ -354,7 +360,7 @@ TEST(PathValidation, ShortUserDurationIsReportedAndNeverStretched) {
       EXPECT_GT(x.value, x.limit) << describe(v);
     }
     if (x.issue == PathIssue::kJointVelocity) {
-      // rad/s against the URDF velocity limit of that joint (2.5 or 3 rad/s).
+      // rad/s against the URDF velocity limit of that joint (2.1 or 3.1 rad/s).
       EXPECT_DOUBLE_EQ(x.limit, arm().model.joints[static_cast<std::size_t>(x.joint)].qd_max);
     }
   }
@@ -365,7 +371,7 @@ TEST(PathValidation, ShortUserDurationIsReportedAndNeverStretched) {
 
 TEST(PathValidation, SameMoveWithAutoDurationIsOk) {
   // Auto duration with the default CartesianLimits, quintic: max(1.875 * 0.4 / 0.25,
-  // sqrt(5.7735 * 0.4 / 0.5)) = max(3.0, 2.15) = 3.0 s; worst |tau|/tau_max 0.67 -> no stretch
+  // sqrt(5.7735 * 0.4 / 0.5)) = max(3.0, 2.15) = 3.0 s; worst |tau|/P 0.29 -> no stretch
   // needed, but a stretch by 1.25^k <= 3 is accepted too.
   const Pose goal = shifted(home_pose(), Vec3(0.0, 0.0, -0.4));
   const std::vector<Waypoint> wps{wp(goal)};
@@ -391,7 +397,7 @@ TEST(PathValidation, AutoDurationTooFastIsStretched) {
   const std::vector<Waypoint> wps{wp(goal)};
   const CartesianLimits cart = fast_cartesian();
   const double auto_s = unstretched_duration(wps, 0, cart);
-  ASSERT_LT(auto_s, 0.9) << "precondition: the auto duration must be too fast for this test";
+  ASSERT_LT(auto_s, 0.4) << "precondition: the auto duration must be too fast for this test";
 
   ValidationLimits limits;
   limits.max_stretch = 20.0;  // 1.25^13 = 18.2 <= 20 < 1.25^14 = 22.7: up to 13 steps
@@ -404,10 +410,11 @@ TEST(PathValidation, AutoDurationTooFastIsStretched) {
   const int k = stretch_power(v.segment_durations_s[0] / auto_s);
   EXPECT_GE(k, 1) << v.segment_durations_s[0] << " / " << auto_s;
   EXPECT_LE(std::pow(1.25, k), 20.0);
-  // The first factor that passes: |tau_2| < 0.9 tau_max needs T >~ 1.0 s (header table), and
-  // T / 1.25 failed, so T < ~1.01 * 1.25 = 1.26 s. Bounds with 0.05 s slack: (0.95, 1.31).
-  EXPECT_GT(v.segment_durations_s[0], 0.95);
-  EXPECT_LT(v.segment_durations_s[0], 1.31);
+  // The first factor that passes: |qd_2| <= 2.1 rad/s and |tau_2| < 0.9 P need T >~ 0.44 s (header
+  // table), and T / 1.25 failed, so T < ~0.45 * 1.25 = 0.56 s. Bounds with 0.05 s slack:
+  // (0.39, 0.61). Here 0.25 s * 1.25^3 = 0.49 s.
+  EXPECT_GT(v.segment_durations_s[0], 0.39);
+  EXPECT_LT(v.segment_durations_s[0], 0.61);
   ASSERT_TRUE(v.trajectory.has_value());
   EXPECT_DOUBLE_EQ(v.trajectory->segment_duration_s(0), v.segment_durations_s[0]);
   EXPECT_DOUBLE_EQ(v.trajectory->duration_s(), v.segment_durations_s[0]);
@@ -422,7 +429,7 @@ TEST(PathValidation, StretchingStopsAtMaxStretch) {
   const std::vector<Waypoint> wps{wp(goal)};
   const CartesianLimits cart = fast_cartesian();
   const double auto_s = unstretched_duration(wps, 0, cart);
-  ASSERT_LT(auto_s, 0.9) << "precondition: the auto duration must be too fast for this test";
+  ASSERT_LT(auto_s, 0.4) << "precondition: the auto duration must be too fast for this test";
 
   ValidationLimits limits;
   limits.max_stretch = 1.0;

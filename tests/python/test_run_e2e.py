@@ -168,7 +168,7 @@ def test_timing_parses_p95(tmp_path, bench, mode, limit, expected):
     ("mode", "expected"), [("hold", 0), ("", 1), ("hold,tau_over", 1), ("hold,nan_tau", 1)]
 )
 def test_safety_checks_mode_and_torque(tmp_path, bench, mode, expected):
-    # tau_over: |tau1| = 100 > tau_max 87 of joint_1 in the URDF.
+    # tau_over: |tau1| = 250 > 204 (peak P of joint_1).
     path = scenario(tmp_path, kind="safety", expect={"mode_reached": "holding"})
     code, out, _ = run_e2e(tmp_path, bench, ["--scenario", path], mode)
     assert code == expected, out
