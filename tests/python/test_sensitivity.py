@@ -307,6 +307,9 @@ def test_hardware_sweep_file_matches_design():
         "model.link_mass_scale_std": [0, 0.05, 0.1, 0.2],
         "model.payload_kg": [0, 0.5, 1, 2, 3],
         "timing.period_jitter_std_us": [0, 20, 100, 300],
+        "actuator.torque_scale_asym_frac": [0, 0.01, 0.03, 0.1],
+        "actuator.deadband_nm": [0, 0.01, 0.1, 0.5],
+        "actuator.torque_slew_nm_s": [0, 1e5, 2e4, 5e3],
     }
     # Every swept name is a key of the base profile.
     base = yaml.safe_load((REPO / spec["base_profile"]).read_text(encoding="utf-8"))

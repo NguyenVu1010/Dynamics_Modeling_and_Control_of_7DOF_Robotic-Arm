@@ -19,6 +19,13 @@ imperfections:
     torque_cmd_resolution_nm: 0.0
     motor_time_constant_s: 0.0
     command_delay_cycles: 0
+    # Actuator limits (realism-2 design 6.1), 0 = off; set by the profiles feature.
+    torque_scale_asym_frac: 0.0    # negative-direction gain = positive * (1 - asym)
+    deadband_nm: 0.0
+    torque_slew_nm_s: 0.0
+    knee_speed_rad_s: 0.0          # torque-speed curve; 0 < knee < zero_torque when on
+    zero_torque_speed_rad_s: 0.0
+    # bus: {v_nom_v, r_source_ohm, v_min_v} (shared supply sag) is optional; absent = off.
   friction:
     source: "ideal"
     coulomb_nm: 0.0

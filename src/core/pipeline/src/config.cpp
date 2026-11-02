@@ -44,6 +44,7 @@ const Rule kAny{[](double) { return true; }, ""};
 const Rule kPositive{[](double v) { return v > 0.0; }, "must be > 0"};
 const Rule kNonNegative{[](double v) { return v >= 0.0; }, "must be >= 0"};
 const Rule kAboveOne{[](double v) { return v > 1.0; }, "must be > 1"};
+const Rule kFraction{[](double v) { return v >= 0.0 && v < 1.0; }, "must be in [0, 1)"};
 const Rule kEncoderBits{
     [](double v) {
       return v == 0.0 || (v == std::floor(v) && v >= kMinEncoderBits && v <= kMaxEncoderBits);
@@ -439,6 +440,42 @@ void read_config(Reader& root, const fs::path& dir, Config<N>& c) {
   }
 }
 
+// Optional actuator-limit keys (realism-2 design 6.1); absent keys keep the effect off.
+template <int N>
+void read_actuator_limits(Reader& a, imperfect::ActuatorConfig<N>& act) {
+  const auto optional = [&a](const char* key, const Rule& rule, VecN<N>& out) {
+    if (a.has(key)) {
+      a.vector<N>(key, rule, true, out);
+    }
+  };
+  optional("torque_scale_asym_frac", kFraction, act.torque_scale_asym_frac);
+  optional("deadband_nm", kNonNegative, act.deadband_nm);
+  optional("torque_slew_nm_s", kNonNegative, act.torque_slew_nm_s);
+  optional("knee_speed_rad_s", kNonNegative, act.knee_speed_rad_s);
+  optional("zero_torque_speed_rad_s", kNonNegative, act.zero_torque_speed_rad_s);
+  for (int j = 0; j < N; ++j) {
+    const double knee = act.knee_speed_rad_s[j];
+    const double zero = act.zero_torque_speed_rad_s[j];
+    if (knee > 0.0 && !(knee < zero)) {
+      std::array<char, 96> text{};
+      std::snprintf(
+          text.data(), text.size(), "must be < zero_torque_speed_rad_s %g, got %g", zero, knee);
+      a.fail("knee_speed_rad_s[" + std::to_string(j) + "]", text.data());
+    }
+  }
+  if (a.has("bus")) {
+    Reader b = a.map("bus");
+    typename imperfect::ActuatorConfig<N>::Bus& bus = act.bus;
+    b.number("v_nom_v", kNonNegative, bus.v_nom_v);
+    b.number("r_source_ohm", kNonNegative, bus.r_source_ohm);
+    b.number("v_min_v", kNonNegative, bus.v_min_v);
+    if (bus.v_nom_v > 0.0 && !(bus.v_min_v < bus.v_nom_v)) {
+      b.fail("v_min_v", "must be < v_nom_v when the bus is on");
+    }
+    b.finish();
+  }
+}
+
 template <int N>
 void read_imperfections(Reader& root, imperfect::ImperfectionConfig<N>& c) {
   Reader m = root.map("imperfections");
@@ -464,6 +501,7 @@ void read_imperfections(Reader& root, imperfect::ImperfectionConfig<N>& c) {
   a.vector<N>("torque_cmd_resolution_nm", kNonNegative, true, act.torque_cmd_resolution_nm);
   a.vector<N>("motor_time_constant_s", kNonNegative, true, act.motor_time_constant_s);
   delay(a, "command_delay_cycles", act.command_delay_cycles);
+  read_actuator_limits<N>(a, act);
 
   Reader f = m.map("friction");
   f.scalar("source", source);
