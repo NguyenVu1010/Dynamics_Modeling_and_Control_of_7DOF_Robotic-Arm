@@ -570,11 +570,12 @@ Result<imperfect::ImperfectionConfig<N>> load_imperfections_with(const fs::path&
         found = found || k.first.Scalar() == key;
       }
     }
-    if (key.empty() || key == "source" || !found) {
-      return "unknown sweep param " + name + " (no key imperfections." + name + ")";
-    }
+    // Checked first: the reason must not depend on whether the profile sets the key.
     if (name == "model.payload_offset_m") {
       return "sweep param " + name + " is a vector and cannot be swept";
+    }
+    if (key.empty() || key == "source" || !found) {
+      return "unknown sweep param " + name + " (no key imperfections." + name + ")";
     }
     std::array<char, 32> text{};
     std::snprintf(text.data(), text.size(), "%.17g", level);

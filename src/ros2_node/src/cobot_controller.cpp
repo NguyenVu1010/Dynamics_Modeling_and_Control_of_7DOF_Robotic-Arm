@@ -24,10 +24,12 @@
 // hands its commands to the loop, accumulates the goal metrics from each step's record and
 // publishes them in a LoopSnapshot (waypoint_server.hpp).
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <ctime>
 #include <exception>
 #include <filesystem>
@@ -247,13 +249,22 @@ class CobotController final : public ci::ControllerInterface {
     if (profile.model.payload_kg != 0.0) {
       const cobot::common::Vec3& offset = profile.model.payload_offset_m;
       std::string extra;
+      std::array<char, 160> text{};
       if (!offset.isZero(0.0)) {
-        extra += " (with imperfections.model.payload_offset_m = [" + std::to_string(offset.x()) +
-                 ", " + std::to_string(offset.y()) + ", " + std::to_string(offset.z()) + "])";
+        std::snprintf(text.data(),
+                      text.size(),
+                      " (with imperfections.model.payload_offset_m = [%g, %g, %g])",
+                      offset.x(),
+                      offset.y(),
+                      offset.z());
+        extra += text.data();
       }
       if (profile.model.payload_radius_m != 0.0) {
-        extra += " (with imperfections.model.payload_radius_m = " +
-                 std::to_string(profile.model.payload_radius_m) + ")";
+        std::snprintf(text.data(),
+                      text.size(),
+                      " (with imperfections.model.payload_radius_m = %g)",
+                      profile.model.payload_radius_m);
+        extra += text.data();
       }
       RCLCPP_ERROR(log,
                    "%s: imperfections.model.payload_kg = %g%s is not supported on the Gazebo "
