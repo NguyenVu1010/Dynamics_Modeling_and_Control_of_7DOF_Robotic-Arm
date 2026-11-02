@@ -14,8 +14,9 @@
 // (sim.launch.py writes the profile's friction into the joints' <dynamics>), so the interface
 // gets the profile with friction zeroed; model mismatch is emulated by giving the controller
 // perturb_model(nominal) instead of perturbing the plant (same size of error, opposite sign);
-// payload_kg cannot be emulated that way and is rejected; timing jitter has no meaning on the
-// sim clock and is ignored with a warning. `seed` >= 0 overrides the profile's seed.
+// payload_kg (with its offset and radius) cannot be emulated that way and is rejected; timing
+// jitter has no meaning on the sim clock and is ignored with a warning. `seed` >= 0 overrides
+// the profile's seed.
 //
 // `command_source` ("" = the config file's, "config" or "external") picks the trajectory source.
 // External (feature waypoint-ros): the loop waits in standby and WaypointServer offers
@@ -44,6 +45,7 @@
 #include <rclcpp/logging.hpp>
 
 #include "cobot/common/logger.hpp"
+#include "cobot/common/types.hpp"
 #include "cobot/imperfect/imperfect_joint_interface.hpp"
 #include "cobot/imperfect/perturb.hpp"
 #include "cobot/model/model.hpp"
@@ -243,11 +245,22 @@ class CobotController final : public ci::ControllerInterface {
       profile.seed = static_cast<std::uint64_t>(seed);
     }
     if (profile.model.payload_kg != 0.0) {
+      const cobot::common::Vec3& offset = profile.model.payload_offset_m;
+      std::string extra;
+      if (!offset.isZero(0.0)) {
+        extra += " (with imperfections.model.payload_offset_m = [" + std::to_string(offset.x()) +
+                 ", " + std::to_string(offset.y()) + ", " + std::to_string(offset.z()) + "])";
+      }
+      if (profile.model.payload_radius_m != 0.0) {
+        extra += " (with imperfections.model.payload_radius_m = " +
+                 std::to_string(profile.model.payload_radius_m) + ")";
+      }
       RCLCPP_ERROR(log,
-                   "%s: imperfections.model.payload_kg = %g is not supported on the Gazebo path "
-                   "(model perturbation cannot emulate a payload); set it to 0",
+                   "%s: imperfections.model.payload_kg = %g%s is not supported on the Gazebo "
+                   "path (model perturbation cannot emulate a payload); set it to 0",
                    imp_path.c_str(),
-                   profile.model.payload_kg);
+                   profile.model.payload_kg,
+                   extra.c_str());
       return CallbackReturn::ERROR;
     }
     if (profile.timing.period_jitter_std_us != 0.0) {

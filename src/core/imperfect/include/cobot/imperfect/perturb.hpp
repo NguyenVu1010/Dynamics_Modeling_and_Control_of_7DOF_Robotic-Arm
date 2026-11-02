@@ -12,8 +12,10 @@
 namespace cobot::imperfect {
 
 // Masses scaled by (1 + N(0, link_mass_scale_std)) (clamped to >= 0.1), inertia scaled by
-// the same factor, centre of mass shifted by N(0, com_shift_std_m) per axis, payload added
-// as a point mass at the tip origin to the last link. Deterministic for a given seed.
+// the same factor, centre of mass shifted by N(0, com_shift_std_m) per axis, payload (a solid
+// sphere of payload_radius_m centred at payload_offset_m in the tip frame) merged into the last
+// link by the parallel-axis theorem. Offset 0 and radius 0 give a point mass at the tip origin;
+// payload_kg = 0 ignores offset and radius. Deterministic for a given seed.
 template <int N>
 model::Model<N> perturb_model(const model::Model<N>& nominal,
                               const ModelMismatchConfig<N>& mismatch,

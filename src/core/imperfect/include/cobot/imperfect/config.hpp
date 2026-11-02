@@ -43,7 +43,10 @@ template <int N>
 struct ModelMismatchConfig {
   VecN<N> link_mass_scale_std = VecN<N>::Zero();  // relative, drawn once per link
   double com_shift_std_m = 0.0;                   // per axis, drawn once per link
-  double payload_kg = 0.0;                        // point mass at the tip origin
+  double payload_kg = 0.0;                        // added to the last link, kg
+  // Payload centre of mass in the tip (link_7) frame, measured from the tip origin, m.
+  common::Vec3 payload_offset_m = common::Vec3::Zero();
+  double payload_radius_m = 0.0;  // solid sphere, I = 2/5 m r^2 about its centre; >= 0
 };
 
 struct TimingConfig {
