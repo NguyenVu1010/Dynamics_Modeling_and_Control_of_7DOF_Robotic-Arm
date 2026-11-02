@@ -284,7 +284,7 @@ class CobotController final : public ci::ControllerInterface {
         server_ = std::make_unique<WaypointServer>(get_node(), *link_, model, c);
       }
       io_ = std::make_unique<cobot::imperfect::ImperfectJointInterface<kN>>(
-          ros_io_, profile, 1.0 / c.control_rate_hz, true);
+          ros_io_, profile, 1.0 / c.control_rate_hz, true, c.limits.peak_torque_nm);
       status_pub_ = get_node()->create_publisher<std_msgs::msg::String>(
           "~/status", rclcpp::SystemDefaultsQoS());
       status_rt_ = std::make_unique<StatusPublisher>(status_pub_);

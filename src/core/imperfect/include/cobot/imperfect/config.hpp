@@ -31,6 +31,18 @@ struct ActuatorConfig {
   VecN<N> torque_cmd_resolution_nm = VecN<N>::Zero();       // 0 = continuous
   VecN<N> motor_time_constant_s = VecN<N>::Zero();          // first-order lag, 0 = none
   int command_delay_cycles = 0;                             // >= 0
+  // Actuator limits (realism-2 design 6.1); every value 0 = effect off.
+  VecN<N> torque_scale_asym_frac = VecN<N>::Zero();   // negative gain = positive * (1 - asym)
+  VecN<N> deadband_nm = VecN<N>::Zero();              // |tau| below it -> 0
+  VecN<N> torque_slew_nm_s = VecN<N>::Zero();         // |d tau_out / dt| limit
+  VecN<N> knee_speed_rad_s = VecN<N>::Zero();         // torque-speed curve: full peak up to here
+  VecN<N> zero_torque_speed_rad_s = VecN<N>::Zero();  // ... falling linearly to 0 here
+  // Shared supply sag: V from the previous cycle's motoring power; v_nom_v 0 = off.
+  struct Bus {
+    double v_nom_v = 0.0;       // V
+    double r_source_ohm = 0.0;  // ohm
+    double v_min_v = 0.0;       // V, lower clamp of the bus voltage
+  } bus;
 };
 
 template <int N>

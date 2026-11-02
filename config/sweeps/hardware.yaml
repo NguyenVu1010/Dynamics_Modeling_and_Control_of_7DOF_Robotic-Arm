@@ -20,6 +20,12 @@ params:
     levels: [0, 0.1, 0.5, 1.0, 2.0]
   - name: actuator.motor_time_constant_s
     levels: [0, 0.001, 0.003, 0.01]
+  - name: actuator.torque_scale_asym_frac
+    levels: [0, 0.01, 0.03, 0.1]
+  - name: actuator.deadband_nm
+    levels: [0, 0.01, 0.1, 0.5]
+  - name: actuator.torque_slew_nm_s
+    levels: [0, 1.0e5, 2.0e4, 5.0e3]
   - name: friction.coulomb_nm
     levels: [0, 1, 2, 4, 8]
   - name: model.link_mass_scale_std

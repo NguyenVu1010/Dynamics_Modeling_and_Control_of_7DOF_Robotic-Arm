@@ -274,7 +274,8 @@ common::Result<RunSummary> run_profile(const std::filesystem::path& config_yaml,
         plant_model, config.home_q_rad, imperfect::plant_effects(imperfections));
     pipeline::SimJointInterface<kN> sim(
         plant, period_s, imperfections.timing.period_jitter_std_us / kUsPerS, imperfections.seed);
-    imperfect::ImperfectJointInterface<kN> io(sim, imperfections, period_s, false);
+    imperfect::ImperfectJointInterface<kN> io(
+        sim, imperfections, period_s, false, config.limits.peak_torque_nm);
     const std::unique_ptr<Loop> loop = std::make_unique<Loop>(setup.value().nominal, config);
 
     hal::JointState<kN> state;
