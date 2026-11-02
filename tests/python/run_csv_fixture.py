@@ -13,14 +13,14 @@ def run_header(n: int = 7) -> list[str]:
         cols += [f"{prefix}{j}" for j in range(1, n + 1)]
     cols += ["px", "py", "pz", "rx", "ry", "rz", "pdx", "pdy", "pdz", "rdx", "rdy", "rdz"]
     cols += [f"e{k}" for k in range(1, 7)]
-    cols += ["step_us"]
+    cols += ["step_us", "hold"]  # hold: feature comm-timing
     return cols
 
 
 class Run:
     """Arrays for a run of `rows` samples, t_ns = k * 1 ms, every row in mode `tracking`.
 
-    All signals are zero by default; tests overwrite the arrays they care about.
+    All signals are zero by default and `hold` is "none"; tests overwrite what they care about.
     """
 
     def __init__(self, rows: int = 100, n: int = 7) -> None:
@@ -38,6 +38,7 @@ class Run:
         self.rd = np.zeros((rows, 3))
         self.e = np.zeros((rows, 6))
         self.step_us = np.zeros(rows)
+        self.hold = ["none"] * rows
 
     def write(self, path: Path, drop: tuple[str, ...] = ()) -> Path:
         """Write the CSV; columns named in `drop` are left out (to build bad headers)."""
@@ -51,6 +52,7 @@ class Run:
             for arr in (self.p, self.r, self.pd, self.rd, self.e):
                 vals += [f"{v:.17g}" for v in arr[k]]
             vals.append(f"{self.step_us[k]:.17g}")
+            vals.append(self.hold[k])
             lines.append(",".join(vals[i] for i in keep))
         path.write_bytes(("\n".join(lines) + "\n").encode())
         return path

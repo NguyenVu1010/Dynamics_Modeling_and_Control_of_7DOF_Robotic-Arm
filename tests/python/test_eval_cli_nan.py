@@ -44,6 +44,8 @@ def summary_text(*rows: dict) -> str:
         "sat_time_s": 0,
         "rms_tau_ratio": 0.3,
         "held": 0,
+        "hold_time_s": "",
+        "hold_reason": "none",
         "passed": 1,
     }
     lines = [",".join(sensitivity.COLUMNS)]

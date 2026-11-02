@@ -56,6 +56,8 @@ class ControlLoop {
   Status step(const JointState<N>& state, JointCommand<N>& out);
 
   LoopMode mode() const { return mode_; }
+  // Why the loop entered kHolding; kNone before that and after start() or reset().
+  HoldReason hold_reason() const { return hold_reason_; }
   SpscRing<LogRecord<N>, kLogCapacity>& log() { return log_; }
   // The record of the last step (the row pushed to log(), also when the ring dropped it), for a
   // host that needs per-step values on the control thread without draining the ring.
@@ -89,6 +91,7 @@ class ControlLoop {
   control::HoldController<N> hold_;
   std::optional<planning::CartesianTrajectory> trajectory_;
   LoopMode mode_ = LoopMode::kIdle;
+  HoldReason hold_reason_ = HoldReason::kNone;
   common::Timestamp t_start_;
   common::Timestamp t_last_;                                 // newest state stamp seen
   std::int64_t stale_steps_ = 0;                             // steps since t_last_ last advanced

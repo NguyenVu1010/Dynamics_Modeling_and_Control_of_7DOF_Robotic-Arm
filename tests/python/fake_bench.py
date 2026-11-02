@@ -22,7 +22,7 @@ def write_run(args: argparse.Namespace, flags: set[str], calls: int) -> None:
     joints = [f"{p}{j}" for p in ("q", "qd", "qref", "qdref", "tau") for j in range(1, 8)]
     cols = ["t_ns", "mode", *joints]
     cols += ["px", "py", "pz", "rx", "ry", "rz", "pdx", "pdy", "pdz", "rdx", "rdy", "rdz"]
-    lines = [",".join(cols + [f"e{k}" for k in range(1, 7)] + ["step_us"])]
+    lines = [",".join(cols + [f"e{k}" for k in range(1, 7)] + ["step_us", "hold"])]
     hold = "hold" in flags or "safety" in Path(args.config).name
     err = 0.01 if "fail" in flags else 0.004 if "pos4mm" in flags else 0.0
     for k in range(50):
@@ -35,6 +35,7 @@ def write_run(args: argparse.Namespace, flags: set[str], calls: int) -> None:
         q = [0.1 * j for j in range(7)]
         vals = [k * 1_000_000, mode, *q, *[0.0] * 7, *q, *[0.0] * 7, *tau, 0.4 + err, 0.1, 0.5]
         vals += [0.0] * 3 + [0.4, 0.1, 0.5] + [0.0] * 9 + [calls if "nondet" in flags else 0]
+        vals.append("joint_limit" if mode == "holding" else "none")
         lines.append(",".join(str(v) for v in vals))
     Path(args.out).write_text("\n".join(lines) + "\n", encoding="utf-8")
     meta = f"config: {args.config}\nimperfections: {args.imperfections}\nseed: {args.seed}\n"

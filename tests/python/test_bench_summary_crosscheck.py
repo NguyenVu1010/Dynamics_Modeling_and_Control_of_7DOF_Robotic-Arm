@@ -31,6 +31,8 @@ SUMMARY_COLUMNS = [
     "sat_time_s",
     "rms_tau_ratio",
     "held",
+    "hold_time_s",
+    "hold_reason",
     "passed",
 ]
 
@@ -44,7 +46,7 @@ def test_summary_metrics_match_cobot_eval(tmp_path):
     cmd += ["--duration-s", "0.4"]
     proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
     assert proc.returncode == 0, proc.stderr
-    summary = pd.read_csv(out / "summary.csv", dtype={"run_id": str})
+    summary = pd.read_csv(out / "summary.csv", dtype={"run_id": str, "hold_reason": str})
     assert list(summary.columns) == SUMMARY_COLUMNS
     assert len(summary) == 2
     peak, rated = metrics.read_torque_limits(CONFIG)
@@ -63,3 +65,9 @@ def test_summary_metrics_match_cobot_eval(tmp_path):
         assert row["rms_tau_ratio"] > 0.0
         assert row["sat_time_s"] == pytest.approx(m.sat_time_s, abs=1e-9)
         assert bool(row["held"]) == m.held
+        # Feature comm-timing: empty hold_time_s (NaN) and reason none when the run never held.
+        assert row["hold_reason"] == m.hold_reason
+        if m.held:
+            assert row["hold_time_s"] == pytest.approx(m.hold_time_s, abs=1e-9)
+        else:
+            assert pd.isna(row["hold_time_s"])

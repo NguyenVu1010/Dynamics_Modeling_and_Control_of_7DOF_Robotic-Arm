@@ -53,6 +53,12 @@ const char* to_string(LoopMode mode) {
   return kNames[static_cast<std::size_t>(mode)];
 }
 
+const char* to_string(HoldReason reason) {
+  constexpr std::array<const char*, 6> kNames = {
+      "none", "non_finite", "stamp_backwards", "state_timeout", "joint_limit", "overspeed"};
+  return kNames[static_cast<std::size_t>(reason)];
+}
+
 template <int N>
 void write_csv_header(std::ostream& os) {
   os << "t_ns,mode";
@@ -63,7 +69,7 @@ void write_csv_header(std::ostream& os) {
   put_names(os, "tau", N);
   os << ",px,py,pz,rx,ry,rz,pdx,pdy,pdz,rdx,rdy,rdz";
   put_names(os, "e", 6);
-  os << ",step_us\n";
+  os << ",step_us,hold\n";
 }
 
 template <int N>
@@ -81,7 +87,7 @@ void write_csv_row(std::ostream& os, const LogRecord<N>& record) {
   put_all<6>(os, record.task_error);
   os.put(',');
   put(os, record.step_time_us);
-  os.put('\n');
+  os << ',' << to_string(record.hold_reason) << '\n';
 }
 
 #define COBOT_INSTANTIATE(N)                            \

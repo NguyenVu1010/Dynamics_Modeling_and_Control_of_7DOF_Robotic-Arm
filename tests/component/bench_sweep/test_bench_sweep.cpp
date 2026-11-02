@@ -76,6 +76,8 @@ const std::vector<std::string> kSummaryColumns = {"run_id",
                                                   "sat_time_s",
                                                   "rms_tau_ratio",
                                                   "held",
+                                                  "hold_time_s",
+                                                  "hold_reason",
                                                   "passed"};
 
 // Fresh, empty output directory per test (re-runs must not see old files).
@@ -141,6 +143,21 @@ Row summary_row(const std::vector<std::string>& fields) {
   EXPECT_GT(std::stod(row["rms_tau_ratio"]), 0.0);
   for (const char* name : {"held", "passed"}) {
     EXPECT_TRUE(row[name] == "0" || row[name] == "1") << name << " = " << row[name];
+  }
+  // Feature comm-timing: hold_time_s (s from the first row to the first holding row) is empty and
+  // hold_reason is none exactly when the run never held.
+  const std::set<std::string> reasons = {
+      "non_finite", "stamp_backwards", "state_timeout", "joint_limit", "overspeed"};
+  if (row["held"] == "1") {
+    EXPECT_FALSE(row["hold_time_s"].empty());
+    if (!row["hold_time_s"].empty()) {
+      const double t = std::stod(row["hold_time_s"]);
+      EXPECT_TRUE(std::isfinite(t) && t >= 0.0) << "hold_time_s = " << t;
+    }
+    EXPECT_EQ(reasons.count(row["hold_reason"]), 1U) << "hold_reason = " << row["hold_reason"];
+  } else {
+    EXPECT_EQ(row["hold_time_s"], "");
+    EXPECT_EQ(row["hold_reason"], "none");
   }
   return row;
 }
@@ -291,7 +308,7 @@ TEST(BenchMonteCarlo, SummaryMetricsMatchTheKeptRunCsv) {
   for (std::size_t c = 0; c < csv.front().size(); ++c) {
     col[csv.front()[c]] = c;
   }
-  ASSERT_EQ(col.size(), 56U);
+  ASSERT_EQ(col.size(), 57U);  // the Run CSV contract, with `hold` (feature comm-timing)
   const auto value = [&col](const std::vector<std::string>& r, const std::string& name) {
     return std::stod(r.at(col.at(name)));
   };
@@ -318,8 +335,15 @@ TEST(BenchMonteCarlo, SummaryMetricsMatchTheKeptRunCsv) {
   std::vector<double> sum_sq(7, 0.0);
   std::size_t n = 0;
   bool held = false;
+  std::string hold_time;  // first holding row t - first row t, s; empty when never held
+  std::string hold_reason = "none";
   for (std::size_t k = 1; k < csv.size(); ++k) {
     const std::string& mode = csv[k].at(col.at("mode"));
+    if (mode == "holding" && !held) {
+      const double dt_ns = value(csv[k], "t_ns") - value(csv[1], "t_ns");
+      hold_time = std::to_string(dt_ns * 1e-9);
+      hold_reason = csv[k].at(col.at("hold"));
+    }
     held = held || mode == "holding";
     if (mode != "tracking" && mode != "finished") {
       continue;
@@ -341,6 +365,11 @@ TEST(BenchMonteCarlo, SummaryMetricsMatchTheKeptRunCsv) {
   EXPECT_PRED2(near, std::stod(row["final_rot_err_rad"]), rot_err);
   EXPECT_PRED2(near, std::stod(row["rms_joint_err_rad"]), rms);
   EXPECT_EQ(row["held"], held ? "1" : "0");
+  EXPECT_EQ(row["hold_reason"], hold_reason);
+  EXPECT_EQ(row["hold_time_s"].empty(), hold_time.empty());
+  if (!hold_time.empty() && !row["hold_time_s"].empty()) {
+    EXPECT_PRED2(near, std::stod(row["hold_time_s"]), std::stod(hold_time));
+  }
 }
 
 }  // namespace

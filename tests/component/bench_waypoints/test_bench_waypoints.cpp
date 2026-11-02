@@ -67,9 +67,9 @@ const std::array<std::array<double, 3>, 4> kE2e10Positions = {{{-0.0730, -0.7449
 constexpr double kHoldS = 2.0;  // config/default.yaml trajectory.hold_s
 constexpr double kRateHz = 1000.0;
 // Run CSV columns (docs/conventions.md): t_ns, mode, 5 x 7 joint columns, then px, py, pz.
-// 2 + 5 * 7 + 12 + 6 + 1 = 56 columns.
+// 2 + 5 * 7 + 12 + 6 + step_us + hold = 57 columns (hold: feature comm-timing).
 constexpr std::size_t kPxColumn = 2 + 5 * 7;
-constexpr std::size_t kColumns = 56;
+constexpr std::size_t kColumns = 57;
 
 fs::path meta_of(const fs::path& csv) {
   return csv.string() + ".meta.yaml";

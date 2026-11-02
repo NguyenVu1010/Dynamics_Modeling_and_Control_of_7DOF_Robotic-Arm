@@ -58,19 +58,22 @@ bool state_finite(const JointState<N>& s) {
   return s.q.allFinite() && s.qd.allFinite();
 }
 
-// q within soft_margin of a joint limit (or past it), or |qd| above qd_max.
+// kJointLimit when a q is within soft_margin of a joint limit (or past it), else kOverspeed when
+// a |qd| is above qd_max, else kNone.
 template <int N>
-bool outside_safe_set(const model::Model<N>& m, const JointState<N>& s, double soft_margin) {
+HoldReason outside_safe_set(const model::Model<N>& m, const JointState<N>& s, double soft_margin) {
   for (int i = 0; i < N; ++i) {
     const model::JointParams& j = m.joints[static_cast<std::size_t>(i)];
     if (s.q(i) - j.q_min < soft_margin || j.q_max - s.q(i) < soft_margin) {
-      return true;
-    }
-    if (std::abs(s.qd(i)) > j.qd_max) {
-      return true;
+      return HoldReason::kJointLimit;
     }
   }
-  return false;
+  for (int i = 0; i < N; ++i) {
+    if (std::abs(s.qd(i)) > m.joints[static_cast<std::size_t>(i)].qd_max) {
+      return HoldReason::kOverspeed;
+    }
+  }
+  return HoldReason::kNone;
 }
 
 // tau + tau_ff clamped element-wise to [-tau_max, tau_max]. A non-finite sum stays non-finite,
@@ -107,6 +110,7 @@ Status ControlLoop<N>::start(const JointState<N>& initial) {
   t_last_ = initial.t;
   stale_steps_ = 0;
   q_last_finite_ = initial.q;
+  hold_reason_ = HoldReason::kNone;
   if (external()) {
     waypoints_.reset();
     tau_ = 0.0;
@@ -146,13 +150,23 @@ Status ControlLoop<N>::step(const JointState<N>& state, JointCommand<N>& out) {
     ++stale_steps_;
     stamp_age = static_cast<double>(stale_steps_) / config_.control_rate_hz;
   }
-  const bool hal_stale = stamp_backwards || stamp_age > config_.safety.hal_timeout_s;
+  HoldReason reason = HoldReason::kNone;
+  if (!finite) {
+    reason = HoldReason::kNonFinite;
+  } else if (stamp_backwards) {
+    reason = HoldReason::kStampBackwards;
+  } else if (stamp_age > config_.safety.hal_timeout_s) {
+    reason = HoldReason::kStateTimeout;
+  } else {
+    reason = outside_safe_set(model_, state, config_.safety.soft_margin_rad);
+  }
 
   // 1. Safety: leave tracking (or standby) for the hold at the q of this moment.
   if (mode_ == LoopMode::kTracking || mode_ == LoopMode::kFinished || mode_ == LoopMode::kStandby) {
-    if (!finite || hal_stale || outside_safe_set(model_, state, config_.safety.soft_margin_rad)) {
+    if (reason != HoldReason::kNone) {
       hold_.engage(state.q.allFinite() ? state.q : q_last_finite_);
       mode_ = LoopMode::kHolding;
+      hold_reason_ = reason;
     }
   }
   if (state.q.allFinite()) {
@@ -207,6 +221,7 @@ Status ControlLoop<N>::step(const JointState<N>& state, JointCommand<N>& out) {
     const std::chrono::duration<double, std::micro> elapsed = std::chrono::steady_clock::now() - t0;
     record.step_time_us = elapsed.count();
   }
+  record.hold_reason = hold_reason_;
   last_record_ = record;
   log_.push(record);
 
@@ -329,6 +344,7 @@ Status ControlLoop<N>::reset(const JointState<N>& state) {
   q_last_finite_ = state.q;
   t_last_ = state.t;
   stale_steps_ = 0;
+  hold_reason_ = HoldReason::kNone;
   enter_standby(fk.T_b_e);
   return Status::ok();
 }

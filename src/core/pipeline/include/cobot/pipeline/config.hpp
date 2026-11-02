@@ -95,6 +95,14 @@ struct Config {
 template <int N>
 Result<Config<N>> load_config(const std::filesystem::path& yaml);
 
+// load_config with the scalar `cobot.<section>.<key>` replaced by `level` before validation; `key`
+// is the sweep param name `config.<section>.<key>` (e.g. config.safety.hal_timeout_ms, in the
+// file's unit). A name that is not a scalar of the file is an error naming it.
+template <int N>
+Result<Config<N>> load_config_with(const std::filesystem::path& yaml,
+                                   const std::string& key,
+                                   double level);
+
 // The controller's model: `urdf_model` with tau_max_i = min(config.limits.peak_torque_nm_i,
 // urdf tau_max_i), which is the peak torque P for a config from load_config (P <= M is checked
 // there). Everything else is copied. Every place that builds the controller's model (the bench,
