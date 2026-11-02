@@ -59,3 +59,9 @@ cobot:
     joint_margin_deg: 2.0              # deg, closest approach to a URDF joint limit
     torque_ratio: 0.9                  # of tau_max
     max_stretch: 3.0                   # largest factor on an auto segment's duration
+  # Optional (feature joint-limits); missing: both lists are the URDF <limit effort> (momentary
+  # torque M, the plant's hard cap). eRob ratio 100 datasheet; velocity: 20-30 rpm, awaiting the
+  # H-series datasheet (the joint speeds live in the URDF <limit velocity>).
+  limits:
+    rated_torque_nm: [87, 87, 52, 52, 10, 10, 10]        # N m, > 0, R: continuous, rms_tau_ratio
+    peak_torque_nm: [204, 204, 107, 107, 36, 36, 36]     # N m, 0 < P <= M: controller tau_max

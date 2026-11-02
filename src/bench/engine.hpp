@@ -17,9 +17,12 @@ struct RunSummary {
   double final_pos_err_m = 0.0;    // |p_d - p| at the last row with t <= duration_s + hold_s
   double final_rot_err_rad = 0.0;  // angle of R_d R^T at that row
   double rms_joint_err_rad = 0.0;  // max over joints of RMS(qref - q) in tracking/finished rows
-  double peak_tau_ratio = 0.0;     // max |tau| / tau_max
-  double sat_time_s = 0.0;         // time with any |tau| >= 0.999 tau_max
-  bool held = false;               // any row in holding
+  // tau_max is the controller model's: the peak torque P of cobot.limits (feature joint-limits).
+  double peak_tau_ratio = 0.0;  // max |tau| / tau_max
+  double sat_time_s = 0.0;      // time with any |tau| >= 0.999 tau_max
+  // max over joints of RMS(tau) in tracking/finished rows / rated torque R (cobot.limits)
+  double rms_tau_ratio = 0.0;
+  bool held = false;  // any row in holding
 };
 
 // Waypoint list of a run (feature bench-waypoints): the loop runs in external command mode and

@@ -3,9 +3,9 @@
 FAKE_BENCH_LOG: file that gets one JSON line (argv) per call. FAKE_BENCH_MODE: comma-separated
 flags, empty = clean run (tracking, then finished): hold (add holding rows; also on when the
 config file name contains "safety"), pos4mm / fail (final tip error 4 mm / 10 mm), nondet
-(step_us differs between calls), tau_over (|tau1| = 100 > 87), nan_tau, slow (timing
-p95_us = 1500), crash (exit 3, no output), stop6mm (with --waypoints: the stop waypoints
-lie 6 mm from the tip).
+(step_us differs between calls), tau_over (|tau1| = 250 > 204 (peak P of joint_1)), nan_tau,
+slow (timing p95_us = 1500), crash (exit 3, no output), stop6mm (with --waypoints: the stop
+waypoints lie 6 mm from the tip).
 With --waypoints FILE (exit 2 when FILE is missing) the meta file gets the waypoint keys of
 `cobot_bench run --waypoints`: four nodes at 10..40 ms, waypoints 1 and 3 stop, every position at
 the fake tip (0.4, 0.1, 0.5), so stop_pos_err_m equals the final tip error.
@@ -29,7 +29,7 @@ def write_run(args: argparse.Namespace, flags: set[str], calls: int) -> None:
         mode = "holding" if hold and k >= 30 else "finished" if k >= 40 else "tracking"
         tau = [1.0] * 7
         if k == 35 and "tau_over" in flags:
-            tau[0] = 100.0
+            tau[0] = 250.0
         if k == 35 and "nan_tau" in flags:
             tau[1] = float("nan")
         q = [0.1 * j for j in range(7)]

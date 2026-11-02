@@ -43,6 +43,7 @@ COLUMNS = [
     "rms_joint_err_rad",
     "peak_tau_ratio",
     "sat_time_s",
+    "rms_tau_ratio",
     "held",
     "passed",
 ]
@@ -123,6 +124,7 @@ def write_summary(path, rows, drop=None):
             **m,
             "peak_tau_ratio": 0.5,
             "sat_time_s": 0.0,
+            "rms_tau_ratio": 0.3,
             "held": 0,
             "passed": int(passes(m)),
         }
@@ -251,13 +253,14 @@ def test_tornado_orders_by_change(tmp_path):
     assert rms[0][1] == pytest.approx(0.04725, abs=1e-12)
 
 
-def test_load_summary_rejects_missing_column(tmp_path):
-    path = write_summary(tmp_path / "summary.csv", sweep_rows(), drop="held")
-    with pytest.raises(ValueError, match="held"):
+@pytest.mark.parametrize("column", ["held", "rms_tau_ratio"])
+def test_load_summary_rejects_missing_column(tmp_path, column):
+    path = write_summary(tmp_path / "summary.csv", sweep_rows(), drop=column)
+    with pytest.raises(ValueError, match=column):
         sensitivity().load_summary(path)
     proc, _ = run_cli(tmp_path, path)
     assert proc.returncode == 2
-    assert "held" in proc.stderr
+    assert column in proc.stderr
 
 
 def test_montecarlo_pass_rate_and_percentiles(tmp_path):

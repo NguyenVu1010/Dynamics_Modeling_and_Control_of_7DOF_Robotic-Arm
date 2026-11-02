@@ -16,9 +16,20 @@ links:
   link_6: {mass_kg: 0.920, source: "eRob70H"}
   link_6_2: {mass_kg: 0.920, source: "eRob70H"}
   link_7: {mass_kg: 0.227, source: "end effector, aluminium, 84.0 cm^3"}
-effort_fix:
-  joint_2: {effort_nm: 87.0, source: "URDF typo 870; same-size joint_1/joint_3 use 87"}
-  joint_4: {effort_nm: 87.0, source: "URDF typo 870; same-size joint_1/joint_3 use 87"}
+# eRob ratio 100 joint limits (realism-2 design G1 and section 5), written into every revolute
+# joint's <limit>: effort is the momentary torque M (the plant's hard cap; the controller uses the
+# peak torque P of config/default.yaml `limits`), velocity is the output speed. This also replaces
+# the 870 N m effort typos of the export (joint_2, joint_4).
+joint_limits:
+  source: "ZeroErr eRob ratio 100 datasheet: eRob110H R/P/M 87/204/369 N m, eRob90H 52/107/191, eRob70H 10/36/70; velocity: 20-30 rpm, awaiting the H-series datasheet"
+  joints:
+    joint_1: {effort_nm: 369.0, velocity_rad_s: 2.1, source: "eRob110H"}
+    joint_2: {effort_nm: 369.0, velocity_rad_s: 2.1, source: "eRob110H"}
+    joint_3: {effort_nm: 191.0, velocity_rad_s: 2.1, source: "eRob90H"}
+    joint_4: {effort_nm: 191.0, velocity_rad_s: 2.1, source: "eRob90H"}
+    joint_5: {effort_nm: 70.0, velocity_rad_s: 3.1, source: "eRob70H"}
+    joint_6: {effort_nm: 70.0, velocity_rad_s: 3.1, source: "eRob70H"}
+    joint_7: {effort_nm: 70.0, velocity_rad_s: 3.1, source: "eRob70H"}
 damping_nm_s_rad: 0.003
 # Reflected rotor inertia per revolute joint, armature = J_in * N^2 (kg m^2), written by
 # tools/fix_urdf_inertia.py as <cobot_armature value="..."/>. 1 g mm^2 = 1e-9 kg m^2.

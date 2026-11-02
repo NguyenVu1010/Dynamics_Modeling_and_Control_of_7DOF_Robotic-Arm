@@ -52,7 +52,7 @@ from cobot_eval.metrics import (  # noqa: E402
     joint_array,
     load_meta,
     load_run,
-    read_tau_max,
+    read_torque_limits,
 )
 
 SCENARIO_DIR = REPO / "tests/e2e/scenarios"
@@ -83,8 +83,15 @@ def urdf_of(s: dict) -> Path:
     return config.parent / yaml.safe_load(config.read_text(encoding="utf-8"))["cobot"]["urdf_path"]
 
 
+def limits_of(s: dict) -> tuple[np.ndarray, np.ndarray]:
+    """(peak, rated) torques of the scenario's config (cobot.limits, else the URDF effort)."""
+    peak, rated = read_torque_limits(repo_path(s["config"]))
+    return np.asarray(peak, dtype=float), np.asarray(rated, dtype=float)
+
+
 def tau_max_of(s: dict) -> np.ndarray:
-    return np.asarray(read_tau_max(urdf_of(s)), dtype=float)
+    """The controller's tau_max: the peak torque P of the scenario's config."""
+    return limits_of(s)[0]
 
 
 def bench(args: argparse.Namespace, *cmd: str) -> subprocess.CompletedProcess:
@@ -157,7 +164,8 @@ def run_nightly(s: dict, args: argparse.Namespace, out: Path, config: str) -> tu
 
 
 def judge_run(s: dict, csv: Path, out: Path, report: bool) -> tuple[bool, str]:
-    m = compute_metrics(load_run(csv), tau_max_of(s), meta=load_meta(csv))
+    peak, rated = limits_of(s)
+    m = compute_metrics(load_run(csv), peak, meta=load_meta(csv), rated_torque=rated)
     failures = check(m, thresholds_of(s))
     if report:
         # Imported here: the arm64 image has no matplotlib and runs with --no-report.
@@ -166,7 +174,8 @@ def judge_run(s: dict, csv: Path, out: Path, report: bool) -> tuple[bool, str]:
         (out / "scenario.yaml").write_text(yaml.safe_dump(s), encoding="utf-8")
         report_mod.main(
             ["--csv", str(csv), "--thresholds", str(out / "scenario.yaml"), "--out", str(out)]
-            + ["--urdf", str(urdf_of(s)), "--title", f"{s['id']} report"]
+            + ["--urdf", str(urdf_of(s)), "--config", str(repo_path(s["config"]))]
+            + ["--title", f"{s['id']} report"]
         )
     pos, rot = m.final_pos_err_m * 1e3, np.degrees(m.final_rot_err_rad)
     good = f"pos {pos:.3f} mm, rot {rot:.3f} deg, rms {m.rms_joint_err_rad:.4g} rad"

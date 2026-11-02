@@ -131,10 +131,14 @@ e1..e6, step_us
 One row per run of `cobot_bench montecarlo` / `sweep`:
 
 ```
-run_id,param,level,seed,final_pos_err_m,final_rot_err_rad,rms_joint_err_rad,peak_tau_ratio,sat_time_s,held,passed
+run_id,param,level,seed,final_pos_err_m,final_rot_err_rad,rms_joint_err_rad,peak_tau_ratio,sat_time_s,rms_tau_ratio,held,passed
 ```
 
-`held` and `passed` are `0`/`1`; `param` is `none` for Monte Carlo runs.
+`held` and `passed` are `0`/`1`; `param` is `none` for Monte Carlo runs. `peak_tau_ratio` (max
+`|tau| / P`) and `sat_time_s` (time with any `|tau| >= 0.999 P`) use the peak torque P of
+`cobot.limits.peak_torque_nm`, the controller's `tau_max`; `rms_tau_ratio` is the max over joints
+of `RMS(tau_j) / R_j` over the `tracking`/`finished` rows, R the rated torque
+`cobot.limits.rated_torque_nm`. Without the `limits` section both P and R are the URDF effort.
 
 ### Waypoint file
 

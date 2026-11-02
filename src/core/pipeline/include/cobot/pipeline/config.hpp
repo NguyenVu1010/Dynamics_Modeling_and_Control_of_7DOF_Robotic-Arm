@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <string>
 
 #include "cobot/common/result.hpp"
@@ -9,6 +10,7 @@
 #include "cobot/control/computed_torque.hpp"
 #include "cobot/control/friction_compensation.hpp"
 #include "cobot/imperfect/config.hpp"
+#include "cobot/model/model.hpp"
 #include "cobot/pipeline/path_validation.hpp"
 #include "cobot/planning/clik.hpp"
 #include "cobot/planning/waypoint_trajectory.hpp"
@@ -47,6 +49,20 @@ struct TcpOffset {
   common::Pose T_tip_tcp;
 };
 
+// Torque levels per joint (feature joint-limits, design 2026-11-02-realism-2 G1 and section 5),
+// YAML `limits: {rated_torque_nm: [N], peak_torque_nm: [N]}`. The section is optional: without
+// it load_config fills both from the URDF <limit effort> (the momentary torque M, which the plant
+// enforces). The controller clamps and validates paths at the peak torque (controller_model); the
+// rated torque is the continuous level of the Summary metric rms_tau_ratio. Until load_config
+// fills them (or when it cannot read the URDF) both are +inf, so controller_model keeps the URDF
+// tau_max.
+template <int N>
+struct JointLimitsConfig {
+  VecN<N> rated_torque_nm = VecN<N>::Constant(std::numeric_limits<double>::infinity());  // > 0
+  VecN<N> peak_torque_nm =  // > 0 and <= the URDF effort M of the joint
+      VecN<N>::Constant(std::numeric_limits<double>::infinity());
+};
+
 template <int N>
 struct Config {
   std::filesystem::path urdf_path;  // resolved relative to the YAML file's directory
@@ -71,10 +87,20 @@ struct Config {
   // path_sample_dt_s keep their defaults. In every new section each sub-key is optional too: a
   // partial section (`cartesian_limits: {v_max_m_s: 0.3}`) keeps the defaults of the others.
   ValidationLimits path_validation;
+  // Read after the URDF named above: load_config rejects peak > URDF effort, naming
+  // "limits.peak_torque_nm[j]" (0-based j). Missing section: URDF effort for both.
+  JointLimitsConfig<N> limits;
 };
 
 template <int N>
 Result<Config<N>> load_config(const std::filesystem::path& yaml);
+
+// The controller's model: `urdf_model` with tau_max_i = min(config.limits.peak_torque_nm_i,
+// urdf tau_max_i), which is the peak torque P for a config from load_config (P <= M is checked
+// there). Everything else is copied. Every place that builds the controller's model (the bench,
+// the ros2_control plugin, path validation) uses it; the plant keeps the URDF model (M).
+template <int N>
+model::Model<N> controller_model(const model::Model<N>& urdf_model, const Config<N>& config);
 
 // config/imperfections/*.yaml; `seed` overrides the file's seed when provided by the caller.
 template <int N>

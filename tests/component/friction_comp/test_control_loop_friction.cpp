@@ -156,7 +156,7 @@ TEST(ControlLoopFriction, CompensatedTorqueIsClampedToTauMax) {
     EXPECT_EQ(pair.rec_on.tau, pair.cmd_on.tau) << "logged tau is the clamped command, step " << k;
     for (int i = 0; i < kN; ++i) {
       const double qd_ref = pair.rec_off.qd_ref(i);
-      // |qd_ref| >= eps: 1000 * tanh(>= 1) >= 761.6 N m, more than tau_max (<= 87 N m) plus the
+      // |qd_ref| >= eps: 1000 * tanh(>= 1) >= 761.6 N m, more than tau_max (<= 369 N m) plus the
       // uncompensated torque (< tau_max), so the sum saturates with the sign of qd_ref.
       if (std::abs(qd_ref) >= huge.velocity_eps_rad_s &&
           std::abs(pair.cmd_off.tau(i)) < tau_max(i)) {
@@ -181,7 +181,7 @@ TEST(ControlLoopFriction, HoldIsNotCompensated) {
     ASSERT_TRUE(pair.step(k)) << "step " << k;
     pair.follow();
   }
-  // |qd_1| above qd_max (2.5 rad/s for joint_1) -> both loops hold at the q of this moment.
+  // |qd_1| above qd_max (2.1 rad/s for joint_1) -> both loops hold at the q of this moment.
   pair.state.qd(0) = qd_max_of(setup->model)(0) + 0.5;
   pair.step(kTrigger);
   ASSERT_EQ(pair.off.mode(), LoopMode::kHolding);

@@ -60,9 +60,12 @@ TEST(UrdfRealRobot, LimitsFromXml) {
   ASSERT_EQ(c.joints.size(), 7U);
   EXPECT_DOUBLE_EQ(c.joints[3].q_min, -3.1416);
   EXPECT_DOUBLE_EQ(c.joints[3].q_max, -0.4);
-  EXPECT_DOUBLE_EQ(c.joints[1].tau_max, 87.0);
-  EXPECT_DOUBLE_EQ(c.joints[5].qd_max, 3.0);
-  EXPECT_DOUBLE_EQ(c.joints[0].qd_max, 2.5);
+  // eRob ratio 100 (feature joint-limits): effort = momentary torque M, velocity 2.1 / 3.1 rad/s.
+  EXPECT_DOUBLE_EQ(c.joints[1].tau_max, 369.0);
+  EXPECT_DOUBLE_EQ(c.joints[3].tau_max, 191.0);
+  EXPECT_DOUBLE_EQ(c.joints[6].tau_max, 70.0);
+  EXPECT_DOUBLE_EQ(c.joints[5].qd_max, 3.1);
+  EXPECT_DOUBLE_EQ(c.joints[0].qd_max, 2.1);
 }
 
 TEST(UrdfRealRobot, MassBudgetAndLink62Merge) {

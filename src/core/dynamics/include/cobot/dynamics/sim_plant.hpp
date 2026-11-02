@@ -7,7 +7,9 @@
 // Implemented in feature `sim-plant`: RK4 on forward_dynamics with hard joint stops
 // (position clamped to [q_min, q_max], velocity into the stop set to zero), unmodelled
 // friction (Coulomb as a stick-slip projection after each step) and a first-order motor lag
-// from PlantEffects.
+// from PlantEffects. The applied torque is capped at +-model.joints[i].tau_max after the motor
+// lag (feature joint-limits): the plant model is the URDF one, whose effort is the drive's
+// momentary torque M; the controller clamps lower, at the peak torque P of its own model.
 namespace cobot::dynamics {
 
 using common::VecN;
@@ -34,7 +36,7 @@ class SimPlant {
 
   const VecN<N>& q() const { return q_; }
   const VecN<N>& qd() const { return qd_; }
-  const VecN<N>& tau_applied() const { return tau_applied_; }  // after motor lag
+  const VecN<N>& tau_applied() const { return tau_applied_; }  // after motor lag and cap
   double time_s() const { return time_s_; }
 
  private:
@@ -42,6 +44,7 @@ class SimPlant {
   PlantEffects<N> effects_;
   VecN<N> q_;
   VecN<N> qd_ = VecN<N>::Zero();
+  VecN<N> tau_lagged_ = VecN<N>::Zero();  // motor lag state, before the tau_max cap
   VecN<N> tau_applied_ = VecN<N>::Zero();
   double time_s_ = 0.0;
   // Friction split (sim_plant.cpp): viscous torque per joint inside RK4 (-URDF damping on a

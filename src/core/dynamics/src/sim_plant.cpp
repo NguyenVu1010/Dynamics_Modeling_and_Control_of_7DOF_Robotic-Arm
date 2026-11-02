@@ -182,14 +182,18 @@ SimPlant<N>::SimPlant(const Model<N>& model, const VecN<N>& q0, const PlantEffec
 
 template <int N>
 void SimPlant<N>::step(const VecN<N>& tau_cmd, double dt_s) {
-  // First-order motor lag, exact discretisation for a command held over the step.
+  // First-order motor lag, exact discretisation for a command held over the step, then the
+  // drive's hard cap at the plant model's tau_max (URDF effort, the momentary torque M). The lag
+  // state is the uncapped torque, so a torque within the cap is untouched bit for bit.
   for (int j = 0; j < N; ++j) {
     const double tau_m = effects_.motor_time_constant_s(j);
     if (tau_m > 0.0) {
-      tau_applied_(j) += -std::expm1(-dt_s / tau_m) * (tau_cmd(j) - tau_applied_(j));
+      tau_lagged_(j) += -std::expm1(-dt_s / tau_m) * (tau_cmd(j) - tau_lagged_(j));
     } else {
-      tau_applied_(j) = tau_cmd(j);
+      tau_lagged_(j) = tau_cmd(j);
     }
+    const double cap = model_.joints[static_cast<std::size_t>(j)].tau_max;
+    tau_applied_(j) = std::clamp(tau_lagged_(j), -cap, cap);
   }
 
   // Classical RK4 on (q, qd) with tau_applied held constant, without the friction of the

@@ -60,10 +60,11 @@ def test_effort_typo_fixed(fixed):
         for j in root.findall("joint")
         if j.get("type") == "revolute"
     }
-    assert efforts["joint_2"] == 87.0
-    assert efforts["joint_4"] == 87.0
-    assert efforts["joint_1"] == 87.0
-    assert efforts["joint_7"] == 12.0
+    # The 870 typos are gone; every effort is the eRob momentary torque M (feature joint-limits).
+    assert efforts["joint_2"] == 369.0
+    assert efforts["joint_4"] == 191.0
+    assert efforts["joint_1"] == 369.0
+    assert efforts["joint_7"] == 70.0
 
 
 def test_dynamics_has_only_standard_attributes(fixed):

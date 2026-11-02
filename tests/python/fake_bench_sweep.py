@@ -17,12 +17,12 @@ import yaml
 
 COLUMNS = (
     "run_id,param,level,seed,final_pos_err_m,final_rot_err_rad,rms_joint_err_rad,"
-    "peak_tau_ratio,sat_time_s,held,passed"
+    "peak_tau_ratio,sat_time_s,rms_tau_ratio,held,passed"
 )
 
 
 def row(run_id: int, param: str, level: object, seed: int, pos_err: float) -> str:
-    return f"{run_id},{param},{level},{seed},{pos_err},0.001,0.002,0.5,0,0,1"
+    return f"{run_id},{param},{level},{seed},{pos_err},0.001,0.002,0.5,0,0.3,0,1"
 
 
 def montecarlo(args: argparse.Namespace, flags: set[str]) -> list[str]:

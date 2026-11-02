@@ -33,10 +33,11 @@ COLUMNS = (
     "rms_joint_err_rad",
     "peak_tau_ratio",
     "sat_time_s",
+    "rms_tau_ratio",
     "held",
     "passed",
 )
-METRICS = COLUMNS[4:9]
+METRICS = COLUMNS[4:10]
 CHECKED = ("final_pos_err_m", "final_rot_err_rad", "rms_joint_err_rad")
 FAIL_ORDER = ("final_pos_err_m", "final_rot_err_deg", "rms_joint_err_rad")
 MONTECARLO = "none"

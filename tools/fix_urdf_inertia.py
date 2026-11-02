@@ -1,11 +1,13 @@
 """Apply the mass budget to the SolidWorks URDF export (design 5.8).
 
 Sets every link mass from sim/urdf/mass_budget.yaml, scales its inertia tensor by the same
-factor (uniform-density assumption, centre of mass unchanged), fixes the effort typos, keeps
-only the standard <dynamics> attributes, writes the reflected rotor inertia J_in * N^2 of every
-revolute joint as <cobot_armature value="..."/> (kg m^2, `armature` section), points meshes at
-the cobot_sim package and drops the ROS 1 tags (<transmission>, <gazebo>). Running it on its own
-output changes nothing.
+factor (uniform-density assumption, centre of mass unchanged), sets every revolute joint's
+<limit effort velocity> from the `joint_limits` section (eRob momentary torque M and output
+speed; this also replaces the effort typos of the export), keeps only the standard <dynamics>
+attributes, writes the reflected rotor inertia J_in * N^2 of every revolute joint as
+<cobot_armature value="..."/> (kg m^2, `armature` section), points meshes at the cobot_sim
+package and drops the ROS 1 tags (<transmission>, <gazebo>). Running it on its own output
+changes nothing.
 
 With --gazebo-out it also writes the Gazebo plant variant of OUT (see gazebo_urdf): Gazebo
 ignores <cobot_armature>, so the variant folds each joint's armature into the inertia of the
@@ -75,14 +77,17 @@ def fix_urdf(original: Path, budget_path: Path, out: Path) -> None:
         filename = mesh.get("filename")
         mesh.set("filename", f"package://{package}/meshes/{Path(filename).name}")
 
-    efforts = budget.get("effort_fix", {})
+    limits = budget["joint_limits"]["joints"]
     damping = float(budget["damping_nm_s_rad"])
     armature = budget["armature"]
     for joint in root.findall("joint"):
         name = joint.get("name")
         limit = joint.find("limit")
-        if name in efforts and limit is not None:
-            limit.set("effort", _fmt(efforts[name]["effort_nm"]))
+        if joint.get("type") == "revolute":
+            if name not in limits or limit is None:
+                raise KeyError(f"{name}: no <limit> or no entry in the mass budget joint_limits")
+            limit.set("effort", _fmt(limits[name]["effort_nm"]))
+            limit.set("velocity", _fmt(limits[name]["velocity_rad_s"]))
         dyn = joint.find("dynamics")
         if dyn is not None:
             friction = dyn.get("friction", "0.0")

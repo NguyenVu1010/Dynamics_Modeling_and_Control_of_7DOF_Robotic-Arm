@@ -123,7 +123,7 @@ TEST(ControlLoopSafety, StateOutsideSoftMarginKeepsTracking) {
   EXPECT_TRUE(torque_ok(setup->model, cmd.tau));
 }
 
-// |qd_2| above qd_max_2 (2.5 rad/s) -> kHolding; 0.9 qd_max does not trigger.
+// |qd_2| above qd_max_2 (2.1 rad/s) -> kHolding; 0.9 qd_max does not trigger.
 TEST(ControlLoopSafety, VelocityAboveLimitHolds) {
   const auto setup = load_setup();
   ASSERT_TRUE(setup);
