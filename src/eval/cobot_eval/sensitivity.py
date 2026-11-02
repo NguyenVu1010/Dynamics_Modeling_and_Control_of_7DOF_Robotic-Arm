@@ -7,7 +7,8 @@ tornado.png and hardware_requirements.md; for Monte Carlo rows (param = none), m
 Exit 0 when the report is written (failing levels are results), 2 on bad input.
 
 A level passes when every seed meets every threshold. A param's levels are walked in severity
-order: ascending, unless the smallest level fails and the largest passes (fewer encoder bits is
+order: level 0 (the effect off) first when present, then the non-zero levels ascending, unless
+the smallest of them fails and the largest passes (fewer encoder bits, a lower slew limit is
 worse). When both ends pass or both fail, the end with the larger error (sum of metric/threshold
 ratios, mean over seeds) is the worse one, if it is larger by more than REVERSE_MARGIN. The
 worst passing level is the last one before the first failure; a passing level after it does not
@@ -89,16 +90,22 @@ def error_score(df: pd.DataFrame, th: Thresholds | None) -> pd.Series:
 
 
 def severity_order(df: pd.DataFrame, th: Thresholds | None) -> tuple[list[float], dict]:
-    """Levels of one param from best to worst, and level -> every seed passes."""
+    """Levels of one param from best to worst, and level -> every seed passes.
+
+    Level 0, when present, is the effect switched off: it comes first, and only the non-zero
+    levels are ordered (a slew limit gets worse as it gets smaller: 0, 1e5, 2e4, 5e3)."""
     ok = df.assign(ok=passes(df, th)).groupby("level")["ok"].all().to_dict()
-    levels = sorted(ok)
+    baseline = [0.0] if 0.0 in ok else []
+    levels = sorted(level for level in ok if level != 0.0)
+    if len(levels) < 2:
+        return baseline + levels, ok
     if not ok[levels[0]] and ok[levels[-1]]:
         levels.reverse()
     elif ok[levels[0]] == ok[levels[-1]]:
         score = df.assign(score=error_score(df, th)).groupby("level")["score"].mean()
         if score[levels[0]] > (1.0 + REVERSE_MARGIN) * score[levels[-1]]:
             levels.reverse()
-    return levels, ok
+    return baseline + levels, ok
 
 
 def sweep_params(summary: pd.DataFrame) -> list[str]:

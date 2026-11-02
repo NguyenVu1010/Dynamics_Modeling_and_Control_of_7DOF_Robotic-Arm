@@ -47,7 +47,8 @@ class ImperfectJointInterface final : public JointInterface<N> {
   // Values drawn once at construction, for reports.
   const common::VecN<N>& q_offset_rad() const { return q_offset_; }
   const common::VecN<N>& torque_scale() const { return torque_scale_; }
-  // Bus voltage used by the last write, V (v_nom_v while the bus is off or before a write).
+  // Bus voltage used by the last write, V; v_nom_v before the first write. With the bus model
+  // off (v_nom_v 0) it is the normalised nominal 1.0 (V = V_nom := 1, no scaling), never 0.
   double bus_voltage_v() const { return bus_voltage_v_; }
 
  private:
@@ -71,7 +72,7 @@ class ImperfectJointInterface final : public JointInterface<N> {
   common::VecN<N> qd_last_true_ = common::VecN<N>::Zero();  // torque-speed curve and bus
   common::VecN<N> peak_torque_;
   common::VecN<N> tau_prev_out_ = common::VecN<N>::Zero();  // slew and bus, before plant
-  double bus_voltage_v_ = 0.0;
+  double bus_voltage_v_ = 1.0;
   common::VecN<N> qd_last_out_ = common::VecN<N>::Zero();  // friction phase, plant effects
 };
 

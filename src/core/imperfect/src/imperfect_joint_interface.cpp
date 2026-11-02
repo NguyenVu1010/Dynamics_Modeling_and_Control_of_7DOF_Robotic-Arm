@@ -57,7 +57,7 @@ ImperfectJointInterface<N>::ImperfectJointInterface(JointInterface<N>& inner,
       apply_plant_effects_(apply_plant_effects),
       rng_(config.seed),
       peak_torque_(peak_torque_nm),
-      bus_voltage_v_(config.actuator.bus.v_nom_v) {
+      bus_voltage_v_(config.actuator.bus.v_nom_v > 0.0 ? config.actuator.bus.v_nom_v : 1.0) {
   if (!delay_in_range(config.sensor.sensor_delay_cycles)) {
     throw std::invalid_argument("imperfections.sensor.sensor_delay_cycles outside [0, 32]");
   }
@@ -192,8 +192,8 @@ Status ImperfectJointInterface<N>::write(const JointCommand<N>& cmd) {
     const double disc = v_nom * v_nom - 4.0 * act.bus.r_source_ohm * power_w / kDriveEfficiency;
     v_bus =
         disc < 0.0 ? act.bus.v_min_v : std::max(act.bus.v_min_v, (v_nom + std::sqrt(disc)) / 2.0);
-    bus_voltage_v_ = v_bus;
   }
+  bus_voltage_v_ = v_bus;
   for (int j = 0; j < N; ++j) {
     double tau = sent.tau[j];
     const double slew = act.torque_slew_nm_s[j];
