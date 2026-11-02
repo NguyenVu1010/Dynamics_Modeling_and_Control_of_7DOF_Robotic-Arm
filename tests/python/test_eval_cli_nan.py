@@ -30,6 +30,27 @@ def write(path: Path, text: str) -> Path:
     return path
 
 
+def summary_text(*rows: dict) -> str:
+    """Summary CSV in sensitivity.COLUMNS order; each row overrides the defaults below."""
+    defaults = {
+        "run_id": 0,
+        "param": "none",
+        "level": 0,
+        "seed": 1,
+        "final_pos_err_m": 0.001,
+        "final_rot_err_rad": 0.001,
+        "rms_joint_err_rad": 0.001,
+        "peak_tau_ratio": 0.5,
+        "sat_time_s": 0,
+        "rms_tau_ratio": 0.3,
+        "held": 0,
+        "passed": 1,
+    }
+    lines = [",".join(sensitivity.COLUMNS)]
+    lines += [",".join(str((defaults | row)[c]) for c in sensitivity.COLUMNS) for row in rows]
+    return "\n".join(lines) + "\n"
+
+
 def run_report(tmp_path: Path, csv: Path, *, urdf=URDF, scenario=SCENARIO, extra=()) -> int:
     th = write(tmp_path / "scenario.yaml", scenario)
     argv = ["--csv", str(csv), "--urdf", str(urdf), "--thresholds", str(th)]
@@ -77,8 +98,7 @@ def test_report_bad_input_exits_two(tmp_path, case, capsys):
 def test_sensitivity_bad_input_exits_two(tmp_path, case, capsys):
     summary = tmp_path / "summary.csv"
     if case != "missing_summary":
-        cols = ",".join(sensitivity.COLUMNS)
-        write(summary, f"{cols}\n0,none,0,1,0.001,0.001,0.001,0.5,0,0,1\n")
+        write(summary, summary_text({}))
     th = tmp_path / "scenario.yaml"
     if case == "bad_thresholds":
         write(th, "thresholds: [1, 2]\n")
@@ -120,10 +140,12 @@ def test_nan_final_pose_fails_the_check(tmp_path):
 
 
 def test_nan_summary_row_does_not_pass(tmp_path):
-    cols = ",".join(sensitivity.COLUMNS)
-    rows = ["0,none,0,1,0.001,0.001,0.001,0.5,0,0,1", "1,none,0,2,nan,0.001,0.001,0.5,0,0,1"]
-    rows.append("2,none,0,3,0.001,0.001,nan,0.5,0,0,1")
-    path = write(tmp_path / "summary.csv", "\n".join([cols, *rows]) + "\n")
+    rows = [
+        {"run_id": 0, "seed": 1},
+        {"run_id": 1, "seed": 2, "final_pos_err_m": "nan"},
+        {"run_id": 2, "seed": 3, "rms_joint_err_rad": "nan"},
+    ]
+    path = write(tmp_path / "summary.csv", summary_text(*rows))
     df = sensitivity.load_summary(path)
     assert np.isnan(df["final_pos_err_m"][1])
     assert sensitivity.passes(df, TH).tolist() == [True, False, False]

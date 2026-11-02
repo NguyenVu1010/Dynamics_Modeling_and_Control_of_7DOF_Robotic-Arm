@@ -245,5 +245,6 @@ def test_check_rotation_threshold_in_degrees(tmp_path):
 
 
 def test_read_tau_max_from_committed_urdf():
-    assert read_tau_max(URDF) == pytest.approx(TAU_MAX)
+    # URDF effort is the eRob momentary torque M (feature joint-limits, realism-2 design 5).
+    assert read_tau_max(URDF) == pytest.approx([369.0, 369.0, 191.0, 191.0, 70.0, 70.0, 70.0])
     assert len(read_tau_max(URDF)) == 7

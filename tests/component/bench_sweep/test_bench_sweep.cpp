@@ -74,6 +74,7 @@ const std::vector<std::string> kSummaryColumns = {"run_id",
                                                   "rms_joint_err_rad",
                                                   "peak_tau_ratio",
                                                   "sat_time_s",
+                                                  "rms_tau_ratio",
                                                   "held",
                                                   "passed"};
 
@@ -129,13 +130,15 @@ Row summary_row(const std::vector<std::string>& fields) {
                            "final_rot_err_rad",
                            "rms_joint_err_rad",
                            "peak_tau_ratio",
-                           "sat_time_s"}) {
+                           "sat_time_s",
+                           "rms_tau_ratio"}) {
     const double v = std::stod(row[name]);
     EXPECT_TRUE(std::isfinite(v)) << name;
     EXPECT_GE(v, 0.0) << name;
   }
-  // Gravity alone needs torque, so the peak torque ratio of any run is above 0.
+  // Gravity alone needs torque, so the peak and RMS torque ratios of any run are above 0.
   EXPECT_GT(std::stod(row["peak_tau_ratio"]), 0.0);
+  EXPECT_GT(std::stod(row["rms_tau_ratio"]), 0.0);
   for (const char* name : {"held", "passed"}) {
     EXPECT_TRUE(row[name] == "0" || row[name] == "1") << name << " = " << row[name];
   }
