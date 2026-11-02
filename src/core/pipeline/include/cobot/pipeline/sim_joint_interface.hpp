@@ -18,6 +18,8 @@ inline constexpr std::uint64_t kOverrunSalt = 0x0E7A'0002;  // seed ^ salt: over
 template <int N>
 class SimJointInterface final : public hal::JointInterface<N> {
  public:
+  // Throws std::invalid_argument naming timing.overrun_prob when it is outside [0, 1] and
+  // timing.overrun_cycles when it is < 0.
   SimJointInterface(dynamics::SimPlant<N>& plant,
                     double period_s,
                     double jitter_std_s = 0.0,

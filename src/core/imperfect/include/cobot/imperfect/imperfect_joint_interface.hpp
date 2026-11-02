@@ -37,6 +37,12 @@ using hal::JointState;
 inline constexpr int kMaxDelayCycles = 32;
 inline constexpr std::uint64_t kCommSalt = 0xC0AA'0001;  // seed ^ salt: comm generator
 
+// The comm keys the decorator checks, without throwing: burst_cycles in [0, kMaxDelayCycles],
+// both probabilities in [0, 1] and 1 / (control_period_s * servo_rate_hz) an integer >= 1
+// (servo_rate_hz 0 = every cycle). The error names the imperfections.comm key. Callers that
+// know the control rate (the bench) use it to reject a profile before the first run.
+Status check_comm(const CommConfig& comm, double control_period_s);
+
 template <int N>
 class ImperfectJointInterface final : public JointInterface<N> {
  public:

@@ -21,26 +21,22 @@ bool probability(double p) {
   return p >= 0.0 && p <= 1.0;
 }
 
-// Cycles per servo packet: 1 for servo_rate_hz 0, else 1 / (period * rate), which must be an
-// integer >= 1.
+bool delay_in_range(int cycles) {
+  return cycles >= 0 && cycles <= kMaxDelayCycles;
+}
+
+// Cycles per servo packet, 1 for servo_rate_hz 0; 0 when the ratio is not an integer >= 1.
 std::int64_t servo_cycles(const CommConfig& comm, double period_s) {
   if (comm.servo_rate_hz == 0.0) {
     return 1;
   }
   const double ratio = 1.0 / (period_s * comm.servo_rate_hz);
   const std::int64_t s = std::llround(ratio);
-  if (!(comm.servo_rate_hz > 0.0) || s < 1 ||
+  if (!(comm.servo_rate_hz > 0.0) || !std::isfinite(ratio) || s < 1 ||
       std::abs(ratio - static_cast<double>(s)) > kServoRatioTol * ratio) {
-    throw std::invalid_argument(
-        "imperfections.comm.servo_rate_hz: control rate / servo rate must be an integer >= 1, "
-        "got " +
-        std::to_string(ratio));
+    return 0;
   }
   return s;
-}
-
-bool delay_in_range(int cycles) {
-  return cycles >= 0 && cycles <= kMaxDelayCycles;
 }
 
 // Ring slot `age` entries behind `head` (age 0 = head itself).
@@ -69,6 +65,24 @@ double torque_ceiling(double tau, double w, double peak, double knee, double zer
 
 }  // namespace
 
+Status check_comm(const CommConfig& comm, double control_period_s) {
+  if (!delay_in_range(comm.burst_cycles)) {
+    return Status::error("imperfections.comm.burst_cycles outside [0, 32]");
+  }
+  if (!probability(comm.packet_loss_prob) || !probability(comm.latency_burst_prob)) {
+    return Status::error(
+        "imperfections.comm.packet_loss_prob and latency_burst_prob must be in [0, 1]");
+  }
+  if (!(control_period_s > 0.0) || servo_cycles(comm, control_period_s) == 0) {
+    const double ratio = 1.0 / (control_period_s * comm.servo_rate_hz);
+    return Status::error(
+        "imperfections.comm.servo_rate_hz: control rate / servo rate must be an integer >= 1, "
+        "got " +
+        std::to_string(ratio));
+  }
+  return Status::ok();
+}
+
 template <int N>
 ImperfectJointInterface<N>::ImperfectJointInterface(JointInterface<N>& inner,
                                                     const ImperfectionConfig<N>& config,
@@ -92,12 +106,9 @@ ImperfectJointInterface<N>::ImperfectJointInterface(JointInterface<N>& inner,
   if (!(control_period_s > 0.0)) {
     throw std::invalid_argument("ImperfectJointInterface: control period must be > 0 s");
   }
-  if (!delay_in_range(config.comm.burst_cycles)) {
-    throw std::invalid_argument("imperfections.comm.burst_cycles outside [0, 32]");
-  }
-  if (!probability(config.comm.packet_loss_prob) || !probability(config.comm.latency_burst_prob)) {
-    throw std::invalid_argument(
-        "imperfections.comm.packet_loss_prob and latency_burst_prob must be in [0, 1]");
+  const Status comm = check_comm(config.comm, control_period_s);
+  if (!comm) {
+    throw std::invalid_argument(comm.reason());
   }
   servo_cycles_ = servo_cycles(config.comm, control_period_s);
   for (int j = 0; j < N; ++j) {

@@ -270,6 +270,10 @@ common::Result<RunSummary> run_profile(const std::filesystem::path& config_yaml,
     return Out::error("duration_s must be > 0, got " + std::to_string(*duration_s));
   }
   const double period_s = 1.0 / config.control_rate_hz;
+  const Status comm = imperfect::check_comm(imperfections.comm, period_s);
+  if (!comm) {
+    return Out::error(label.string() + ": " + comm.reason());
+  }
   const bool keep = !out_csv.empty();
   std::ofstream csv;
   std::ofstream meta;

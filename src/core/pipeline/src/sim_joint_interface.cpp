@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <stdexcept>
+#include <string>
 
 #include "cobot/common/dof.hpp"
 
@@ -20,7 +22,16 @@ SimJointInterface<N>::SimJointInterface(dynamics::SimPlant<N>& plant,
       rng_(seed),
       overrun_prob_(overrun_prob),
       overrun_cycles_(overrun_cycles),
-      overrun_rng_(seed ^ kOverrunSalt) {}
+      overrun_rng_(seed ^ kOverrunSalt) {
+  if (!(overrun_prob >= 0.0 && overrun_prob <= 1.0)) {
+    throw std::invalid_argument("timing.overrun_prob must be in [0, 1], got " +
+                                std::to_string(overrun_prob));
+  }
+  if (overrun_cycles < 0) {
+    throw std::invalid_argument("timing.overrun_cycles must be >= 0, got " +
+                                std::to_string(overrun_cycles));
+  }
+}
 
 template <int N>
 common::Status SimJointInterface<N>::read(hal::JointState<N>& out) {

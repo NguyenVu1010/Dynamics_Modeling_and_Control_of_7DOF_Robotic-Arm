@@ -5,6 +5,7 @@
 #include <system_error>
 #include <vector>
 
+#include "cobot/imperfect/imperfect_joint_interface.hpp"
 #include "cobot/pipeline/config.hpp"
 #include "cobot/pipeline/sweep_config.hpp"
 
@@ -47,6 +48,31 @@ bool passes(const RunSummary& s) {
          s.rms_joint_err_rad <= kG3RmsJointErrRad;
 }
 
+// Checks every job's comm group against the control rate of its config (servo rate ratio,
+// probabilities, burst length), so a bad level fails before the first run writes anything.
+Status check_jobs(const std::filesystem::path& config_yaml, const std::vector<Job>& jobs) {
+  const common::Result<pipeline::Config<kN>> base = pipeline::load_config<kN>(config_yaml);
+  if (!base) {
+    return Status::error(base.reason());
+  }
+  for (const Job& job : jobs) {
+    double rate_hz = base.value().control_rate_hz;
+    if (job.config_override) {
+      const common::Result<pipeline::Config<kN>> c = pipeline::load_config_with<kN>(
+          config_yaml, job.config_override->first, job.config_override->second);
+      if (!c) {
+        return Status::error(c.reason());
+      }
+      rate_hz = c.value().control_rate_hz;
+    }
+    const Status comm = imperfect::check_comm(job.profile.comm, 1.0 / rate_hz);
+    if (!comm) {
+      return Status::error(job.param + " " + number(job.level) + ": " + comm.reason());
+    }
+  }
+  return Status::ok();
+}
+
 // Runs every job in order, one Summary CSV row each.
 Status run_jobs(const std::filesystem::path& config_yaml,
                 const std::filesystem::path& label,
@@ -54,6 +80,10 @@ Status run_jobs(const std::filesystem::path& config_yaml,
                 const std::filesystem::path& out_dir,
                 bool keep_runs,
                 std::optional<double> duration_s) {
+  const Status checked = check_jobs(config_yaml, jobs);
+  if (!checked) {
+    return Status::error(label.string() + ": " + checked.reason());
+  }
   std::error_code ec;
   std::filesystem::create_directories(out_dir, ec);
   const std::filesystem::path path = out_dir / "summary.csv";
