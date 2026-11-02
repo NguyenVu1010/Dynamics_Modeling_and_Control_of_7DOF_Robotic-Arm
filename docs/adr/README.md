@@ -42,3 +42,4 @@ thiết kế đó thành từng quyết định riêng.
 | [016](016-frozen-tests-and-cicd.md) | Quy trình test trước, test bị khoá, CI/CD và bảo vệ `main` | đề xuất |
 | [017](017-pi5-container.md) | Container arm64 sát Pi5: build, test dưới QEMU, image runtime trên GHCR | đề xuất |
 | [018](018-external-commands-and-waypoints.md) | Lệnh ngoài và quỹ đạo nhiều điểm: action trong controller, panel RViz2 | chấp nhận |
+| [019](019-realism-2-hardware-profiles.md) | Realism-2: giới hạn khớp eRob, nguồn nhiễu phần cứng mới, ba profile FR3 / KR1205 / xArm 7 | chấp nhận |
