@@ -8,7 +8,7 @@ bài học rút ra, kèm PR liên quan để đọc code.
 | --- | --- |
 | [01-mo-hinh-va-mo-phong.md](01-mo-hinh-va-mo-phong.md) | URDF, khối lượng, armature, ma sát trong SimPlant, plant Gazebo |
 | [02-dieu-khien.md](02-dieu-khien.md) | Gain computed torque, bù ma sát, đồng hồ mô phỏng, khớp đàn hồi và vị trí encoder, trễ và hệ số theo phần cứng |
-| [03-danh-gia-va-bao-cao.md](03-danh-gia-va-bao-cao.md) | Chỉ số, NaN, bảng yêu cầu phần cứng, số liệu lạc quan |
+| [03-danh-gia-va-bao-cao.md](03-danh-gia-va-bao-cao.md) | Chỉ số, NaN, bảng yêu cầu phần cứng, số liệu lạc quan, điều kiện của một kết luận "đạt" |
 | [04-moi-truong-va-cong-cu.md](04-moi-truong-va-cong-cu.md) | WSL, worktree, colcon, ROS domain, SSH |
 | [05-quy-trinh-va-ci.md](05-quy-trinh-va-ci.md) | Test đóng băng, nhãn `test-change`, CI |
 
@@ -40,3 +40,6 @@ bài học rút ra, kèm PR liên quan để đọc code.
     khâu tự bù độ xoắn bằng góc quay thêm của động cơ; encoder phía động cơ phải sửa số đo.
 12. **Hệ số là của phần cứng.** Trễ cảm biến, trễ lệnh và cộng hưởng khớp cộng dồn làm giảm hệ số
     dùng được; mỗi profile một bộ hệ số. Khi không hệ số nào cứu được thì phải đổi kiến trúc.
+13. **Một chữ "đạt" từ mô phỏng cần bốn thứ đi kèm:** hệ số đã chỉnh cho đúng phần cứng, biên so
+    với ngưỡng, độ tin cậy thống kê và danh sách giả định. Trước khi kết luận phần cứng kém, kiểm
+    tra mô phỏng có đủ các tầng điều khiển mà phần cứng thật có không.

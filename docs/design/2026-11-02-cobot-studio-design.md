@@ -5,7 +5,8 @@
 - Làm sau: `docs/design/2026-11-02-realism-2-design.md` (realism-2 làm trước, dùng ADR-019)
 - Liên quan: ADR-003, ADR-007, ADR-008, ADR-012, ADR-013, ADR-015, ADR-018. ADR mới viết trong PR
   đầu tiên của loạt này: **ADR-020** (bộ ghi log trong bộ nhớ, chế độ log), **ADR-021** (ứng dụng
-  `cobot_studio`), **ADR-022** (cầu nối bộ nhớ chia sẻ và các chế độ điều khiển tay)
+  `cobot_studio`), **ADR-022** (cầu nối bộ nhớ chia sẻ và các chế độ điều khiển tay). Giai đoạn C
+  (kiểm nghiệm kịch bản phần cứng, mục 10, thêm 2026-11-03): **ADR-023**
 
 ## 1. Ý định và lý do
 
@@ -407,3 +408,68 @@ Sau loạt này: đường ROS 2 cho studio ở máy khác; tab RViz nhúng (`CO
 - Hồ sơ vận tốc của `move_joint` (hình thang hay bậc 5) và ngưỡng gần kỳ dị, ghi vào ADR-022.
 - Cách rút gọn điểm khi vẽ, bảng màu, chi tiết tương tác đồ thị và 3D.
 - Danh sách tham số trong tab Cấu hình lấy từ schema hay liệt kê tay, miễn khớp tên khoá YAML.
+
+## 10. Giai đoạn C: kiểm nghiệm kịch bản phần cứng (thêm 2026-11-03)
+
+Chủ dự án chốt hướng ngày 2026-11-03, quyết định ở **ADR-023**. Mục này mô tả phạm vi; chi tiết
+giao diện và tên kiểu là quyết định của người xây dựng, trừ những gì ADR-023 đã cố định.
+
+### 10.1 Ý định
+
+Người dùng hỏi: "với phần cứng này, thuật toán này, tải này, robot có làm được nhiệm vụ của tôi
+không?". Studio trả lời bằng một kết luận ba mức (ĐẠT, KHÔNG ĐẠT, SÁT NGƯỠNG, CẦN ĐO THẬT) kèm
+giả định, biên an toàn và độ tin cậy. Đây là công cụ sàng lọc và so sánh trước khi mua hoặc chế
+tạo, không phải chứng nhận an toàn.
+
+Lý do (từ #51): dự án đã đưa ra được loại kết luận này một cách thủ công (bản giá rẻ cần vòng điều
+khiển trong driver; bản cao cấp đạt khi ω = 50 nhưng trượt khi ω = 80). Giai đoạn C làm nó lặp
+lại được, có thống kê, và không phụ thuộc người chỉnh hệ số tay.
+
+### 10.2 Mục tiêu
+
+- **G10. Model phần cứng** `config/hardware/<model>.yaml`: profile nhiễu, giới hạn khớp, hệ số mặc
+  định; ba model mốc từ ADR-019. Model thiếu `source` thì không nạp được.
+- **G11. Chọn thuật toán** `control.algorithm` từ danh sách đăng ký lúc build: computed torque (hiện
+  tại, kết quả bit-identical), PD cộng bù trọng lực, vòng vị trí trong driver.
+- **G12. Nhiệm vụ và yêu cầu** `config/tasks/<task>.yaml`: quỹ đạo hoặc danh sách điểm, tải, ngưỡng
+  sai số, thời gian chu kỳ, tỉ lệ dừng an toàn chấp nhận được, tỉ lệ đạt mục tiêu.
+- **G13. Tự chỉnh hệ số** cho mỗi tổ hợp model và thuật toán (ADR-023), tắt được.
+- **G14. Kết luận ba mức** từ Monte Carlo (mặc định 100 lần chạy, Wilson 95 %, biên 20 %), lệnh
+  `cobot_bench verify` không giao diện và tab **Kiểm nghiệm** trong studio cho cùng kết quả.
+- **G15. Báo cáo** Markdown và JSON: kết luận, khoảng tin cậy, chỉ số xấu nhất, danh sách giả định
+  và độ nhạy của kết luận theo từng giả định, hệ số đã chọn, nguyên nhân và gợi ý khi không đạt,
+  phiên bản và hash đầu vào.
+- **G16. So sánh**: chạy một nhiệm vụ trên nhiều model hoặc nhiều thuật toán, một bảng kết luận cạnh
+  nhau.
+
+Không mục tiêu (làm sau): kiểm chứng mô hình từ log robot thật (nhận dạng ma sát, độ cứng, trễ);
+tối ưu chọn phần cứng tự động; đánh giá an toàn va chạm theo ISO/TS 15066.
+
+Phản mục tiêu (dù chạy được vẫn coi là hỏng):
+
+- Kết luận ĐẠT không kèm danh sách giả định và khoảng tin cậy.
+- Kết luận ĐẠT từ chế độ xem nhanh hoặc từ ít hơn số lần chạy cần thiết cho mục tiêu.
+- Kết luận KHÔNG ĐẠT trên hệ số chưa chỉnh mà báo cáo không nói rõ.
+- Studio và `cobot_bench verify` cho kết luận khác nhau trên cùng đầu vào.
+- Chọn thuật toán qua cấu hình làm chậm bước điều khiển (PF-01) hoặc đổi kết quả computed torque.
+
+### 10.3 Điều kiện tiên quyết
+
+- Giai đoạn A (bộ ghi log, studio-core, tab Cấu hình và Bám quỹ đạo).
+- Thuật toán **vòng vị trí trong driver**: driver mô phỏng chạy vòng vị trí và dòng điện ở vài kHz,
+  máy chủ gửi điểm đặt vị trí ở tần số servo của profile. Làm trước kết luận đầu tiên (ADR-023).
+
+### 10.4 Chia PR (dự kiến)
+
+1. `docs`: ADR-023 và mục này (PR này).
+2. `controller-registry`: giao diện chọn thuật toán, computed torque và PD cộng bù trọng lực; E2E-03
+   và PF-01 không đổi.
+3. `drive-loop`: thuật toán vòng vị trí trong driver; profile giá rẻ được kiểm lại.
+4. `hardware-catalog`: `config/hardware/`, `config/tasks/`, loader và test khoá.
+5. `auto-tune`: quét hệ số, tiêu chí chọn, bảng quét trong kết quả.
+6. `verify`: `cobot_bench verify`, Monte Carlo song song, Wilson, kết luận ba mức, báo cáo
+   Markdown và JSON, E2E trên ba model mốc.
+7. `studio-verify`: tab Kiểm nghiệm và bảng so sánh (G16).
+8. `docs`: kết quả mẫu trên ba model mốc trong `docs/results/`, README.
+
+Sau giai đoạn C: kiểm chứng mô hình từ log robot thật, khi có phần cứng.
