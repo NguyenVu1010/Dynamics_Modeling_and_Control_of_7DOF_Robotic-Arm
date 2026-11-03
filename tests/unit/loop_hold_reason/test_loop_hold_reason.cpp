@@ -197,7 +197,7 @@ TEST(HoldReason, KeptInEveryRecordWhileHolding) {
   const Limits l = limits_of(*setup);
   const std::unique_ptr<Rig> rig = warm_rig(*setup, setup->config);
   std::vector<Record> before;
-  drain(rig->loop, before);
+  drain(rig->recorder, before);
   ASSERT_EQ(before.size(), static_cast<std::size_t>(kWarmup));
   for (const Record& r : before) {
     EXPECT_EQ(r.hold_reason, HoldReason::kNone);
@@ -213,7 +213,7 @@ TEST(HoldReason, KeptInEveryRecordWhileHolding) {
   }
   expect_holding_for(*rig, HoldReason::kOverspeed);
   std::vector<Record> held;
-  drain(rig->loop, held);
+  drain(rig->recorder, held);
   ASSERT_FALSE(held.empty());
   for (const Record& r : held) {
     EXPECT_EQ(r.mode, LoopMode::kHolding);

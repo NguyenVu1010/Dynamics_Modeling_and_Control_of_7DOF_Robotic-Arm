@@ -55,10 +55,10 @@ TEST(LoopExternalConfigMode, ConfigModeHasNoStandby) {
     ASSERT_TRUE(rig->cycle(s, cmd).is_ok()) << "step " << k;
     ASSERT_NE(rig->loop.mode(), LoopMode::kStandby) << "step " << k;
     if ((k + 1) % 100 == 0) {
-      drain(rig->loop, records);
+      drain(rig->recorder, records);
     }
   }
-  drain(rig->loop, records);
+  drain(rig->recorder, records);
   EXPECT_EQ(rig->loop.mode(), LoopMode::kFinished);
   ASSERT_EQ(records.size(), static_cast<std::size_t>(kSteps));
   for (std::size_t k = 0; k < records.size(); ++k) {
@@ -95,10 +95,10 @@ TEST(LoopExternalStandby, StartHoldsTheMeasuredPoseFor2s) {
     ASSERT_TRUE(torque_ok(setup->model, cmd.tau)) << "step " << k;
     worst = std::max(worst, pos_dist(fk_pose(setup->model, s.q), home));
     if ((k + 1) % 100 == 0) {
-      drain(rig->loop, records);
+      drain(rig->recorder, records);
     }
   }
-  drain(rig->loop, records);
+  drain(rig->recorder, records);
   EXPECT_LT(worst, 1e-4);
   EXPECT_LT(pos_dist(rig->loop.reference_pose(), home), 1e-12);
   ASSERT_EQ(records.size(), static_cast<std::size_t>(kSteps));

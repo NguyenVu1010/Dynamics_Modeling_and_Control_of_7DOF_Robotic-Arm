@@ -57,10 +57,10 @@ void run_case(const Setup& setup, const Config<kN>& cfg, const char* name, std::
       EXPECT_TRUE(rig->cycle(s, cmd).is_ok());
     }
     if ((k + 1) % 100 == 0) {
-      drain(rig->loop, records);
+      drain(rig->recorder, records);
     }
   }
-  drain(rig->loop, records);
+  drain(rig->recorder, records);
   ASSERT_EQ(records.size(), static_cast<std::size_t>(kSteps));
   for (int k = 0; k < kSteps; ++k) {
     if (!sampled(k)) {

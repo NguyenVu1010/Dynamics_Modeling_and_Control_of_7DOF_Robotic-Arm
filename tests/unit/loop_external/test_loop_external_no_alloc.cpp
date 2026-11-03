@@ -94,7 +94,7 @@ void guarded_cycle(Rig& rig, State& s, Command& cmd, bool spike, std::size_t& ne
 // External mode through every new path: standby, load, tracking, request_stop, the stop ramp,
 // standby again, a hold (velocity spike) and reset back to standby. Nothing allocates: not the
 // steps, not load() (it copies the trajectory into fixed storage), request_stop() or reset().
-// 1951 steps in total stay below the ring's 8191 records, so nothing is dropped either.
+// 1951 steps in total stay below the recorder's 8191 rows, so nothing is dropped either.
 TEST(LoopExternalNoAlloc, StepLoadStopAndResetDoNotAllocate) {
   const auto setup = load_setup();
   ASSERT_TRUE(setup);
@@ -139,7 +139,7 @@ TEST(LoopExternalNoAlloc, StepLoadStopAndResetDoNotAllocate) {
   }
   EXPECT_EQ(rig->loop.mode(), LoopMode::kStandby);
   EXPECT_EQ(news, 0U);
-  EXPECT_EQ(rig->loop.log().dropped(), 0U);
+  EXPECT_EQ(rig->recorder.dropped(), 0U);
 }
 
 }  // namespace

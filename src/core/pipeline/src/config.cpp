@@ -287,6 +287,27 @@ void optional_degrees(Reader& r, const std::string& key, double& out_rad) {
   }
 }
 
+// Optional keys of cobot.log (feature pipeline-recorder); a missing one keeps its default.
+template <int N>
+void read_log_mode(Reader& l, Config<N>& c) {
+  if (l.has("mode")) {
+    const YAML::Node n = l.node("mode");
+    const std::string v = n.IsScalar() ? n.Scalar() : std::string();
+    if (v == "off") {
+      c.log_mode = LogMode::kOff;
+    } else if (v == "recorder") {
+      c.log_mode = LogMode::kRecorder;
+    } else if (v == "recorder_live") {
+      c.log_mode = LogMode::kRecorderLive;
+    } else {
+      l.fail("mode", "expected off, recorder or recorder_live, got '" + YAML::Dump(n) + "'");
+    }
+  }
+  if (l.has("capacity_s")) {
+    l.number("capacity_s", kPositive, c.log_capacity_s);
+  }
+}
+
 // The optional sections of feature `loop-external`: a missing (or null) section or sub-key keeps
 // its default.
 template <int N>
@@ -459,6 +480,7 @@ void read_config(Reader& root, const fs::path& dir, Config<N>& c) {
   Reader l = m.map("log");
   l.scalar("output_dir", text);
   c.log_output_dir = (dir / text).lexically_normal();
+  read_log_mode(l, c);
   read_external<N>(m, c);
   read_limits<N>(m, c);
   read_deflection_comp<N>(m, c.deflection_comp);

@@ -67,7 +67,7 @@ struct LoopRun {
   LoopMode final_mode = LoopMode::kIdle;
 };
 
-// Runs `steps` host cycles from home, popping the ring every kDrainEvery steps.
+// Runs `steps` host cycles from home, draining the recorder every kDrainEvery steps.
 LoopRun run_loop(const Setup& setup, const Config<kN>& config, int steps) {
   LoopRun run;
   run.records.reserve(static_cast<std::size_t>(steps));
@@ -83,11 +83,11 @@ LoopRun run_loop(const Setup& setup, const Config<kN>& config, int steps) {
     run.states.push_back(s);
     run.commands.push_back(cmd);
     if ((k + 1) % kDrainEvery == 0) {
-      drain(rig->loop, run.records);
+      drain(rig->recorder, run.records);
     }
   }
-  drain(rig->loop, run.records);
-  run.dropped = rig->loop.log().dropped();
+  drain(rig->recorder, run.records);
+  run.dropped = rig->recorder.dropped();
   run.final_mode = rig->loop.mode();
   return run;
 }

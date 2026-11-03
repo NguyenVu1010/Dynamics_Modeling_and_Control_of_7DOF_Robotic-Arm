@@ -16,12 +16,13 @@
 #include "cobot/pipeline/config.hpp"
 #include "cobot/pipeline/control_loop.hpp"
 #include "cobot/pipeline/log_record.hpp"
+#include "cobot/pipeline/recorder.hpp"
 #include "cobot/pipeline/sim_joint_interface.hpp"
 
 // Shared set-up for the ControlLoop component tests: the real arm and config/default.yaml
 // without friction compensation (tests/e2e/configs/ideal_world.yaml),
 // an ideal SimPlant (no friction, no motor lag, exact model) behind a SimJointInterface
-// without jitter, and the loop under test.
+// without jitter, and the loop under test recording into a host-owned Recorder.
 namespace cobot::pipeline::test {
 
 using common::Mat3;
@@ -63,12 +64,20 @@ inline std::optional<Setup> load_setup() {
   return Setup{arm.value(), cfg.value()};
 }
 
-// Plant, HAL and loop wired as a host would wire them. The plant starts at rest at home.
+// Rows the rig's recorder holds by default: the 8191 records the loop's former SPSC ring held.
+constexpr std::size_t kRigLogCapacity = 8191;
+
+// Plant, HAL, recorder and loop wired as a host would wire them. The plant starts at rest at
+// home. The recorder (one buffer, kStopWhenFull) belongs to the rig, as it belongs to the host.
 struct Rig {
-  Rig(const model::Arm7& model, const Config<kN>& config)
-      : plant(model, config.home_q_rad),
+  Rig(const model::Arm7& model,
+      const Config<kN>& config,
+      std::size_t log_capacity = kRigLogCapacity)
+      : storage(log_capacity, 1),
+        recorder(storage.memory(), FullPolicy::kStopWhenFull),
+        plant(model, config.home_q_rad),
         io(plant, 1.0 / config.control_rate_hz),
-        loop(model, config) {}
+        loop(model, config, &recorder) {}
 
   // Reads the first state and starts the loop on it.
   common::Status start() {
@@ -91,21 +100,27 @@ struct Rig {
     return cycle(s, cmd, [](State& /*unused*/) {});
   }
 
+  HeapStorage<kN> storage;
+  Recorder<kN> recorder;
   dynamics::SimPlant<kN> plant;
   SimJointInterface<kN> io;
   ControlLoop<kN> loop;
 };
 
-inline std::unique_ptr<Rig> make_rig(const Setup& setup, const Config<kN>& config) {
-  return std::make_unique<Rig>(setup.model, config);
+inline std::unique_ptr<Rig> make_rig(const Setup& setup,
+                                     const Config<kN>& config,
+                                     std::size_t log_capacity = kRigLogCapacity) {
+  return std::make_unique<Rig>(setup.model, config, log_capacity);
 }
 
-// Pops every record currently in the ring.
-inline void drain(ControlLoop<kN>& loop, std::vector<Record>& out) {
-  Record r;
-  while (loop.log().pop(r)) {
-    out.push_back(r);
+// Moves every record the recorder holds to `out` (oldest first) and clears it. One thread: the
+// loop is not stepping meanwhile.
+inline void drain(Recorder<kN>& recorder, std::vector<Record>& out) {
+  const RecordSpan<kN> rows = recorder.active();
+  for (std::size_t i = 0; i < rows.size(); ++i) {
+    out.push_back(rows[i]);
   }
+  recorder.clear();
 }
 
 inline Vec q_min_of(const model::Arm7& m) {

@@ -11,7 +11,9 @@
 #include "cobot/model/model.hpp"
 #include "cobot/pipeline/log_record.hpp"
 
-// Internal run engine shared by the run, montecarlo and sweep modes (bench/run.cpp).
+// Internal run engine shared by the run, montecarlo and sweep modes (bench/run.cpp). A run records
+// into a pipeline::Recorder (one row per cycle, no writer thread); the summary and the Run CSV come
+// from the recorded rows after the loop.
 namespace cobot::bench {
 
 // Summary CSV metrics of one run (docs/conventions.md). Same definitions as cobot_eval.metrics,

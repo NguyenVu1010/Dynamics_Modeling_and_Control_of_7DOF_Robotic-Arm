@@ -23,7 +23,7 @@ src/
     hal/         JointInterface<N>, JointState<N>, JointCommand<N>
     imperfect/   configurable sensor/actuator/model imperfections (decorator on hal)
     pipeline/    ControlLoop, Config from YAML (only place that parses YAML), SPSC ring,
-                 CSV writer, SimJointInterface
+                 Recorder (in-memory log), CSV writer, SimJointInterface
   ros2_node/   ament package: ros2_control ControllerInterface wrapping ControlLoop
   bench/       cobot_bench binary without ROS: ControlLoop + SimPlant, run/montecarlo/sweep/timing
   sim/         ament package cobot_sim: URDF/xacro, meshes, world SDF, controller config, launch
@@ -101,8 +101,8 @@ hal      -> common
 - Ownership: prefer values and `std::unique_ptr`. Use `std::shared_ptr` only for data
   threads truly share, and document which.
 - The core never creates threads. The host (`bench` or the `ros2_control` plugin) owns the
-  control thread and the CSV writer thread; they exchange data only through the fixed-size
-  `pipeline::SpscRing`.
+  control thread and any CSV exporter thread; the log reaches them only through the
+  preallocated, host-owned `pipeline::Recorder` (ADR-020).
 - Logging goes through the core logger interface; `ros2_node` adapts it to rclcpp. No
   `std::cout` in core.
 - Interface headers under `src/core/<module>/include/cobot/<module>/*.hpp` are the contract
