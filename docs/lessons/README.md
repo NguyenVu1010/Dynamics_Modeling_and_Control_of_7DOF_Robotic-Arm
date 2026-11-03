@@ -7,7 +7,7 @@ bài học rút ra, kèm PR liên quan để đọc code.
 | File | Chủ đề |
 | --- | --- |
 | [01-mo-hinh-va-mo-phong.md](01-mo-hinh-va-mo-phong.md) | URDF, khối lượng, armature, ma sát trong SimPlant, plant Gazebo |
-| [02-dieu-khien.md](02-dieu-khien.md) | Gain computed torque, bù ma sát, đồng hồ mô phỏng |
+| [02-dieu-khien.md](02-dieu-khien.md) | Gain computed torque, bù ma sát, đồng hồ mô phỏng, khớp đàn hồi và vị trí encoder |
 | [03-danh-gia-va-bao-cao.md](03-danh-gia-va-bao-cao.md) | Chỉ số, NaN, bảng yêu cầu phần cứng, số liệu lạc quan |
 | [04-moi-truong-va-cong-cu.md](04-moi-truong-va-cong-cu.md) | WSL, worktree, colcon, ROS domain, SSH |
 | [05-quy-trinh-va-ci.md](05-quy-trinh-va-ci.md) | Test đóng băng, nhãn `test-change`, CI |
@@ -34,3 +34,6 @@ bài học rút ra, kèm PR liên quan để đọc code.
 9. **Hai dự án ROS trên cùng máy phải khác domain,** nếu không topic sẽ trộn vào nhau mà không báo lỗi.
 10. **Không sửa ngưỡng để test qua.** Mọi lần E2E trượt trong dự án đều được xử lý bằng cách tìm
     nguyên nhân (gain, mô hình, plant), không lần nào nới ngưỡng.
+11. **Đo ở đâu thì điều khiển được ở đó.** Qua một khớp đàn hồi ít giảm chấn, vòng PD đo ở phía
+    khâu (khác chỗ với động cơ) không ổn định ở hệ số dùng được; giảm hệ số chỉ làm sự cố đến
+    muộn hơn. Phân tích ổn định trên mô hình hai khối trước khi định "chỉnh hệ số".
