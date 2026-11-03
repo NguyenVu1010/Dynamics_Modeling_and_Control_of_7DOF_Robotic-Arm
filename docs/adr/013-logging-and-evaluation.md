@@ -36,3 +36,10 @@ cần đồ thị và bảng, viết nhanh nhất bằng Python. Dữ liệu m�
 Một trình đọc cho mọi nguồn chạy; E2E-03 so sánh hai CSV bằng byte. Hợp đồng cột là giao diện
 giữa C++ và Python: đổi cột cần sửa `docs/conventions.md`, writer và test cả hai phía trong cùng
 PR có nhãn `test-change`.
+
+## Bổ sung (2026-11-03): xuất sau lần chạy, hộp đen, cột mới
+
+Theo ADR-020, Run CSV không còn ghi bởi luồng log trong lúc chạy: vòng điều khiển ghi vào
+`pipeline::Recorder<N>` do host sở hữu, CSV được xuất sau lần chạy (bench) hoặc khi có yêu cầu
+(`~/dump_log`, `cobot_logdump` cho log hộp đen của controller). Định dạng giữ CSV `%.17g`; hợp đồng
+cột thêm các kênh sau `hold` (114 cột với N = 7), `cobot_eval` đọc cả dạng 57 cột cũ.
