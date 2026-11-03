@@ -105,15 +105,27 @@ are not used in core.
 ### Run CSV
 
 Written by `pipeline::write_csv_header` / `write_csv_row`. Comma separated, one header row,
-doubles printed with `%.17g`. Rows are exported from the host-owned `pipeline::Recorder` after
-the run (bench) or on each buffer swap (controller), see ADR-020. Columns in this order:
+doubles printed with `%.17g`, NaN always written `nan` (never `-nan`). Rows are exported from the
+host-owned `pipeline::Recorder` after the run (bench) or on each buffer swap (controller), see
+ADR-020. Columns in this order (57 + 8 · 7 + 1 = 114 for N = 7):
 
 ```
 t_ns,mode,
 q1..q7, qd1..qd7, qref1..qref7, qdref1..qdref7, tau1..tau7,
 px,py,pz, rx,ry,rz, pdx,pdy,pdz, rdx,rdy,rdz,
-e1..e6, step_us, hold
+e1..e6, step_us, hold,
+qddref1..qddref7, qraw1..qraw7, qt1..qt7, qdt1..qdt7, qddt1..qddt7, qmt1..qmt7,
+taum1..taum7, tauf1..tauf7, cmd
 ```
+
+`taum`, `tauf` and `qddt` of row k describe the plant interval (t_{k-1}, t_k]; `taum` of row k+1
+is the plant's response to `tau` of row k. The plant truth columns (`qt` to `tauf`) are `nan` when
+the host does not know them (a real robot). On the Gazebo path `qt`, `qdt` are the raw Gazebo
+reading before the imperfection decorator, `taum` the last command written to Gazebo (the
+decorator's output, motor lag included) and `qddt`, `qmt`, `tauf` are `nan` (friction is in the
+physics engine). The legacy layout, the first 57 columns ending with `hold` (files written before
+feature log-channels, such as those in `docs/results/`), is still accepted by `cobot_eval`
+(`legacy_run_columns`).
 
 | Columns | Meaning |
 | --- | --- |
@@ -127,6 +139,14 @@ e1..e6, step_us, hold
 | `e1..e6` | CLIK `task_error`, order `[v; ω]`; 0 in `holding` rows (CLIK is not stepped there, `qref*` is the hold target and `qdref*` is 0) |
 | `step_us` | wall time of `ControlLoop::step()` (µs); written as 0 when `deterministic: true` so that runs compare byte for byte (timing comes from `cobot_bench timing`) |
 | `hold` | why `ControlLoop` entered `holding`, kept in every row until a reset: `none` (never held), `non_finite` (a non-finite q or qd), `stamp_backwards` (state stamp older than the newest seen), `state_timeout` (no fresh stamp for more than `safety.hal_timeout_ms`), `joint_limit` (q within the soft margin of a limit), `overspeed` (\|qd\| above qd_max); the first in this order wins when several hold at once |
+| `qddref*` | CLIK reference acceleration `q̈_d` (rad/s²); 0 in `holding`, `fault` and `idle` rows, like `qdref*` |
+| `qraw*` | measured joint position before the deflection compensation (equal to `q*` when it is inactive) |
+| `qt*`, `qdt*` | plant link position (rad) and velocity (rad/s) at the row's instant, before the sensor decorator |
+| `qddt*` | mean plant link acceleration (rad/s²) over the plant interval ending at `t_ns` (velocity difference over the plant clock; 0 in the first row) |
+| `qmt*` | plant motor-side position in link units (rad); equal to `qt*` on a rigid joint |
+| `taum*` | torque the plant applied (N·m) over the interval ending at `t_ns`, after the decorator, motor lag and the drive cap |
+| `tauf*` | plant friction torque (N·m) over that interval: Coulomb + profile viscous (URDF `<dynamics damping>` excluded), opposing the motion; on an elastic joint the motor-side friction |
+| `cmd` | command mode: `config` (`command_source: config`) or `waypoints` (external); `jog_joint`, `jog_tcp`, `move_joint`, `move_tcp` are reserved |
 
 Black-box log (ADR-020): the ROS controller records into the POSIX shared-memory region
 `/cobot_log_<controller node name>` (`pipeline::ShmStorage`, Linux only), which outlives a crash

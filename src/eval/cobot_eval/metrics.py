@@ -15,13 +15,14 @@ ERROR_MODES = ("tracking", "finished")
 SAT_FRACTION = 0.999
 _JOINT_PREFIXES = ("q", "qd", "qref", "qdref", "tau")
 _TASK_COLUMNS = ("px", "py", "pz", "rx", "ry", "rz", "pdx", "pdy", "pdz", "rdx", "rdy", "rdz")
+_CHANNEL_PREFIXES = ("qddref", "qraw", "qt", "qdt", "qddt", "qmt", "taum", "tauf")
 # Meta keys written by `cobot_bench run --waypoints` and the settle window after a stop node.
 WAYPOINT_META_KEYS = ("waypoint_node_times_s", "waypoint_stop", "waypoint_positions_m")
 STOP_SETTLE_S = 0.2
 
 
-def run_columns(n: int) -> list[str]:
-    """Run CSV header for `n` joints, in contract order."""
+def legacy_run_columns(n: int) -> list[str]:
+    """Run CSV header for `n` joints before the log channels (ends with `hold`)."""
     cols = ["t_ns", "mode"]
     for prefix in _JOINT_PREFIXES:
         cols += [f"{prefix}{j}" for j in range(1, n + 1)]
@@ -31,14 +32,27 @@ def run_columns(n: int) -> list[str]:
     return cols
 
 
+def run_columns(n: int) -> list[str]:
+    """Run CSV header for `n` joints, in contract order: the legacy columns, the log channel
+    blocks (qddref, qraw, qt, qdt, qddt, qmt, taum, tauf) and `cmd`."""
+    cols = legacy_run_columns(n)
+    for prefix in _CHANNEL_PREFIXES:
+        cols += [f"{prefix}{j}" for j in range(1, n + 1)]
+    cols += ["cmd"]
+    return cols
+
+
 def load_run(path: Path) -> pd.DataFrame:
-    """Read a Run CSV; raise ValueError naming the first column that breaks the contract."""
-    df = pd.read_csv(path, dtype={"mode": str, "hold": str})
+    """Read a Run CSV (current or legacy layout); raise ValueError naming the first column that
+    breaks the contract."""
+    df = pd.read_csv(path, dtype={"mode": str, "hold": str, "cmd": str})
     actual = [str(c) for c in df.columns]
     n = sum(1 for c in actual if re.fullmatch(r"q\d+", c))
     if n == 0:
         raise ValueError(f"{path}: no joint position columns (q1, q2, ...)")
-    expected = run_columns(n)
+    legacy = legacy_run_columns(n)
+    # Exactly the legacy layout, or else the full one (checked below, naming the first mismatch).
+    expected = legacy if actual == legacy else run_columns(n)
     for col in expected:
         if col not in actual:
             raise ValueError(f"{path}: missing column {col}")

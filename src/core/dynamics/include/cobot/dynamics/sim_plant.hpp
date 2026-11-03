@@ -61,6 +61,11 @@ class SimPlant {
   const VecN<N>& qd_motor() const { return thetad_; }
   // Spring torque tau_s at the current state (N m); tau_applied on a rigid joint.
   const VecN<N>& spring_torque() const { return tau_spring_; }
+  // Friction torque (N m) over the last step(), opposing the motion: Coulomb + PlantEffects
+  // viscous, URDF damping excluded. Projected joints: friction impulse / dt; viscous-only joints:
+  // the viscous torque at the end state; elastic joints: the motor-side friction averaged over
+  // the sub-steps. 0 before the first step.
+  const VecN<N>& friction_torque() const { return tau_friction_; }
 
  private:
   // State of the elastic path: link (q, qd) and motor (theta, thetad).
@@ -73,6 +78,8 @@ class SimPlant {
   State derivative(const State& x) const;
   VecN<N> spring(const State& x) const;
   void substep(double h);
+  // Friction torque of the rigid joints over a (sub-)step of length h that just ended.
+  VecN<N> rigid_friction(double h) const;
 
   Model<N> model_;
   PlantEffects<N> effects_;
@@ -102,8 +109,10 @@ class SimPlant {
   VecN<N> theta_;
   VecN<N> thetad_ = VecN<N>::Zero();
   VecN<N> tau_spring_ = VecN<N>::Zero();
-  VecN<N> motor_stuck_ = VecN<N>::Zero();  // 1: motor held by static friction this sub-step
-  VecN<N> link_locked_ = VecN<N>::Zero();  // 1: link pressed into its stop this sub-step
+  VecN<N> motor_stuck_ = VecN<N>::Zero();       // 1: motor held by static friction this sub-step
+  VecN<N> link_locked_ = VecN<N>::Zero();       // 1: link pressed into its stop this sub-step
+  VecN<N> tau_friction_ = VecN<N>::Zero();      // friction_torque()
+  VecN<N> friction_substep_ = VecN<N>::Zero();  // sum over the sub-steps of the current step
 };
 
 }  // namespace cobot::dynamics

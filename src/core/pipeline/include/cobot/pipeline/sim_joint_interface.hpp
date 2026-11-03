@@ -5,6 +5,7 @@
 
 #include "cobot/dynamics/sim_plant.hpp"
 #include "cobot/hal/joint_interface.hpp"
+#include "cobot/pipeline/log_record.hpp"
 
 // JointInterface over dynamics::SimPlant (feature `control-loop`). write() stores the
 // command; advance() steps the plant by the nominal period plus optional Gaussian jitter and
@@ -41,6 +42,26 @@ class SimJointInterface final : public hal::JointInterface<N> {
   int overrun_cycles_;
   std::mt19937_64 overrun_rng_;
   hal::JointCommand<N> last_cmd_;
+};
+
+// The plant truth of a bench run (feature log-channels): call sample() after the decorator's
+// read() and before ControlLoop::step(). q, qd, q_motor are the plant's state, tau_motor its
+// tau_applied() and tau_friction its friction_torque() (of the last plant step); qdd =
+// (qd - qd_prev) / (time_s - time_prev) on the plant clock (an overrun lengthens the interval),
+// 0 on the first call and kept when the plant clock has not moved. Allocates nothing.
+template <int N>
+class SimTruthProbe {
+ public:
+  explicit SimTruthProbe(const dynamics::SimPlant<N>& plant);
+
+  const PlantTruth<N>& sample();
+
+ private:
+  const dynamics::SimPlant<N>& plant_;
+  PlantTruth<N> truth_;
+  common::VecN<N> qd_prev_ = common::VecN<N>::Zero();
+  double time_prev_s_ = 0.0;
+  bool first_ = true;
 };
 
 }  // namespace cobot::pipeline

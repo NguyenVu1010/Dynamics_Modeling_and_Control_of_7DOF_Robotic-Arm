@@ -70,7 +70,31 @@ void SimJointInterface<N>::advance() {
   }
 }
 
-#define COBOT_PIPELINE_SIM_JOINT_INTERFACE_INSTANTIATE(N) template class SimJointInterface<(N)>;
+template <int N>
+SimTruthProbe<N>::SimTruthProbe(const dynamics::SimPlant<N>& plant) : plant_(plant) {}
+
+template <int N>
+const PlantTruth<N>& SimTruthProbe<N>::sample() {
+  const double t = plant_.time_s();
+  if (first_) {
+    truth_.qdd.setZero();
+  } else if (t != time_prev_s_) {
+    truth_.qdd = (plant_.qd() - qd_prev_) / (t - time_prev_s_);
+  }
+  first_ = false;
+  qd_prev_ = plant_.qd();
+  time_prev_s_ = t;
+  truth_.q = plant_.q();
+  truth_.qd = plant_.qd();
+  truth_.q_motor = plant_.q_motor();
+  truth_.tau_motor = plant_.tau_applied();
+  truth_.tau_friction = plant_.friction_torque();
+  return truth_;
+}
+
+#define COBOT_PIPELINE_SIM_JOINT_INTERFACE_INSTANTIATE(N) \
+  template class SimJointInterface<(N)>;                  \
+  template class SimTruthProbe<(N)>;
 COBOT_INSTANTIATE_DOF(COBOT_PIPELINE_SIM_JOINT_INTERFACE_INSTANTIATE)
 #undef COBOT_PIPELINE_SIM_JOINT_INTERFACE_INSTANTIATE
 

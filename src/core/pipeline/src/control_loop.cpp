@@ -152,6 +152,14 @@ Status ControlLoop<N>::start(const JointState<N>& measured) {
 
 template <int N>
 Status ControlLoop<N>::step(const JointState<N>& measured, JointCommand<N>& out) {
+  static const PlantTruth<N> unknown_truth;  // all NaN
+  return step(measured, out, unknown_truth);
+}
+
+template <int N>
+Status ControlLoop<N>::step(const JointState<N>& measured,
+                            JointCommand<N>& out,
+                            const PlantTruth<N>& truth) {
   if (mode_ == LoopMode::kIdle) {
     out.tau.setZero();
     return Status::error("control loop: step before start");
@@ -215,6 +223,7 @@ Status ControlLoop<N>::step(const JointState<N>& measured, JointCommand<N>& out)
     add_clamped(model_, friction_.torque(ref.qd), out.tau);
     record.q_ref = ref.q;
     record.qd_ref = ref.qd;
+    record.qdd_ref = ref.qdd;
     if (!external() && t >= config_.trajectory.duration_s + config_.trajectory.hold_s) {
       mode_ = LoopMode::kFinished;
     }
@@ -248,6 +257,14 @@ Status ControlLoop<N>::step(const JointState<N>& measured, JointCommand<N>& out)
     record.step_time_us = elapsed.count();
   }
   record.hold_reason = hold_reason_;
+  record.q_raw = measured.q;
+  record.q_true = truth.q;
+  record.qd_true = truth.qd;
+  record.qdd_true = truth.qdd;
+  record.q_motor_true = truth.q_motor;
+  record.tau_motor = truth.tau_motor;
+  record.tau_friction = truth.tau_friction;
+  record.cmd_mode = external() ? CommandMode::kWaypoints : CommandMode::kConfig;
   last_record_ = record;
   if (recorder_ != nullptr) {
     recorder_->record(record);

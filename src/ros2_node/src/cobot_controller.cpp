@@ -29,6 +29,10 @@
 // jitter has no meaning on the sim clock and is ignored with a warning. `seed` >= 0 overrides
 // the profile's seed.
 //
+// Log channels (feature log-channels): each step gets RosJointInterface's PlantTruth: qt, qdt are
+// the raw Gazebo reading before the decorator, taum the last command written to Gazebo (the
+// decorator's output, motor lag included); qddt, qmt and tauf are `nan`.
+//
 // `command_source` ("" = the config file's, "config" or "external") picks the trajectory source.
 // External (feature waypoint-ros): the loop waits in standby and WaypointServer offers
 // ~/follow_waypoints, ~/preview_waypoints, ~/reset and the latched ~/reference_path; update()
@@ -132,6 +136,11 @@ class RosJointInterface final : public cobot::hal::JointInterface<kN> {
     return ok;
   }
   void set_stamp(cobot::common::Timestamp t) { stamp_ = t; }
+  // Plant truth on the Gazebo path (feature log-channels): q, qd of the last raw read (before the
+  // decorator) and, as tau_motor, the last command written to Gazebo (the decorator's output,
+  // applied over the interval ending now); qdd, q_motor and tau_friction stay NaN (friction is
+  // in the physics engine).
+  const cobot::pipeline::PlantTruth<kN>& truth() const { return truth_; }
 
   cobot::common::Status read(cobot::hal::JointState<kN>& out) override {
     cobot::hal::JointState<kN> s;
@@ -149,6 +158,8 @@ class RosJointInterface final : public cobot::hal::JointInterface<kN> {
       s.tau_measured(i) = *tau;
     }
     out = s;
+    truth_.q = s.q;
+    truth_.qd = s.qd;
     return cobot::common::Status::ok();
   }
 
@@ -157,6 +168,7 @@ class RosJointInterface final : public cobot::hal::JointInterface<kN> {
     for (int i = 0; i < kN; ++i) {
       ok = cmd_[i]->set_value(cmd.tau(i)) && ok;
     }
+    truth_.tau_motor = cmd.tau;
     return ok ? cobot::common::Status::ok()
               : cobot::common::Status::error("ros2_control: command interface not writable");
   }
@@ -175,6 +187,7 @@ class RosJointInterface final : public cobot::hal::JointInterface<kN> {
   LoanedStateInterface* qd_[kN] = {};
   LoanedStateInterface* tau_[kN] = {};
   LoanedCommandInterface* cmd_[kN] = {};
+  cobot::pipeline::PlantTruth<kN> truth_;  // fixed size, updated by read() and write()
 };
 
 ci::InterfaceConfiguration individual(const std::vector<std::string>& joints,
@@ -466,7 +479,7 @@ class CobotController final : public ci::ControllerInterface {
     if (link_) {
       take_commands();
     }
-    static_cast<void>(loop_->step(state_, cmd_));
+    static_cast<void>(loop_->step(state_, cmd_, ros_io_.truth()));
     static_cast<void>(io_->write(cmd_));
     if (link_) {
       publish_snapshot();
