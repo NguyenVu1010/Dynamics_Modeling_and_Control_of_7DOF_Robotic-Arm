@@ -11,6 +11,8 @@ namespace {
 
 constexpr double kMinMassScale = 0.1;  // lower clamp of the mass scale factor
 constexpr double kSphereFactor = 0.4;  // solid sphere: I = 2/5 m r^2 about its centre
+constexpr double kTwoPi = 2.0 * 3.14159265358979323846;
+constexpr std::uint64_t kTransmissionSalt = 0x7A45'0003;  // seed ^ salt: motor phase generator
 
 // Inertia of a point mass m at offset d about the reference point (parallel-axis term).
 common::Mat3 point_inertia(double m, const common::Vec3& d) {
@@ -74,6 +76,23 @@ dynamics::PlantEffects<N> plant_effects(const ImperfectionConfig<N>& config) {
   fx.coulomb_nm = config.friction.coulomb_nm;
   fx.viscous_nm_s_rad = config.friction.viscous_nm_s_rad;
   fx.motor_time_constant_s = config.actuator.motor_time_constant_s;
+  const TransmissionConfig<N>& t = config.transmission;
+  fx.stiffness_k1_nm_rad = t.stiffness_k1_nm_rad;
+  fx.stiffness_k2_nm_rad = t.stiffness_k2_nm_rad;
+  fx.stiffness_k3_nm_rad = t.stiffness_k3_nm_rad;
+  fx.torque_t1_nm = t.torque_t1_nm;
+  fx.torque_t2_nm = t.torque_t2_nm;
+  fx.damping_ratio = t.damping_ratio;
+  fx.error_amp_rad = t.error_amp_rad;
+  fx.lost_motion_rad = t.lost_motion_rad;
+  fx.ratio = t.ratio;
+  // Phase of the transmission error, one draw per joint from its own stream.
+  std::mt19937_64 rng(config.seed ^ kTransmissionSalt);
+  std::uniform_real_distribution<double> phase(0.0, kTwoPi);
+  for (int j = 0; j < N; ++j) {
+    const double p = phase(rng);
+    fx.motor_phase_rad(j) = p < kTwoPi ? p : 0.0;  // [0, 2 pi) even if rounding reaches 2 pi
+  }
   return fx;
 }
 

@@ -11,6 +11,7 @@
 
 #include "cobot/common/dof.hpp"
 #include "cobot/dynamics/dynamics.hpp"
+#include "cobot/dynamics/harmonic_spring.hpp"
 
 namespace cobot::dynamics {
 namespace {
@@ -147,6 +148,22 @@ void apply_friction(const Model<N>& model,
   q += (0.5 * h) * (qd - qd_rk4);
 }
 
+// Hard joint stops: clamp the position, drop the velocity pointing out of the range.
+template <int N>
+void clamp_to_stops(const Model<N>& model, VecN<N>& q, VecN<N>& qd) {
+  for (std::size_t i = 0; i < static_cast<std::size_t>(N); ++i) {
+    const auto j = static_cast<Eigen::Index>(i);
+    const model::JointParams& joint = model.joints[i];
+    if (q(j) >= joint.q_max) {
+      q(j) = joint.q_max;
+      qd(j) = qd(j) > 0.0 ? 0.0 : qd(j);
+    } else if (q(j) <= joint.q_min) {
+      q(j) = joint.q_min;
+      qd(j) = qd(j) < 0.0 ? 0.0 : qd(j);
+    }
+  }
+}
+
 // Throws naming the field and joint of the first negative (or NaN) entry.
 template <int N>
 void check_non_negative(const VecN<N>& v, const char* field) {
@@ -158,14 +175,27 @@ void check_non_negative(const VecN<N>& v, const char* field) {
   }
 }
 
+// Transmission (docs/derivations/sim_plant_transmission.md). The sub-step count keeps
+// omega * h <= kOmegaStep for the stiffest two-mass mode, omega^2 = k_max (1 / B + W_jj),
+// W = M_link^-1 at the start of the step.
+constexpr double kOmegaStep = 0.05;
+constexpr int kMaxSubsteps = 64;
+
+void check_elastic(bool ok, int j, const char* what) {
+  if (!ok) {
+    throw std::invalid_argument("SimPlant: elastic joint " + std::to_string(j) + ": " + what);
+  }
+}
+
 }  // namespace
 
 template <int N>
 SimPlant<N>::SimPlant(const Model<N>& model, const VecN<N>& q0, const PlantEffects<N>& effects)
-    : model_(model), effects_(effects), q_(q0) {
+    : model_(model), effects_(effects), q_(q0), link_model_(model), theta_(q0) {
   check_non_negative(effects.coulomb_nm, "coulomb_nm");
   check_non_negative(effects.viscous_nm_s_rad, "viscous_nm_s_rad");
   check_non_negative(effects.motor_time_constant_s, "motor_time_constant_s");
+  check_non_negative(effects.stiffness_k3_nm_rad, "stiffness_k3_nm_rad");
   // Split the viscous terms between RK4 and the friction projection (see the top of the file).
   for (std::size_t i = 0; i < static_cast<std::size_t>(N); ++i) {
     const auto j = static_cast<Eigen::Index>(i);
@@ -177,7 +207,156 @@ SimPlant<N>::SimPlant(const Model<N>& model, const VecN<N>& q0, const PlantEffec
       viscous_rk4_(j) = effects.viscous_nm_s_rad(j);
       viscous_projection_(j) = 0.0;
     }
+    if (!(effects.stiffness_k3_nm_rad(j) > 0.0)) {
+      rigid_coulomb_(j) = effects.coulomb_nm(j);
+      continue;
+    }
+    // Elastic: the armature becomes the motor inertia B, joint friction moves to the motor.
+    const double k1 = effects.stiffness_k1_nm_rad(j);
+    const double b = model.joints[i].armature;
+    const int ji = static_cast<int>(i);
+    check_elastic(k1 > 0.0 && effects.stiffness_k2_nm_rad(j) > 0.0, ji, "k1 and k2 must be > 0");
+    check_elastic(
+        effects.torque_t1_nm(j) > 0.0 && effects.torque_t2_nm(j) > effects.torque_t1_nm(j),
+        ji,
+        "needs 0 < t1 < t2");
+    check_elastic(effects.damping_ratio(j) >= 0.0 && effects.lost_motion_rad(j) >= 0.0 &&
+                      std::isfinite(effects.error_amp_rad(j)) && effects.ratio(j) > 0.0,
+                  ji,
+                  "needs damping_ratio >= 0, lost_motion_rad >= 0, ratio > 0");
+    check_elastic(b > 0.0, ji, "the URDF armature (motor inertia) must be > 0");
+    has_elastic_ = true;
+    elastic_(j) = 1.0;
+    motor_inertia_(j) = b;
+    spring_damping_(j) = effects.damping_ratio(j) * 2.0 * std::sqrt(k1 * b);
+    stiffness_max_(j) =
+        std::max({k1, effects.stiffness_k2_nm_rad(j), effects.stiffness_k3_nm_rad(j)});
+    const double viscous = effects.viscous_nm_s_rad(j) + model.joints[i].damping;
+    (effects.coulomb_nm(j) > 0.0 ? motor_viscous_proj_ : motor_viscous_rk4_)(j) = viscous;
+    link_model_.joints[i].armature = 0.0;
+    link_model_.joints[i].damping = 0.0;
   }
+}
+
+template <int N>
+VecN<N> SimPlant<N>::spring(const State& x) const {
+  VecN<N> tau = VecN<N>::Zero();
+  const PlantEffects<N>& fx = effects_;
+  for (int j = 0; j < N; ++j) {
+    if (elastic_(j) == 0.0) {
+      continue;
+    }
+    const double e =
+        fx.error_amp_rad(j) * std::sin((2.0 * fx.ratio(j) * x.theta(j)) + fx.motor_phase_rad(j));
+    const double phi = x.theta(j) - x.q(j) - e;
+    const double half = 0.5 * fx.lost_motion_rad(j);
+    const double phi_live = phi - std::clamp(phi, -half, half);
+    tau(j) = harmonic_spring_torque(phi_live,
+                                    fx.stiffness_k1_nm_rad(j),
+                                    fx.stiffness_k2_nm_rad(j),
+                                    fx.stiffness_k3_nm_rad(j),
+                                    fx.torque_t1_nm(j),
+                                    fx.torque_t2_nm(j)) +
+             (spring_damping_(j) * (x.thetad(j) - x.qd(j)));
+  }
+  return tau;
+}
+
+// Link: M_link(q) qdd + h = tau_s (elastic) or tau_applied - viscous qd (rigid), locked joints
+// held at qdd = 0. Motor: B thetadd = tau_m - tau_s - viscous thetad, 0 while stuck.
+template <int N>
+typename SimPlant<N>::State SimPlant<N>::derivative(const State& x) const {
+  const VecN<N> tau_s = spring(x);
+  const VecN<N> zero = VecN<N>::Zero();
+  VecN<N> rhs = tau_applied_ - viscous_rk4_.cwiseProduct(x.qd);
+  VecN<N> thetadd = VecN<N>::Zero();
+  for (int j = 0; j < N; ++j) {
+    if (elastic_(j) != 0.0) {
+      rhs(j) = tau_s(j);
+      if (motor_stuck_(j) == 0.0) {
+        thetadd(j) = (tau_applied_(j) - tau_s(j) - (motor_viscous_rk4_(j) * x.thetad(j))) /
+                     motor_inertia_(j);
+      }
+    }
+    rhs(j) -= link_model_.joints[static_cast<std::size_t>(j)].damping * x.qd(j);
+  }
+  rhs -= rnea(link_model_, x.q, x.qd, zero, link_model_.gravity_b);
+  MatN<N> m = mass_matrix(link_model_, x.q);
+  for (int j = 0; j < N; ++j) {
+    if (link_locked_(j) != 0.0) {
+      m.row(j).setZero();
+      m.col(j).setZero();
+      m(j, j) = 1.0;
+      rhs(j) = 0.0;
+    }
+  }
+  const VecN<N> qdd = Eigen::LLT<MatN<N>>(m).solve(rhs);
+  const VecN<N> thetad = x.thetad.cwiseProduct(elastic_);
+  return State{x.qd, qdd, thetad, thetadd};
+}
+
+// One RK4 sub-step of the elastic path, then the motor stick-slip of elastic joints, the coupled
+// projection of rigid joints with Coulomb friction and the hard stops.
+template <int N>
+void SimPlant<N>::substep(double h) {
+  const State x{q_, qd_, theta_, thetad_};
+  motor_stuck_.setZero();
+  link_locked_.setZero();
+  // A motor at rest whose net drive is below breakaway stays stuck for the whole sub-step.
+  const VecN<N> tau_s = spring(x);
+  for (int j = 0; j < N; ++j) {
+    const double c = effects_.coulomb_nm(j);
+    if (elastic_(j) != 0.0 && c > 0.0 && thetad_(j) == 0.0 &&
+        std::abs(tau_applied_(j) - tau_s(j)) <= c) {
+      motor_stuck_(j) = 1.0;
+    }
+  }
+  // A link resting on a stop and pushed into it stays there (no stage drifts past the stop).
+  bool at_stop = false;
+  for (std::size_t i = 0; i < static_cast<std::size_t>(N); ++i) {
+    const auto j = static_cast<Eigen::Index>(i);
+    at_stop = at_stop || (qd_(j) == 0.0 &&
+                          (q_(j) >= model_.joints[i].q_max || q_(j) <= model_.joints[i].q_min));
+  }
+  if (at_stop) {
+    const VecN<N> qdd = derivative(x).qd;
+    for (std::size_t i = 0; i < static_cast<std::size_t>(N); ++i) {
+      const auto j = static_cast<Eigen::Index>(i);
+      const bool up = q_(j) >= model_.joints[i].q_max && qdd(j) > 0.0;
+      const bool down = q_(j) <= model_.joints[i].q_min && qdd(j) < 0.0;
+      link_locked_(j) = qd_(j) == 0.0 && (up || down) ? 1.0 : 0.0;
+    }
+  }
+  const auto ahead = [&x](const State& k, double s) {
+    return State{x.q + s * k.q, x.qd + s * k.qd, x.theta + s * k.theta, x.thetad + s * k.thetad};
+  };
+  const State k1 = derivative(x);
+  const State k2 = derivative(ahead(k1, 0.5 * h));
+  const State k3 = derivative(ahead(k2, 0.5 * h));
+  const State k4 = derivative(ahead(k3, h));
+  const double w = h / 6.0;
+  q_ += w * (k1.q + 2.0 * k2.q + 2.0 * k3.q + k4.q);
+  qd_ += w * (k1.qd + 2.0 * k2.qd + 2.0 * k3.qd + k4.qd);
+  theta_ += w * (k1.theta + 2.0 * k2.theta + 2.0 * k3.theta + k4.theta);
+  thetad_ += w * (k1.thetad + 2.0 * k2.thetad + 2.0 * k3.thetad + k4.thetad);
+
+  for (int j = 0; j < N; ++j) {
+    const double c = effects_.coulomb_nm(j);
+    if (elastic_(j) != 0.0 && c > 0.0 && motor_stuck_(j) == 0.0) {
+      const double b = motor_inertia_(j);
+      const double v_rk4 = thetad_(j);
+      thetad_(j) = slide_or_stick(v_rk4, h * c / b, h * motor_viscous_proj_(j) / b);
+      theta_(j) += 0.5 * h * (thetad_(j) - v_rk4);
+    }
+  }
+  // With N == 1 the only joint is elastic, so there is no rigid joint to project.
+  if constexpr (N > 1) {
+    if (rigid_coulomb_.maxCoeff() > 0.0) {
+      apply_friction(
+          link_model_, rigid_coulomb_, viscous_projection_, h, friction_impulse_, q_, qd_);
+    }
+  }
+  clamp_to_stops(model_, q_, qd_);
 }
 
 template <int N>
@@ -194,6 +373,33 @@ void SimPlant<N>::step(const VecN<N>& tau_cmd, double dt_s) {
     }
     const double cap = model_.joints[static_cast<std::size_t>(j)].tau_max;
     tau_applied_(j) = std::clamp(tau_lagged_(j), -cap, cap);
+  }
+
+  if (has_elastic_) {
+    const Eigen::LLT<MatN<N>> llt(mass_matrix(link_model_, q_));
+    double omega2 = 0.0;
+    for (int j = 0; j < N; ++j) {
+      if (elastic_(j) != 0.0) {
+        const VecN<N> w_col = llt.solve(VecN<N>::Unit(j));  // column j of M_link^-1
+        omega2 = std::max(omega2, stiffness_max_(j) * ((1.0 / motor_inertia_(j)) + w_col(j)));
+      }
+    }
+    const double n_real = std::ceil(dt_s * std::sqrt(omega2) / kOmegaStep);
+    const int n = std::isfinite(n_real) ? std::clamp(static_cast<int>(n_real), 1, kMaxSubsteps)
+                                        : kMaxSubsteps;
+    for (int k = 0; k < n; ++k) {
+      substep(dt_s / n);
+    }
+    tau_spring_ = spring(State{q_, qd_, theta_, thetad_});
+    for (int j = 0; j < N; ++j) {
+      if (elastic_(j) == 0.0) {
+        theta_(j) = q_(j);
+        thetad_(j) = qd_(j);
+        tau_spring_(j) = tau_applied_(j);
+      }
+    }
+    time_s_ += dt_s;
+    return;
   }
 
   // Classical RK4 on (q, qd) with tau_applied held constant, without the friction of the
@@ -215,19 +421,11 @@ void SimPlant<N>::step(const VecN<N>& tau_cmd, double dt_s) {
   if (has_coulomb_) {
     apply_friction(model_, effects_.coulomb_nm, viscous_projection_, h, friction_impulse_, q_, qd_);
   }
-
-  // Hard joint stops: clamp the position, drop the velocity pointing out of the range.
-  for (std::size_t i = 0; i < static_cast<std::size_t>(N); ++i) {
-    const auto j = static_cast<Eigen::Index>(i);
-    const model::JointParams& joint = model_.joints[i];
-    if (q_(j) >= joint.q_max) {
-      q_(j) = joint.q_max;
-      qd_(j) = qd_(j) > 0.0 ? 0.0 : qd_(j);
-    } else if (q_(j) <= joint.q_min) {
-      q_(j) = joint.q_min;
-      qd_(j) = qd_(j) < 0.0 ? 0.0 : qd_(j);
-    }
-  }
+  clamp_to_stops(model_, q_, qd_);
+  // Rigid plant: the motor is the link.
+  theta_ = q_;
+  thetad_ = qd_;
+  tau_spring_ = tau_applied_;
   time_s_ += dt_s;
 }
 

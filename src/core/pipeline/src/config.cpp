@@ -477,6 +477,48 @@ void read_actuator_limits(Reader& a, imperfect::ActuatorConfig<N>& act) {
   }
 }
 
+// Transmission group (realism-2 design 6.2): every key a scalar or N values; k3 == 0 is rigid,
+// an elastic joint needs k1, k2 > 0 and 0 < t1 < t2.
+template <int N>
+void read_transmission(Reader& x, imperfect::TransmissionConfig<N>& t) {
+  x.vector<N>("stiffness_k1_nm_rad", kNonNegative, true, t.stiffness_k1_nm_rad);
+  x.vector<N>("stiffness_k2_nm_rad", kNonNegative, true, t.stiffness_k2_nm_rad);
+  x.vector<N>("stiffness_k3_nm_rad", kNonNegative, true, t.stiffness_k3_nm_rad);
+  x.vector<N>("torque_t1_nm", kNonNegative, true, t.torque_t1_nm);
+  x.vector<N>("torque_t2_nm", kNonNegative, true, t.torque_t2_nm);
+  // Optional: an absent key keeps the TransmissionConfig default (1 % damping, no error, no
+  // lost motion, ratio 100).
+  if (x.has("damping_ratio")) {
+    x.vector<N>("damping_ratio", kNonNegative, true, t.damping_ratio);
+  }
+  if (x.has("error_amp_rad")) {
+    x.vector<N>("error_amp_rad", kNonNegative, true, t.error_amp_rad);
+  }
+  if (x.has("lost_motion_rad")) {
+    x.vector<N>("lost_motion_rad", kNonNegative, true, t.lost_motion_rad);
+  }
+  if (x.has("ratio")) {
+    x.vector<N>("ratio", kPositive, true, t.ratio);
+  }
+  for (int j = 0; j < N; ++j) {
+    if (!(t.stiffness_k3_nm_rad[j] > 0.0)) {
+      continue;
+    }
+    const std::string at = "[" + std::to_string(j) + "]";
+    if (!(t.stiffness_k1_nm_rad[j] > 0.0)) {
+      x.fail("stiffness_k1_nm_rad" + at, "must be > 0 when stiffness_k3_nm_rad > 0");
+    }
+    if (!(t.stiffness_k2_nm_rad[j] > 0.0)) {
+      x.fail("stiffness_k2_nm_rad" + at, "must be > 0 when stiffness_k3_nm_rad > 0");
+    }
+    if (!(t.torque_t1_nm[j] > 0.0)) {
+      x.fail("torque_t1_nm" + at, "must be > 0 when stiffness_k3_nm_rad > 0");
+    } else if (!(t.torque_t2_nm[j] > t.torque_t1_nm[j])) {
+      x.fail("torque_t2_nm" + at, "must be > torque_t1_nm when stiffness_k3_nm_rad > 0");
+    }
+  }
+}
+
 template <int N>
 void read_imperfections(Reader& root, imperfect::ImperfectionConfig<N>& c) {
   Reader m = root.map("imperfections");
@@ -492,6 +534,18 @@ void read_imperfections(Reader& root, imperfect::ImperfectionConfig<N>& c) {
   s.vector<N>("qd_filter_hz", kPositive, true, c.sensor.qd_filter_hz);
   s.vector<N>("qd_noise_std_rad_s", kNonNegative, true, c.sensor.qd_noise_std_rad_s);
   delay(s, "sensor_delay_cycles", c.sensor.sensor_delay_cycles);
+  // Optional (feature transmission): absent reads the link encoder.
+  if (s.has("position_source")) {
+    std::string v;
+    if (s.scalar("position_source", v)) {
+      if (v == "link" || v == "motor") {
+        c.sensor.position_source =
+            v == "motor" ? imperfect::PositionSource::kMotor : imperfect::PositionSource::kLink;
+      } else {
+        s.fail("position_source", "expected link or motor, got '" + v + "'");
+      }
+    }
+  }
 
   Reader a = m.map("actuator");
   imperfect::ActuatorConfig<N>& act = c.actuator;
@@ -540,6 +594,12 @@ void read_imperfections(Reader& root, imperfect::ImperfectionConfig<N>& c) {
     k.number("latency_burst_prob", kProbability, comm.latency_burst_prob);
     delay(k, "burst_cycles", comm.burst_cycles);
     k.finish();
+  }
+  if (m.has("transmission")) {
+    Reader x = m.map("transmission");
+    x.scalar("source", source);
+    read_transmission<N>(x, c.transmission);
+    x.finish();
   }
   for (Reader* r : {&s, &a, &f, &d, &t, &m}) {
     r->finish();

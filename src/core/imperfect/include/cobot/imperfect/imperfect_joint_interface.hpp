@@ -10,10 +10,12 @@
 
 // Decorator that makes any JointInterface imperfect (feature `imperfect-io`, design 11.1).
 // read():  delay -> offset -> noise -> quantisation of q; qd either noisy or from the
-//          low-passed difference of the output q.
+//          low-passed difference of the output q. With sensor.position_source kMotor and a
+//          motor_valid inner state, q_motor / qd_motor are the raw q / qd (feature transmission).
 // write(): scale error -> ripple (phase from the last true q read from the inner interface)
 //          -> deadband -> resolution rounding -> command delay -> slew limit -> torque-speed
-//          ceiling (peak torque, knee and zero-torque speeds scaled by the bus voltage, which
+//          ceiling (at qd_motor when motor_valid, else qd; peak torque, knee and zero-torque
+//          speeds scaled by the bus voltage, which
 //          sags with the previous cycle's motoring power; realism-2 design 6.1). Friction and motor
 //          lag are plant effects (dynamics::PlantEffects) in bench; on the Gazebo path they are
 //          approximated here (friction from the last measured qd, lag as a first-order filter) when

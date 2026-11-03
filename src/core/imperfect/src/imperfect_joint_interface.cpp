@@ -164,7 +164,8 @@ Status ImperfectJointInterface<N>::read(JointState<N>& out) {
     return status;
   }
   q_last_true_ = fresh.q;
-  qd_last_true_ = fresh.qd;
+  // The torque-speed ceiling and the bus power see the motor speed when it is measured.
+  qd_last_true_ = fresh.motor_valid ? fresh.qd_motor : fresh.qd;
 
   const SensorConfig<N>& sensor = config_.sensor;
   const int k = reads_;
@@ -187,10 +188,13 @@ Status ImperfectJointInterface<N>::read(JointState<N>& out) {
   std::normal_distribution<double> unit(0.0, 1.0);
   common::VecN<N> q_out;
   common::VecN<N> qd_out;
+  const bool motor = sensor.position_source == PositionSource::kMotor && delayed.motor_valid;
+  const common::VecN<N>& q_raw = motor ? delayed.q_motor : delayed.q;
+  const common::VecN<N>& qd_raw = motor ? delayed.qd_motor : delayed.qd;
   for (int j = 0; j < N; ++j) {
     // Each effect is applied only when configured, so an all-zero config is bit-identical
     // (adding +0.0 would turn an input of -0.0 into +0.0).
-    double q = delayed.q[j];
+    double q = q_raw[j];
     if (sensor.q_offset_std_rad[j] > 0.0) {
       q += q_offset_[j];
     }
@@ -209,7 +213,7 @@ Status ImperfectJointInterface<N>::read(JointState<N>& out) {
       qd_filtered_[j] += alpha * (raw - qd_filtered_[j]);
       qd_out[j] = qd_filtered_[j];
     } else {
-      double qd = delayed.qd[j];
+      double qd = qd_raw[j];
       if (sensor.qd_noise_std_rad_s[j] > 0.0) {
         qd += sensor.qd_noise_std_rad_s[j] * unit(rng_);
       }
@@ -224,6 +228,9 @@ Status ImperfectJointInterface<N>::read(JointState<N>& out) {
   out.qd = qd_out;
   out.tau_measured = delayed.tau_measured;
   out.tau_valid = delayed.tau_valid;
+  out.q_motor = delayed.q_motor;
+  out.qd_motor = delayed.qd_motor;
+  out.motor_valid = delayed.motor_valid;
   last_out_ = out;
   have_out_ = true;
   return status;

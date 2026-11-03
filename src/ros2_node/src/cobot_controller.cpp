@@ -281,6 +281,17 @@ class CobotController final : public ci::ControllerInterface {
                   imp_path.c_str(),
                   profile.timing.period_jitter_std_us);
     }
+    if (profile.sensor.position_source == cobot::imperfect::PositionSource::kMotor) {
+      RCLCPP_WARN(log,
+                  "%s: imperfections.sensor.position_source = motor has no motor encoder on the "
+                  "Gazebo path (rigid joints); the link position is used",
+                  imp_path.c_str());
+    }
+    if (profile.transmission.stiffness_k3_nm_rad.maxCoeff() > 0.0) {
+      RCLCPP_WARN(log,
+                  "%s: imperfections.transmission ignored on the Gazebo path (bench only)",
+                  imp_path.c_str());
+    }
     profile.friction = cobot::imperfect::FrictionConfig<kN>{};  // in the physics (<dynamics>)
     const cobot::common::Result<cobot::model::UrdfChain> chain =
         cobot::model::parse_urdf_chain(c.urdf_path, c.base_link, c.tip_link);

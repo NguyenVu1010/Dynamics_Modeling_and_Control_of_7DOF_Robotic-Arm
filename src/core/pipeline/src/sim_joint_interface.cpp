@@ -40,6 +40,9 @@ common::Status SimJointInterface<N>::read(hal::JointState<N>& out) {
   out.qd = plant_.qd();
   out.tau_measured = plant_.tau_applied();
   out.tau_valid = true;
+  out.q_motor = plant_.q_motor();
+  out.qd_motor = plant_.qd_motor();
+  out.motor_valid = true;
   return common::Status::ok();
 }
 
