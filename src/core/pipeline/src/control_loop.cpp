@@ -11,6 +11,8 @@
 
 #include "cobot/common/dof.hpp"
 #include "cobot/common/lie.hpp"
+#include "cobot/dynamics/dynamics.hpp"
+#include "cobot/dynamics/harmonic_spring.hpp"
 #include "cobot/kinematics/kinematics.hpp"
 
 namespace cobot::pipeline {
@@ -99,7 +101,27 @@ ControlLoop<N>::ControlLoop(const model::Model<N>& model, const Config<N>& confi
       hold_(model, config.computed_torque) {}
 
 template <int N>
-Status ControlLoop<N>::start(const JointState<N>& initial) {
+const JointState<N>& ControlLoop<N>::compensated(const JointState<N>& measured) {
+  const DeflectionCompConfig<N>& d = config_.deflection_comp;
+  if (!d.enabled || !measured.q_from_motor || !measured.q.allFinite()) {
+    return measured;
+  }
+  const common::VecN<N> g = dynamics::gravity_torque(model_, measured.q);
+  state_hat_ = measured;
+  for (int j = 0; j < N; ++j) {
+    state_hat_.q(j) -= dynamics::harmonic_spring_deflection(g(j),
+                                                            d.stiffness_k1_nm_rad(j),
+                                                            d.stiffness_k2_nm_rad(j),
+                                                            d.stiffness_k3_nm_rad(j),
+                                                            d.torque_t1_nm(j),
+                                                            d.torque_t2_nm(j));
+  }
+  return state_hat_;
+}
+
+template <int N>
+Status ControlLoop<N>::start(const JointState<N>& measured) {
+  const JointState<N>& initial = compensated(measured);
   if (!state_finite(initial)) {
     return Status::error("control loop start: non-finite initial state");
   }
@@ -126,7 +148,7 @@ Status ControlLoop<N>::start(const JointState<N>& initial) {
 }
 
 template <int N>
-Status ControlLoop<N>::step(const JointState<N>& state, JointCommand<N>& out) {
+Status ControlLoop<N>::step(const JointState<N>& measured, JointCommand<N>& out) {
   if (mode_ == LoopMode::kIdle) {
     out.tau.setZero();
     return Status::error("control loop: step before start");
@@ -134,6 +156,7 @@ Status ControlLoop<N>::step(const JointState<N>& state, JointCommand<N>& out) {
   const bool timed = !config_.deterministic;
   const std::chrono::steady_clock::time_point t0 =
       timed ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+  const JointState<N>& state = compensated(measured);
 
   const bool finite = state_finite(state);
   const double t = common::seconds_between(t_start_, state.t);
@@ -305,7 +328,8 @@ void ControlLoop<N>::request_stop() {
 }
 
 template <int N>
-Status ControlLoop<N>::reset(const JointState<N>& state) {
+Status ControlLoop<N>::reset(const JointState<N>& measured) {
+  const JointState<N>& state = compensated(measured);
   if (!external()) {
     return Status::error("reset: command_source is config");
   }

@@ -81,3 +81,35 @@ RK4 cũ, nên kết quả trùng từng bit với trước tính năng (test `Tr
 `SimJointInterface` điền `q_motor`, `qd_motor`, `motor_valid = true`. Bộ trang trí với
 `sensor.position_source: motor` lấy `q_motor`/`qd_motor` làm vị trí và vận tốc thô khi
 `motor_valid`, ngược lại dùng khâu. Trần mô-men theo tốc độ dùng `qd_motor` khi hợp lệ.
+
+## Bù độ xoắn tĩnh phía bộ điều khiển
+
+Vòng vị trí khép bằng encoder động cơ (`position_source: motor`) ổn định ở ω = 80 rad/s, nhưng
+giữ `θ` (quy về phía khâu) đúng tham chiếu, nên khâu thật lệch đúng bằng độ xoắn tĩnh
+`φ = q_motor − q`, tới cỡ `1e-3` rad ở khớp 2 và 4 tại home (TCP lệch cỡ 1,6 mm). Ở trạng thái
+tĩnh lò xo mang mô-men trọng lực, `τ_s(φ) = g(q)`, nên bộ điều khiển ước lượng vị trí khâu bằng
+
+```text
+q̂_j = q_motor,j − φ⁻¹_j(g_j(q_motor))
+```
+
+với `φ⁻¹ = harmonic_spring_deflection`, nghịch đảo đúng của `harmonic_spring_torque` (tuyến tính
+từng đoạn, lẻ, cùng các điểm gãy `t1`, `t2`), độ cứng danh định ở `cobot.deflection_comp` (tách
+khỏi `imperfections.transmission` của plant để nghiên cứu sai lệch), `g` của mô hình bộ điều khiển
+(có tải danh định). `ControlLoop` thay `q` bằng `q̂` ngay khi nhận trạng thái có `q_from_motor`
+(chỉ bộ trang trí đặt cờ này), trước kiểm tra an toàn, CLIK, mô-men và log; `q̇` giữ nguyên. Một
+lần tính trọng lực mỗi chu kỳ, không cấp phát. Encoder khâu, hoặc tắt bù: trùng từng bit với trước.
+
+Giới hạn: `g` được tính tại `q_motor` thay vì `q` thật, sai cỡ `|∂g/∂q| φ / k` (≲ `1e-5` rad);
+không bù sai số truyền động, lost motion, độ xoắn động (quán tính, ma sát khi chuyển động); sai độ
+cứng danh định để lại phần tương ứng của độ xoắn (cứng thật bằng 0,8 lần danh định: còn 20 %).
+
+Đo (E2E-01, khớp đàn hồi catalog, mọi thứ khác lý tưởng, max_j |q_thật − q_ref| trong 0,5 s cuối,
+TCP thật ở chu kỳ cuối):
+
+| Plant | Bù | Sai số khâu thật (rad) | TCP (mm) |
+| --- | --- | --- | --- |
+| danh định | tắt | 9,910e-4 | 1,60 |
+| danh định | bật | 1,197e-6 | 0,0014 |
+| mềm hơn 20 % | tắt | 1,239e-3 | 2,00 |
+| mềm hơn 20 % | bật | 2,480e-4 | 0,40 |

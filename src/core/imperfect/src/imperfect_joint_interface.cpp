@@ -231,6 +231,7 @@ Status ImperfectJointInterface<N>::read(JointState<N>& out) {
   out.q_motor = delayed.q_motor;
   out.qd_motor = delayed.qd_motor;
   out.motor_valid = delayed.motor_valid;
+  out.q_from_motor = motor;
   last_out_ = out;
   have_out_ = true;
   return status;

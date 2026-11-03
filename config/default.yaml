@@ -65,3 +65,15 @@ cobot:
   limits:
     rated_torque_nm: [87, 87, 52, 52, 10, 10, 10]        # N m, > 0, R: continuous, rms_tau_ratio
     peak_torque_nm: [204, 204, 107, 107, 36, 36, 36]     # N m, 0 < P <= M: controller tau_max
+  # Optional (feature deflection-comp, realism-2 design 4.7); missing: disabled. With positions
+  # from the motor encoder (state q_from_motor, sensor.position_source: motor) the controller works
+  # on q - deflection(g(q)): the static Harmonic Drive deflection under the gravity torque of its
+  # model, from these nominal values (catalog: SHG-25 joints 1-2, SHG-20 joints 3-4, SHG-14 joints
+  # 5-7), kept apart from the plant's imperfections.transmission. Inactive on the link encoder.
+  deflection_comp:
+    enabled: true
+    stiffness_k1_nm_rad: [31000, 31000, 13000, 13000, 4700, 4700, 4700]   # N m/rad, > 0
+    stiffness_k2_nm_rad: [50000, 50000, 25000, 25000, 6100, 6100, 6100]   # N m/rad, > 0
+    stiffness_k3_nm_rad: [57000, 57000, 29000, 29000, 7100, 7100, 7100]   # N m/rad, > 0
+    torque_t1_nm: [14, 14, 7, 7, 2, 2, 2]                                 # N m, > 0
+    torque_t2_nm: [48, 48, 25, 25, 6.9, 6.9, 6.9]                         # N m, > t1

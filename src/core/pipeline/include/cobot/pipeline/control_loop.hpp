@@ -37,6 +37,13 @@
 // no kFinished and no hold_s. The safety checks are the same in every mode, standby included;
 // reset() is the only way out of kHolding. load(), request_stop() and reset() allocate nothing
 // when they succeed (a rejection builds its message).
+//
+// Deflection compensation (feature deflection-comp, DeflectionCompConfig): when
+// config.deflection_comp.enabled and the state has q_from_motor, start(), step() and reset() work
+// on the state with q replaced by q_hat = q - harmonic_spring_deflection(g(q)) (one gravity
+// evaluation of the controller's model per call, qd unchanged) before anything else: the safety
+// checks, CLIK, the computed torque, the hold and the log (LogRecord::q, T_b_e) all see q_hat.
+// Otherwise the state is used as given, bit for bit.
 namespace cobot::pipeline {
 
 using common::Status;
@@ -82,6 +89,8 @@ class ControlLoop {
   void enter_standby(const common::Pose& pose);
   void advance_external(double dt);  // kTracking: sets reference_, advances tau_ or ends
   bool external() const { return config_.command_source == CommandSource::kExternal; }
+  // `measured`, or state_hat_ holding it with q_hat when the compensation applies.
+  const JointState<N>& compensated(const JointState<N>& measured);
 
   model::Model<N> model_;
   Config<N> config_;
@@ -104,6 +113,7 @@ class ControlLoop {
   double tau_ = 0.0;                     // trajectory time, s
   bool stopping_ = false;
   std::int64_t stop_steps_ = 0;  // steps since request_stop()
+  JointState<N> state_hat_;      // last compensated state (deflection-comp)
 };
 
 }  // namespace cobot::pipeline

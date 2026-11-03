@@ -118,10 +118,10 @@ e1..e6, step_us, hold
 | --- | --- |
 | `t_ns` | `Timestamp` of the cycle |
 | `mode` | one of `idle`, `tracking`, `holding`, `finished`, `fault`, `standby` (external command mode: holding a fixed Cartesian reference through CLIK and computed torque, waiting for a trajectory; not counted as tracking error) |
-| `q*`, `qd*` | measured joint position (rad) and velocity (rad/s) |
+| `q*`, `qd*` | the controller's working joint position (rad) and the measured velocity (rad/s). `q` is the raw reading, except when `cobot.deflection_comp.enabled` is true and the state comes from the motor encoder (`JointState::q_from_motor`): then it is `q_hat = q - deflection(g(q))`, the static spring deflection of the controller model's gravity torque removed. `qd` is always the raw reading |
 | `qref*`, `qdref*` | CLIK reference `q_d`, `q̇_d` |
 | `tau*` | commanded torque (N·m), after clamping |
-| `px..pz`, `rx..rz` | position (m) and `so3_log(R_b_e)` (rad) of `T_b_e` |
+| `px..pz`, `rx..rz` | position (m) and `so3_log(R_b_e)` (rad) of `T_b_e`, the forward kinematics of the logged `q*` (so of `q_hat` when the deflection compensation is active) |
 | `pdx..pdz`, `rdx..rdz` | same for `T_b_d` |
 | `e1..e6` | CLIK `task_error`, order `[v; ω]`; 0 in `holding` rows (CLIK is not stepped there, `qref*` is the hold target and `qdref*` is 0) |
 | `step_us` | wall time of `ControlLoop::step()` (µs); written as 0 when `deterministic: true` so that runs compare byte for byte (timing comes from `cobot_bench timing`) |

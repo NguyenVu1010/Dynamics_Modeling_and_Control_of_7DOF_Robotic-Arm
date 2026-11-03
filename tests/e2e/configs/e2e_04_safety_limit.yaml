@@ -59,3 +59,10 @@ cobot:
   limits:
     rated_torque_nm: [87, 87, 52, 52, 10, 10, 10]
     peak_torque_nm: [204, 204, 107, 107, 36, 36, 36]
+  deflection_comp:                     # same as default.yaml; inactive here (link encoder)
+    enabled: true
+    stiffness_k1_nm_rad: [31000, 31000, 13000, 13000, 4700, 4700, 4700]
+    stiffness_k2_nm_rad: [50000, 50000, 25000, 25000, 6100, 6100, 6100]
+    stiffness_k3_nm_rad: [57000, 57000, 29000, 29000, 7100, 7100, 7100]
+    torque_t1_nm: [14, 14, 7, 7, 2, 2, 2]
+    torque_t2_nm: [48, 48, 25, 25, 6.9, 6.9, 6.9]

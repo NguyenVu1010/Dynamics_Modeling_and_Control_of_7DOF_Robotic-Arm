@@ -23,6 +23,10 @@ struct JointState {
   VecN<N> q_motor = VecN<N>::Zero();   // rad
   VecN<N> qd_motor = VecN<N>::Zero();  // rad/s
   bool motor_valid = false;
+  // True when q / qd above come from the motor encoder (imperfect::ImperfectJointInterface with
+  // position_source motor and a motor_valid reading); every other producer leaves it false. The
+  // controller then removes the static spring deflection (pipeline::DeflectionCompConfig).
+  bool q_from_motor = false;
 };
 
 template <int N>
