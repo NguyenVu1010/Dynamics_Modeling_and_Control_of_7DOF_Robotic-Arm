@@ -28,12 +28,14 @@
 
 // Region layout (all offsets fixed by the header's capacity):
 //   [ShmHeader | RecorderControl | buffer 0 | buffer 1 | sequence[2 * capacity]]
-// Exporting reads a buffer of n written rows as the records n - capacity + 2 .. n once it has
-// wrapped (the slot the next record() overwrites is left out) and 1 .. n before. The records of
-// one buffer are consecutive record numbers, so the first one is sequence(last) - n + 1; every
-// record before it was in the other buffer, exported and released by the controller, or is
-// counted by ShmHeader::exported. A live buffer is re-read after the copy (seqlock): rows the
-// writer may have reached meanwhile are dropped, and a swap meanwhile restarts the export.
+// Exporting reads the live buffer of n written rows as the records n - capacity + 2 .. n once it
+// is full (the slot the next record() overwrites, possibly mid-write by a writer killed there, is
+// left out) and 1 .. n before. A retired buffer is never written again, so it is read whole:
+// n - capacity + 1 .. n. The records of one buffer are consecutive record numbers, so the first
+// one is sequence(last) - n + 1; every record before it was in the other buffer, exported and
+// released by the controller, or is counted by ShmHeader::exported. A live buffer is re-read after
+// the copy (seqlock): rows the writer may have reached meanwhile are dropped, and a swap meanwhile
+// restarts the export.
 namespace cobot::pipeline {
 namespace {
 
@@ -158,11 +160,13 @@ struct Collected {
   std::uint64_t lost = 0;
 };
 
-// Appends the unexported rows of `buffer` to `out`; false when a live buffer was reset meanwhile.
+// Appends the unexported rows of `buffer` to `out`; false when the buffer was reset meanwhile.
+// `live`: the active buffer of a writer that may still be running (or died inside record()).
 template <int N>
 bool collect(const RecorderMemory<N>& m,
              std::uint32_t buffer,
              std::uint64_t exported,
+             bool live,
              Collected<N>& out) {
   const std::uint64_t cap = m.capacity;
   const std::uint64_t n = m.control->written[buffer].load(std::memory_order_acquire);
@@ -172,7 +176,8 @@ bool collect(const RecorderMemory<N>& m,
   const std::uint64_t newest = m.sequence[buffer * cap + (n - 1) % cap];
   const std::uint64_t before = newest - n;  // record number before this buffer's first row
   const std::uint64_t floor = std::max(exported, before);
-  const std::uint64_t first = n > cap ? n - cap + 2 : 1;  // buffer-local index, 1-based
+  // Buffer-local index, 1-based. A full live buffer's slot (n % cap) is the next one written.
+  const std::uint64_t first = live ? (n >= cap ? n - cap + 2 : 1) : (n > cap ? n - cap + 1 : 1);
   const std::uint64_t from = std::max(first, floor - before + 1);
   const std::size_t start = out.rows.size();
   for (std::uint64_t j = from; j <= n; ++j) {
@@ -184,7 +189,7 @@ bool collect(const RecorderMemory<N>& m,
   if (again < n) {
     return false;
   }
-  if (again > cap && again - cap + 2 > from) {
+  if (live && again >= cap && again - cap + 2 > from) {
     const auto drop = static_cast<std::size_t>(
         std::min<std::uint64_t>(again - cap + 2 - from, out.rows.size() - start));
     out.rows.erase(out.rows.begin() + static_cast<std::ptrdiff_t>(start),
@@ -398,9 +403,9 @@ common::Result<DumpResult> ShmStorage<N>::export_unexported(const std::filesyste
     // An empty active buffer next to a full one: the writer died inside the swap, before it
     // acknowledged it (every swap is followed by a record into the new buffer).
     const bool retired = done || c.written[active].load(std::memory_order_acquire) == 0;
-    bool ok = !retired || collect<N>(m, 1U - active, exported, got);
+    bool ok = !retired || collect<N>(m, 1U - active, exported, false, got);
     if (scope == ShmExport::kAll) {
-      ok = ok && collect<N>(m, active, std::max(exported, got.last), got);
+      ok = ok && collect<N>(m, active, std::max(exported, got.last), true, got);
     }
     // A swap meanwhile changes `active`; a second one needs a release, which waits for this
     // export (the controller releases only after exporting).

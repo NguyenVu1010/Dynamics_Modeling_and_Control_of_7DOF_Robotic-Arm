@@ -137,8 +137,8 @@ region in place. `cobot_logdump <controller> [--out <csv>] [--keep] [--remove]` 
 `ros2 run cobot_ros2 cobot_logdump`) exports the rows not yet exported to a Run CSV, by default
 `./<controller>-<YYYYmmdd-HHMMSS>.csv`. At activation the controller writes the unexported rows of
 an old region to `<log_path>.recovered-<YYYYmmdd-HHMMSS>.csv`, removes it and creates a new one.
-Every row is exported exactly once, oldest first; once a buffer has wrapped, the oldest row (the
-slot the next record overwrites) is never exported.
+Every row is exported exactly once, oldest first; once the buffer being written is full, its
+oldest row (the slot the next record overwrites) is never exported.
 
 ### Summary CSV
 
