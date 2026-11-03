@@ -176,22 +176,24 @@ std::vector<std::uint64_t> kill_points(std::uint64_t lo, std::uint64_t hi) {
   return out;
 }
 
-constexpr std::size_t kLoopCapacity = 3000;
+// Small enough that the wrapped case finishes in the Debug + ASan build (about 60 steps/s there).
+constexpr std::size_t kLoopCapacity = 300;
 
-// K in [100, 2500] < capacity 3000: nothing wrapped. The child stops stepping at 3000 records so
-// the run can never wrap before the kill. Every record published before the kill is exported:
-// rows == recorded (read after the kill), t = 0, 1, 2, ... ms, every row complete and q finite.
+// K in [10, 250] < capacity 300: nothing wrapped. The child stops stepping at capacity - 1 records
+// so the live buffer is never full before the kill (a full one exports capacity - 1 rows). Every
+// record published before the kill is exported: rows == recorded (read after the kill), t = 0, 1,
+// 2, ... ms, every row complete and q finite.
 TEST(ShmCrash, KilledLoopWithoutWrapExportsEveryPublishedRecord) {
   const auto setup = test::load_setup();
   ASSERT_TRUE(setup);
   const fs::path dir = out_dir("crash_no_wrap");
-  for (const std::uint64_t k : kill_points(100, 2500)) {
+  for (const std::uint64_t k : kill_points(10, 250)) {
     SCOPED_TRACE("K = " + std::to_string(k));
     const auto out = run_loop_and_kill(
-        *setup, kLoopCapacity, k, kLoopCapacity, dir / ("k" + std::to_string(k) + ".csv"));
+        *setup, kLoopCapacity, k, kLoopCapacity - 1, dir / ("k" + std::to_string(k) + ".csv"));
     ASSERT_TRUE(out);
     ASSERT_GE(out->recorded, k);
-    ASSERT_LE(out->recorded, kLoopCapacity);
+    ASSERT_LE(out->recorded, kLoopCapacity - 1);
     EXPECT_EQ(out->dump.rows, out->recorded);
     EXPECT_EQ(out->dump.lost, 0U);
     EXPECT_EQ(out->csv.header_lines, 1);
@@ -201,15 +203,15 @@ TEST(ShmCrash, KilledLoopWithoutWrapExportsEveryPublishedRecord) {
   }
 }
 
-// K in [6000, 9000] > 2 * capacity: the buffer wrapped. The dump has the newest capacity - 1
+// K in [600, 900] > 2 * capacity: the buffer wrapped. The dump has the newest capacity - 1
 // records (the slot the next record() would overwrite is skipped): with R recorded (record i at
-// t = (i - 1) ms), rows are records R - 2998 .. R, t = (R - 2999) .. (R - 1) ms, contiguous;
-// lost = R - 2999.
+// t = (i - 1) ms), rows are records R - 298 .. R, t = (R - 299) .. (R - 1) ms, contiguous;
+// lost = R - 299.
 TEST(ShmCrash, KilledLoopAfterWrapExportsTheNewestCapacityMinusOne) {
   const auto setup = test::load_setup();
   ASSERT_TRUE(setup);
   const fs::path dir = out_dir("crash_wrapped");
-  for (const std::uint64_t k : kill_points(6000, 9000)) {
+  for (const std::uint64_t k : kill_points(600, 900)) {
     SCOPED_TRACE("K = " + std::to_string(k));
     const auto out = run_loop_and_kill(
         *setup, kLoopCapacity, k, kNever, dir / ("k" + std::to_string(k) + ".csv"));
