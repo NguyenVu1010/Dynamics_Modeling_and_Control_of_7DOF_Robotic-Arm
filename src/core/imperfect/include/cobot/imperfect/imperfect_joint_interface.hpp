@@ -11,7 +11,8 @@
 // Decorator that makes any JointInterface imperfect (feature `imperfect-io`, design 11.1).
 // read():  delay -> offset -> noise -> quantisation of q; qd either noisy or from the
 //          low-passed difference of the output q. With sensor.position_source kMotor and a
-//          motor_valid inner state, q_motor / qd_motor are the raw q / qd (feature transmission).
+//          motor_valid inner state, q_motor / qd_motor are the raw q / qd (feature transmission)
+//          and the output has q_from_motor set (false otherwise).
 // write(): scale error -> ripple (phase from the last true q read from the inner interface)
 //          -> deadband -> resolution rounding -> command delay -> slew limit -> torque-speed
 //          ceiling (at qd_motor when motor_valid, else qd; peak torque, knee and zero-torque

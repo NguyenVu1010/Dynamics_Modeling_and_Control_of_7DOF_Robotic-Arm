@@ -379,6 +379,31 @@ void read_limits(Reader& m, Config<N>& c) {
   l.finish();
 }
 
+// `deflection_comp` (feature deflection-comp): optional, every key required inside it. The values
+// are checked (> 0, t1 < t2 per joint) only when enabled.
+template <int N>
+void read_deflection_comp(Reader& m, DeflectionCompConfig<N>& d) {
+  if (!m.has("deflection_comp")) {
+    return;
+  }
+  Reader x = m.map("deflection_comp");
+  x.scalar("enabled", d.enabled);
+  const Rule& rule = d.enabled ? kPositive : kAny;
+  x.vector<N>("stiffness_k1_nm_rad", rule, false, d.stiffness_k1_nm_rad);
+  x.vector<N>("stiffness_k2_nm_rad", rule, false, d.stiffness_k2_nm_rad);
+  x.vector<N>("stiffness_k3_nm_rad", rule, false, d.stiffness_k3_nm_rad);
+  x.vector<N>("torque_t1_nm", rule, false, d.torque_t1_nm);
+  x.vector<N>("torque_t2_nm", rule, false, d.torque_t2_nm);
+  for (int j = 0; d.enabled && j < N; ++j) {
+    const double t1 = d.torque_t1_nm[j];
+    const double t2 = d.torque_t2_nm[j];
+    if (t1 > 0.0 && t2 > 0.0 && !(t2 > t1)) {
+      x.fail("torque_t2_nm[" + std::to_string(j) + "]", "must be > torque_t1_nm when enabled");
+    }
+  }
+  x.finish();
+}
+
 template <int N>
 void read_config(Reader& root, const fs::path& dir, Config<N>& c) {
   Reader m = root.map("cobot");
@@ -436,6 +461,7 @@ void read_config(Reader& root, const fs::path& dir, Config<N>& c) {
   c.log_output_dir = (dir / text).lexically_normal();
   read_external<N>(m, c);
   read_limits<N>(m, c);
+  read_deflection_comp<N>(m, c.deflection_comp);
   for (Reader* r : {&t, &k, &g, &s, &l, &m}) {
     r->finish();
   }

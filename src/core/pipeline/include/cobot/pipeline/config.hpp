@@ -63,6 +63,27 @@ struct JointLimitsConfig {
       VecN<N>::Constant(std::numeric_limits<double>::infinity());
 };
 
+// Static deflection compensation (feature deflection-comp, realism-2 design 4.7, ADR-019), YAML
+// `deflection_comp: {enabled, stiffness_k1_nm_rad, stiffness_k2_nm_rad, stiffness_k3_nm_rad,
+// torque_t1_nm, torque_t2_nm}` (every key required in the section, N values each). The section is
+// optional: missing means disabled. Nominal Harmonic Drive values on the controller side, kept
+// separate from the plant's imperfections.transmission so a mismatch can be studied. When enabled
+// every value is > 0 and t1 < t2 per joint.
+//
+// Applied by ControlLoop::step only when enabled and the state has q_from_motor: the loop works
+// on q_hat_j = q_j - harmonic_spring_deflection(g_j(q), k1_j, k2_j, k3_j, t1_j, t2_j), g the
+// gravity torque of the controller's model at the measured q; qd is unchanged. Not compensated:
+// transmission error, lost motion and dynamic (inertial, friction) deflection.
+template <int N>
+struct DeflectionCompConfig {
+  bool enabled = false;
+  VecN<N> stiffness_k1_nm_rad = VecN<N>::Zero();  // N m/rad
+  VecN<N> stiffness_k2_nm_rad = VecN<N>::Zero();  // N m/rad
+  VecN<N> stiffness_k3_nm_rad = VecN<N>::Zero();  // N m/rad
+  VecN<N> torque_t1_nm = VecN<N>::Zero();         // N m
+  VecN<N> torque_t2_nm = VecN<N>::Zero();         // N m
+};
+
 template <int N>
 struct Config {
   std::filesystem::path urdf_path;  // resolved relative to the YAML file's directory
@@ -90,6 +111,7 @@ struct Config {
   // Read after the URDF named above: load_config rejects peak > URDF effort, naming
   // "limits.peak_torque_nm[j]" (0-based j). Missing section: URDF effort for both.
   JointLimitsConfig<N> limits;
+  DeflectionCompConfig<N> deflection_comp;  // optional section: disabled
 };
 
 template <int N>
