@@ -74,14 +74,14 @@ TEST(ControlLoopSafety, UnreachableGoalHoldsBeforeJoint4Limit) {
       ASSERT_EQ(rig->loop.mode(), LoopMode::kHolding) << "hold never leaves, step " << k;
     }
     if ((k + 1) % 100 == 0) {
-      drain(rig->loop, records);
+      drain(rig->recorder, records);
     }
   }
-  drain(rig->loop, records);
+  drain(rig->recorder, records);
   ASSERT_GE(first_hold, 0) << "never reached kHolding";
   // Stopped before the limit: the plant's hard stop (distance 0) is never touched.
   EXPECT_GT(min_dist, 0.01);
-  EXPECT_EQ(rig->loop.log().dropped(), 0U);
+  EXPECT_EQ(rig->recorder.dropped(), 0U);
   ASSERT_EQ(records.size(), static_cast<std::size_t>(kSteps));
   for (std::size_t k = 0; k < records.size(); ++k) {
     EXPECT_TRUE(torque_ok(setup->model, records[k].tau)) << "record " << k;

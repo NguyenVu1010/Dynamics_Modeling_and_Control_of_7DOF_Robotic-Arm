@@ -72,7 +72,7 @@ TEST(LoopExternalStop, RequestStopMidSegmentDeceleratesAlongThePath) {
   const double tau0 = rig->loop.trajectory_time_s();
   ASSERT_NEAR(tau0, 3.0, 1.5e-3);
   std::vector<Record> before;
-  drain(rig->loop, before);
+  drain(rig->recorder, before);
 
   rig->loop.request_stop();
   EXPECT_EQ(rig->loop.mode(), LoopMode::kTracking);
@@ -89,7 +89,7 @@ TEST(LoopExternalStop, RequestStopMidSegmentDeceleratesAlongThePath) {
     }
   }
   std::vector<Record> recs;
-  drain(rig->loop, recs);
+  drain(rig->recorder, recs);
   ASSERT_EQ(rig->loop.mode(), LoopMode::kStandby) << "after " << steps << " steps";
   EXPECT_LE(steps, kStopSteps + 1);
   EXPECT_GE(steps, kStopSteps - 10);

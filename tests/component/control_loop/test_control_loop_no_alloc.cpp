@@ -68,8 +68,8 @@ void operator delete[](void* p, const std::nothrow_t& /*tag*/) noexcept {
 namespace cobot::pipeline::test {
 namespace {
 
-// The ring holds kLogCapacity - 1 = 8191 records (one slot stays empty).
-constexpr int kRingItems = static_cast<int>(kLogCapacity) - 1;
+// The rig's recorder (kStopWhenFull) holds kRigLogCapacity = 8191 records, as the former ring.
+constexpr int kRingItems = static_cast<int>(kRigLogCapacity);
 
 // One host cycle with only loop.step() under the allocation guards.
 void guarded_cycle(Rig& rig, State& s, Command& cmd, bool inject_nan, std::size_t& news) {
@@ -89,9 +89,9 @@ void guarded_cycle(Rig& rig, State& s, Command& cmd, bool inject_nan, std::size_
   rig.io.advance();
 }
 
-// Tracking until the ring is full (never drained), then a NaN read into kHolding and more
-// holding steps: no step allocates, a full ring drops and counts instead of blocking, and
-// the ring keeps the oldest 8191 records.
+// Tracking until the recorder is full (never drained), then a NaN read into kHolding and more
+// holding steps: no step allocates, a full kStopWhenFull recorder drops and counts instead of
+// blocking, and it keeps the oldest 8191 records.
 TEST(ControlLoopNoAlloc, StepDoesNotAllocateInTrackingHoldingAndWithAFullRing) {
   const auto setup = load_setup();
   ASSERT_TRUE(setup);
@@ -105,7 +105,7 @@ TEST(ControlLoopNoAlloc, StepDoesNotAllocateInTrackingHoldingAndWithAFullRing) {
     guarded_cycle(*rig, s, cmd, false, news);
   }
   EXPECT_EQ(rig->loop.mode(), LoopMode::kTracking);
-  EXPECT_EQ(rig->loop.log().dropped(), 9U);  // 8200 - 8191
+  EXPECT_EQ(rig->recorder.dropped(), 9U);  // 8200 - 8191
 
   guarded_cycle(*rig, s, cmd, true, news);
   EXPECT_EQ(rig->loop.mode(), LoopMode::kHolding);
@@ -115,18 +115,13 @@ TEST(ControlLoopNoAlloc, StepDoesNotAllocateInTrackingHoldingAndWithAFullRing) {
   }
   EXPECT_EQ(rig->loop.mode(), LoopMode::kHolding);
   EXPECT_EQ(news, 0U);
-  EXPECT_EQ(rig->loop.log().dropped(), 9U + 1U + 100U);  // NaN step + 100 holding steps
+  EXPECT_EQ(rig->recorder.dropped(), 9U + 1U + 100U);  // NaN step + 100 holding steps
 
-  Record r;
-  int popped = 0;
-  std::int64_t last_ns = -1;
-  while (rig->loop.log().pop(r)) {
-    if (popped == 0) {
-      EXPECT_EQ(r.t.ns, 0);
-    }
-    last_ns = r.t.ns;
-    ++popped;
-  }
+  const RecordSpan<kN> rows = rig->recorder.active();
+  const auto popped = static_cast<int>(rows.size());
+  ASSERT_GT(popped, 0);
+  EXPECT_EQ(rows[0].t.ns, 0);
+  const std::int64_t last_ns = rows[rows.size() - 1].t.ns;
   EXPECT_EQ(popped, kRingItems);
   EXPECT_EQ(last_ns, static_cast<std::int64_t>(kRingItems - 1) * 1000000);  // 8190 ms
 }

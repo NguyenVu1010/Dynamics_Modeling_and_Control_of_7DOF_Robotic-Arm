@@ -48,9 +48,19 @@ Vec feedforward(const control::FrictionCompensationConfig<kN>& f, const Vec& qd_
   return tau;
 }
 
-Record pop_one(ControlLoop<kN>& loop) {
+// A one-row recorder per loop: the row of the last step, read and cleared by pop_one.
+struct OneRowLog {
+  HeapStorage<kN> storage{1, 1};
+  Recorder<kN> recorder{storage.memory(), FullPolicy::kStopWhenFull};
+};
+
+Record pop_one(Recorder<kN>& recorder) {
   Record r;
-  EXPECT_TRUE(loop.log().pop(r));
+  EXPECT_EQ(recorder.size(), 1U);
+  if (recorder.size() > 0) {
+    r = recorder.active()[0];
+  }
+  recorder.clear();
   return r;
 }
 
@@ -60,7 +70,7 @@ Record pop_one(ControlLoop<kN>& loop) {
 // small and away from the clamp.
 struct Pair {
   Pair(const Setup& setup, const Config<kN>& off_cfg, const Config<kN>& on_cfg)
-      : off(setup.model, off_cfg), on(setup.model, on_cfg) {
+      : off(setup.model, off_cfg, &off_log.recorder), on(setup.model, on_cfg, &on_log.recorder) {
     state.t = common::Timestamp{0};
     state.q = setup.config.home_q_rad;
     EXPECT_TRUE(off.start(state).is_ok());
@@ -72,8 +82,8 @@ struct Pair {
     state.t = common::Timestamp{static_cast<std::int64_t>(k) * kStepNs};
     const bool ok_off = off.step(state, cmd_off).is_ok();
     const bool ok_on = on.step(state, cmd_on).is_ok();
-    rec_off = pop_one(off);
-    rec_on = pop_one(on);
+    rec_off = pop_one(off_log.recorder);
+    rec_on = pop_one(on_log.recorder);
     return ok_off && ok_on;
   }
 
@@ -83,6 +93,8 @@ struct Pair {
     state.qd = rec_off.qd_ref;
   }
 
+  OneRowLog off_log;  // before the loops, which keep pointers to the recorders
+  OneRowLog on_log;
   ControlLoop<kN> off;
   ControlLoop<kN> on;
   State state;
@@ -217,7 +229,8 @@ FrictionRun run_on_friction_plant(const Setup& setup, bool compensate) {
   effects.viscous_nm_s_rad = f.viscous_nm_s_rad;
   dynamics::SimPlant<kN> plant(setup.model, cfg.home_q_rad, effects);
   SimJointInterface<kN> io(plant, 1.0 / cfg.control_rate_hz);
-  ControlLoop<kN> loop(setup.model, cfg);
+  OneRowLog log;
+  ControlLoop<kN> loop(setup.model, cfg, &log.recorder);
   State s;
   EXPECT_TRUE(io.read(s).is_ok());
   EXPECT_TRUE(loop.start(s).is_ok());
@@ -231,7 +244,7 @@ FrictionRun run_on_friction_plant(const Setup& setup, bool compensate) {
     EXPECT_TRUE(loop.step(s, cmd).is_ok()) << "step " << k;
     EXPECT_TRUE(io.write(cmd).is_ok());
     io.advance();
-    const Record r = pop_one(loop);
+    const Record r = pop_one(log.recorder);
     run.all_tracking = run.all_tracking && r.mode == LoopMode::kTracking;
     run.torque_in_range = run.torque_in_range && torque_ok(setup.model, cmd.tau);
     sum_sq += (r.q_ref - r.q).squaredNorm();
