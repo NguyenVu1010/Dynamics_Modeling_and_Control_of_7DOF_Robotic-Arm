@@ -4,12 +4,24 @@
 launched controller's CSV writer: it writes the header and the first half of a Run CSV to the
 `log_path:=` argument at once, waits for SIGINT or SIGTERM, then appends the rest of the rows,
 logs {"signal"} and exits 0. Without a signal it gives up after FAKE_ROS2_MAX_S seconds
-(default 120) with exit 4 and leaves the CSV half written.
+(default 120) with exit 4 and leaves the CSV half written. While a launch runs it keeps a marker
+file (FAKE_ROS2_LOG + ".launch").
 
 Rows: t_ns = k * 1 ms up to FAKE_ROS2_T_END_S (default 1.0 s). First half: tip error 50 mm
 (transient, so a verdict taken before the launch is stopped fails). Second half: tip error set
 by FAKE_ROS2_MODE: empty = 0, pos4mm = 4 mm, fail = 10 mm. Other modes: nocsv = never writes
-a CSV; crash = exit 3 at once. q = qref everywhere, tau = 1 N*m.
+a CSV (and leaves no black-box region); crash = exit 3 at once; shortcsv = the second half is
+never written to log_path (the controller died: the CSV stays short, the region holds every row);
+csvlost = no CSV at log_path, the region holds every row. q = qref everywhere, tau = 1 N*m.
+
+Black-box log (feature blackbox-log):
+`ros2 service call /cobot_controller/dump_log std_srvs/srv/Trigger` is logged as
+{"dump_log": argv after `call`, "launch_running": bool} and prints a Trigger response; flag
+dumpfail = exit 1 with success=False, dumphang = no answer for 60 s.
+`ros2 run cobot_ros2 cobot_logdump <controller> --out CSV` is logged as {"logdump": argv after
+`run`}; it writes the whole Run CSV of the launch (header and every row, the second half as
+above) to CSV, prints `<rows> rows -> CSV` and exits 0; with nocsv, crash or noregion it prints
+the reason on stderr and exits 1 (no region).
 
 Any other subcommand (for example `ros2 control list_controllers`) is logged, reports
 cobot_controller as active and exits 0.
@@ -44,6 +56,20 @@ def row(k: int, rows: int, err: float) -> str:
     return ",".join(str(v) for v in vals)
 
 
+def row_count() -> int:
+    t_end_ns = round(float(os.environ.get("FAKE_ROS2_T_END_S", "1.0")) * 1e9)
+    return t_end_ns // DT_NS + 1
+
+
+def final_err(flags: set[str]) -> float:
+    return 0.01 if "fail" in flags else 0.004 if "pos4mm" in flags else 0.0
+
+
+def append(log: Path, entry: dict) -> None:
+    with log.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
 def launch(argv: list[str], flags: set[str], log: Path) -> int:
     stop: list[int] = []
 
@@ -55,11 +81,12 @@ def launch(argv: list[str], flags: set[str], log: Path) -> int:
     if "crash" in flags:
         return 3
     args = dict(a.split(":=", 1) for a in argv if ":=" in a)
-    t_end_ns = round(float(os.environ.get("FAKE_ROS2_T_END_S", "1.0")) * 1e9)
-    rows = t_end_ns // DT_NS + 1
-    err = 0.01 if "fail" in flags else 0.004 if "pos4mm" in flags else 0.0
+    rows = row_count()
+    err = final_err(flags)
+    marker = Path(str(log) + ".launch")
+    marker.write_text("running", encoding="utf-8")
     csv = None
-    if "nocsv" not in flags and "log_path" in args:
+    if not flags & {"nocsv", "csvlost"} and "log_path" in args:
         path = Path(args["log_path"])
         path.parent.mkdir(parents=True, exist_ok=True)
         csv = path.open("w", encoding="utf-8")
@@ -69,13 +96,43 @@ def launch(argv: list[str], flags: set[str], log: Path) -> int:
     deadline = time.monotonic() + float(os.environ.get("FAKE_ROS2_MAX_S", "120"))
     while not stop and time.monotonic() < deadline:
         time.sleep(0.05)
+    marker.unlink(missing_ok=True)
     if not stop:
         return 4
     if csv is not None:
-        csv.writelines(row(k, rows, err) + "\n" for k in range(rows // 2, rows))
+        if "shortcsv" not in flags:
+            csv.writelines(row(k, rows, err) + "\n" for k in range(rows // 2, rows))
         csv.close()
-    with log.open("a", encoding="utf-8") as f:
-        f.write(json.dumps({"signal": stop[0]}) + "\n")
+    append(log, {"signal": stop[0]})
+    return 0
+
+
+def dump_log(argv: list[str], flags: set[str], log: Path) -> int:
+    append(log, {"dump_log": argv, "launch_running": Path(str(log) + ".launch").exists()})
+    print("requester: making request: std_srvs.srv.Trigger_Request()\n\nresponse:", flush=True)
+    if "dumphang" in flags:
+        time.sleep(60)
+    if "dumpfail" in flags:
+        print("std_srvs.srv.Trigger_Response(success=False, message='no recorder')")
+        return 1
+    print("std_srvs.srv.Trigger_Response(success=True, message='run.csv 0 rows')")
+    return 0
+
+
+def logdump(argv: list[str], flags: set[str], log: Path) -> int:
+    append(log, {"logdump": argv})
+    if flags & {"nocsv", "crash", "noregion"}:
+        print("cobot_logdump: no region /cobot_log_cobot_controller", file=sys.stderr)
+        return 1
+    out = Path(argv[argv.index("--out") + 1])
+    rows = row_count()
+    err = final_err(flags)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open("w", encoding="utf-8") as f:
+        f.write(header() + "\n")
+        f.writelines(row(k, rows, TRANSIENT_M) + "\n" for k in range(rows // 2))
+        f.writelines(row(k, rows, err) + "\n" for k in range(rows // 2, rows))
+    print(f"{rows} rows -> {out}")
     return 0
 
 
@@ -83,10 +140,13 @@ def main() -> int:
     flags = set(filter(None, os.environ.get("FAKE_ROS2_MODE", "").split(",")))
     log = Path(os.environ["FAKE_ROS2_LOG"])
     argv = sys.argv[1:]
-    with log.open("a", encoding="utf-8") as f:
-        f.write(json.dumps({"argv": argv, "pid": os.getpid()}) + "\n")
+    append(log, {"argv": argv, "pid": os.getpid()})
     if argv[:1] == ["launch"]:
         return launch(argv, flags, log)
+    if argv[:2] == ["service", "call"]:
+        return dump_log(argv[2:], flags, log)
+    if argv[:3] == ["run", "cobot_ros2", "cobot_logdump"]:
+        return logdump(argv[1:], flags, log)
     if argv[:2] == ["control", "list_controllers"]:
         print("joint_state_broadcaster joint_state_broadcaster/JointStateBroadcaster active")
         print("cobot_controller        cobot_ros2/CobotController                    active")
