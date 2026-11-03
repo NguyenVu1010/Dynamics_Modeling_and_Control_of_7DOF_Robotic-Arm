@@ -110,6 +110,41 @@ Mức hệ số đó không dùng được cho điều khiển thật. Vậy **p
 Bộ computed torque còn giả định động cơ và khâu gắn cứng (armature cộng thẳng vào M). Điều này
 đúng ở tần số thấp nhưng sai quanh tần số cộng hưởng của lò xo.
 
+### Với encoder phía khâu, độ xoắn lò xo có được bù tự động không?
+
+Có, và đây là chỗ dễ nhầm. Bộ điều khiển chỉ tính **mô-men** từ sai số góc khâu
+`e = q_ref − q_khâu`; driver thực hiện mô-men đó và **không quan tâm góc động cơ**. Không ai tính
+"động cơ phải quay bao nhiêu". Mô-men còn làm khâu lệch thì động cơ còn bị đẩy tiếp, nên nó tự
+dừng ở `θ = q_ref + g/k`, tức quay xa hơn khâu đúng bằng độ xoắn lò xo. Phần sai số do lò xo vì vậy
+được bù bằng **góc quay thêm của động cơ**, sinh ra tự nhiên từ động lực học.
+
+Ở trạng thái xác lập, mô-men vẫn chỉ là `g(q)` cộng phần chống ma sát: lò xo truyền đủ mô-men khi
+nó xoắn đúng `g/k`, nên mô-men không cần "thêm phần bù". Phần bù nằm ở **vị trí** động cơ, không ở
+**độ lớn** mô-men. Mô hình trong code chạy đúng như vậy: `ControlLoop` chỉ xuất `tau`, `SimPlant`
+tích phân hai khối (rotor, khâu) nối qua lò xo, và góc động cơ là kết quả. Encoder phía khâu còn
+thấy cả lost motion và sai số truyền động, hai thứ mà bù tĩnh theo mô hình không xử lý được.
+
+Vậy vấn đề không nằm ở trạng thái cuối mà ở **quá trình đi tới đó**. Mô-men đặt vào rotor, khâu
+chỉ cảm nhận sau khi lò xo xoắn; quanh tần số cộng hưởng, rotor và khâu dao động **ngược pha**.
+Thành phần D thấy khâu đi lên nên đẩy xuống, nhưng lực đó đặt vào rotor đúng lúc rotor đang đi
+xuống, nên nó bơm năng lượng vào dao động thay vì hãm. Hệ số nhỏ thì lượng bơm này nhỏ hơn giảm
+chấn tự nhiên; hệ số lớn thì dao động lớn dần (giới hạn ω ≲ 1,3 rad/s ở khớp 1–2, mục công thức ở
+trên).
+
+Với encoder phía động cơ thì ngược lại. Bộ điều khiển đo `θ` và tưởng đó là góc khâu; động cơ tới
+đúng `q_ref` nên nó thấy sai số bằng 0, trong khi khâu thật võng thấp hơn một góc `g/k` (khoảng
+1e-3 rad, 1,6 mm ở đầu công cụ). Vì thế bù võng sửa **số đo**, không sửa mô-men:
+`q̂ = q_motor − φ(g(q))`. Bộ điều khiển bám theo `q̂` nên tự đẩy động cơ đi xa thêm một góc `φ`,
+giống encoder phía khâu, nhưng `φ` lấy từ mô hình độ cứng chứ không từ phép đo.
+
+| | Encoder phía động cơ | Encoder phía khâu | Cả hai encoder |
+| --- | --- | --- | --- |
+| Bộ điều khiển thấy độ xoắn lò xo? | Không | Có, trực tiếp trong sai số | Có |
+| Cái gì tạo góc quay thêm của động cơ? | Bù võng theo mô hình (`q̂`) | Vòng PD, tự nhiên | Vòng ngoài chậm trên encoder khâu |
+| Lost motion, sai số truyền động | Không bù được | Tự bù | Tự bù (vòng ngoài) |
+| Hệ số dùng được | Cao (ω = 40–80) | Rất thấp (ω ≲ 1,3 rad/s ở khớp 1–2) | Cao ở vòng trong, thấp ở vòng ngoài |
+| Độ cứng thật lệch 20 % so với danh định | Còn 2,5e-4 rad (#50) | Không ảnh hưởng | Không ảnh hưởng |
+
 ### Giải pháp hiện tại và giải pháp trong thực tế
 
 | Cách làm | Trong thực tế | Ưu | Nhược |
@@ -121,13 +156,18 @@ Bộ computed torque còn giả định động cơ và khâu gắn cứng (arma
 | Singular perturbation, backstepping trên mô hình hai khối | Nghiên cứu (Spong 1987, De Luca) | Dùng được góc khâu với lý thuyết đầy đủ | Cần mô hình lò xo chính xác, phức tạp |
 | Lọc notch hoặc input shaping | Servo thương mại, chống rung | Rẻ, không đổi cấu trúc | Chỉ giảm kích thích, không làm hệ non-collocated ổn định ở hệ số cao |
 
-### Trạng thái
+### Trạng thái: giải pháp đã dùng cho từng cách lắp encoder
 
-Chủ dự án chọn (2026-11-03): khi có hộp số đàn hồi, vòng vị trí dùng encoder phía động cơ (cả
-ba profile `position_source: motor`), bộ điều khiển bù độ xoắn tĩnh `q̂ = q_motor − φ⁻¹(g(q))`
-theo độ cứng danh định (tính năng `deflection-comp`), hệ số giữ ω = 80 rad/s. Bước "chỉnh hệ số
-một lần" (retune) bị huỷ vì không có hệ số nào thoả mãn. Hai vòng là hướng mở rộng sau. ADR-019 và
-thiết kế realism-2 mục 4.7 đã cập nhật.
+Chủ dự án chọn (2026-11-03); ADR-019 và thiết kế realism-2 mục 4.7 đã cập nhật.
+
+| Cách lắp | Gặp ở đâu trong dự án | Giải pháp đã dùng | Kết quả |
+| --- | --- | --- | --- |
+| Encoder phía động cơ, khớp đàn hồi (`position_source: motor`) | Ba profile phần cứng, test vòng kín đàn hồi | Vòng vị trí trên encoder động cơ; bù độ xoắn tĩnh `q̂ = q_motor − φ(g(q))` theo độ cứng danh định (`cobot.deflection_comp`, #50); hệ số theo profile (mục 5) | Độ cứng danh định: sai số khâu 1,2e-6 rad, 0,0014 mm (không bù: 9,9e-4 rad, 1,6 mm). Lệch độ cứng 20 %: 2,5e-4 rad, 0,40 mm |
+| Encoder phía khâu, khớp đàn hồi (`position_source: link`) | Chỉ để nghiên cứu và tái hiện sự cố | Không dùng trong vòng điều khiển: không có hệ số nào vừa ổn định vừa bám đủ. Bù võng tự tắt (`q_from_motor = false`) vì số đo đã chứa độ xoắn; bù thêm sẽ thành bù hai lần | Ổn định chỉ khi ω ≲ 1,3 rad/s ở khớp 1–2; ở ω = 10–80 đều dừng giữ |
+| Khớp cứng (không bật `transmission`), Gazebo | Cấu hình mặc định, E2E-01..11, Gazebo | Hai encoder cho cùng một số, không có lò xo nên không cần bù; bù võng không chạy vì state không có `q_from_motor` | Như trước #48, bit-identical |
+| Cả hai encoder | Chưa làm | Hướng mở rộng: vòng nhanh trên encoder động cơ, vòng tích phân chậm trên encoder khâu khử sai lệch tĩnh (độ xoắn, lost motion, sai số truyền động) | — |
+
+Bước "chỉnh hệ số một lần" (retune) bị huỷ vì không có hệ số nào thoả mãn với encoder phía khâu.
 
 ### Bài học
 
@@ -137,5 +177,66 @@ thiết kế realism-2 mục 4.7 đã cập nhật.
 - **Vị trí cảm biến quyết định cấu trúc điều khiển, không chỉ độ chính xác.** Encoder phía khâu
   chính xác hơn về vị trí, nhưng không dùng trực tiếp được trong vòng PD tốc độ cao qua một khớp
   đàn hồi ít giảm chấn.
+- **Phân biệt sai số vị trí với thiếu mô-men.** Độ xoắn lò xo không đòi thêm mô-men mà đòi động cơ
+  quay thêm một góc. Encoder phía khâu tạo góc đó bằng phản hồi; encoder phía động cơ cần sửa số đo
+  (`q̂`), không cần sửa luật mô-men.
 - **Hệ số tăng chỉ làm sự cố đến sớm hơn hay muộn hơn chứ không làm hết** là dấu hiệu của vấn đề
   cấu trúc. Thời điểm dừng giữ tỉ lệ nghịch với ω chính là dấu hiệu đó.
+
+## 5. Trễ cảm biến và trễ lệnh giới hạn hệ số; mỗi phần cứng một bộ hệ số (#51)
+
+### Triệu chứng
+
+Ba profile phần cứng (cao cấp, trung bình, giá rẻ) có trễ cảm biến 1 chu kỳ, trễ lệnh 1 chu kỳ, khớp
+đàn hồi và encoder phía động cơ. Với hệ số chung ω = 80 rad/s:
+
+- **Cao cấp và trung bình:** sau khi tới đích còn rung khoảng 60 Hz, không tắt dần (đỉnh tới đỉnh
+  tới 2e-3 rad và 1,5e-2 rad), mô-men chạm mức P khoảng một nửa thời gian. Sai số cuối 0,6–2,7 mm và
+  2–10 mm.
+- **Giá rẻ (servo 250 Hz):** dừng giữ vì quá tốc ở 0,22–0,24 s.
+- Đặt trễ về 0 thì dao động tắt dần: nguyên nhân là trễ, không phải file cấu hình.
+
+### Vì sao
+
+ω = 80 được chọn cho phần cứng lý tưởng: khớp cứng, trễ vòng 3 chu kỳ vẫn nằm trong biên pha. Trễ
+làm lệnh mô-men luôn đến muộn so với trạng thái thật; mỗi chu kỳ trễ ở 1 kHz lấy đi khoảng
+`ω_c · 1 ms` rad biên pha tại tần số cắt `ω_c`. Hệ số càng cao thì tần số cắt càng cao và phần pha
+bị trễ ăn mất càng lớn. Cộng hưởng của lò xo nằm gần đó, nên biên pha còn lại không đủ để dao động
+tắt. Ở bản giá rẻ, lệnh mô-men từ máy chủ chỉ cập nhật mỗi 4 ms và giữ nguyên giữa hai lần, cộng
+thêm trễ, là quá chậm so với cộng hưởng của khớp ở mọi hệ số.
+
+### Quét hệ số (3 hạt giống, quỹ đạo E2E-01)
+
+| ω (rad/s) | Cao cấp: sai số cuối, bão hoà | Trung bình | Giá rẻ |
+| --- | --- | --- | --- |
+| 20 | 0,2–1,3 mm, không | 0,4–2,6 mm, không | dừng giữ mọi hạt giống |
+| 30 | 0,07–0,6 mm, không | 0,2–1,2 mm, không | dừng giữ |
+| 40 | 0,06–0,25 mm, không | 0,07–0,6 mm, không | dừng giữ (quá tốc) |
+| 50 | 0,04–0,12 mm, không | 0,4–0,8 mm, có | dừng giữ |
+| 80 | 0,6–2,7 mm, có, rung 60 Hz | 2–10 mm, có | dừng giữ (quá tốc) |
+
+Bản giá rẻ với ω = 20 và thời gian chờ trạng thái nới lên 20 ms: hạt giống 1 vẫn dừng vì quá tốc ở
+8,6 s.
+
+### Giải pháp hiện tại và giải pháp trong thực tế
+
+| Cách làm | Trong thực tế | Trạng thái trong dự án |
+| --- | --- | --- |
+| Mỗi phần cứng một bộ hệ số, chỉnh theo trễ và độ cứng của nó | Mọi robot đều được chỉnh hệ số theo phần cứng | Đã dùng: `config/premium_fr3.yaml` ω = 50, `config/mid_kr1205.yaml` ω = 40, `config/budget_xarm7.yaml` ω = 20; `default.yaml` (phần cứng lý tưởng) giữ ω = 80 |
+| Vòng vị trí và dòng điện trong driver khớp ở vài kHz, máy chủ gửi điểm đặt vị trí 100–250 Hz | Cobot giá rẻ cỡ xArm, servo công nghiệp | Chưa làm, là tính năng sau; đến lúc đó bản giá rẻ chỉ được ghi nhận, không tính trượt |
+| Bộ dự báo bù trễ (Smith predictor), lọc notch tại cộng hưởng | Servo thương mại | Chưa làm |
+| Giảm trễ phần cứng (bus đồng bộ, đọc và ghi trong cùng chu kỳ) | Tay máy cao cấp | Ngoài phạm vi mô phỏng; trễ là tham số của profile |
+
+Kết quả với hệ số riêng (hạt giống 1/2/3): cao cấp 0,077 / 0,117 / 0,041 mm, trung bình 0,29 /
+0,58 / 0,074 mm, không dừng giữ, dao động sau đích tắt dần. Giá rẻ dừng giữ cả ba lần (hết thời gian
+chờ trạng thái ở 0,33 / 0,49 / 0,10 s), ghi nhận là một phát hiện.
+
+### Bài học
+
+- **Hệ số tối ưu là của một phần cứng, không phải của thuật toán.** Một bộ hệ số chung cho mọi
+  profile che mất ảnh hưởng của trễ; tách cấu hình bộ điều khiển theo phần cứng giống cách robot
+  thật được chỉnh.
+- **Trễ và cộng hưởng cộng dồn với nhau.** Từng yếu tố riêng (trễ trên khớp cứng, khớp đàn hồi
+  không trễ) đều ổn định ở ω = 80; gộp lại thì không. Test ổn định phải chạy trên tổ hợp đầy đủ.
+- **Khi không hệ số nào cứu được thì vấn đề là kiến trúc.** Bản giá rẻ cần vòng trong ở driver,
+  không phải hệ số khác; ghi nhận nó là phát hiện thay vì nới ngưỡng.
