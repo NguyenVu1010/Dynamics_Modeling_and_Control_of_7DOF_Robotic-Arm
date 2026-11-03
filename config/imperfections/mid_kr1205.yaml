@@ -1,0 +1,67 @@
+# Mid tier, reference robot Kassow KR1205 (realism-2 design G3, section 7).
+# Schema: imperfect::ImperfectionConfig. A scalar applies to all joints; a 7-element list sets
+# each joint (joints 1-2 eRob 110H, 3-4 eRob 90H, 5-7 eRob 70H: rated R = [87, 87, 52, 52, 10,
+# 10, 10], peak P = [204, 204, 107, 107, 36, 36, 36] N m). Every group says for each number
+# whether it is published, derived or assumed; the references are listed in ADR-019.
+imperfections:
+  seed: 1
+  sensor:
+    source: "published: encoder_bits 19 (eRob absolute encoder); derived: q_noise_std_rad from the LSB; assumed: q_offset_std_rad (calibration quality), qd_filter_hz; assumed: sensor_delay_cycles 1 (the budget tier's extra delay comes from servo_rate_hz); position_source motor: the position loop closes on the motor encoder (design 4.7, update 2026-11-03)"
+    encoder_bits: 19
+    q_noise_std_rad: 1.0e-5
+    q_offset_std_rad: 1.0e-3
+    qd_from_diff: true
+    qd_filter_hz: 100.0
+    qd_noise_std_rad_s: 0.0
+    sensor_delay_cycles: 1
+    position_source: motor
+  actuator:
+    source: "assumed: torque_scale_std, asym, ripple, deadband_nm 0.001 R, motor_time_constant_s 1 ms, torque_slew_nm_s P / 2 ms; published: torque_cmd_resolution_nm R / 1000 (CiA402 target torque in 1/1000 of rated torque); derived: knee/zero-torque speeds from eRob 20-30 rpm; published: bus 48 V +-10 % (eRob), assumed: r_source_ohm"
+    torque_scale_std: 0.05
+    torque_scale_asym_frac: 0.01   # negative-direction gain = positive * (1 - asym)
+    torque_ripple_frac: 0.02
+    ripple_periods_per_rev: 6.0
+    deadband_nm: [0.087, 0.087, 0.052, 0.052, 0.01, 0.01, 0.01]
+    torque_cmd_resolution_nm: [0.087, 0.087, 0.052, 0.052, 0.01, 0.01, 0.01]
+    motor_time_constant_s: 0.001
+    command_delay_cycles: 1
+    torque_slew_nm_s: [102000, 102000, 53500, 53500, 18000, 18000, 18000]
+    knee_speed_rad_s: [1.6, 1.6, 1.6, 1.6, 2.2, 2.2, 2.2]
+    zero_torque_speed_rad_s: [2.6, 2.6, 2.6, 2.6, 3.6, 3.6, 3.6]
+    bus:
+      v_nom_v: 48.0
+      r_source_ohm: 0.10
+      v_min_v: 40.0
+  friction:
+    source: "derived: coulomb_nm 2 % of rated torque R; assumed: viscous_nm_s_rad"
+    coulomb_nm: [1.7, 1.7, 1.0, 1.0, 0.2, 0.2, 0.2]
+    viscous_nm_s_rad: [0.5, 0.5, 0.5, 0.5, 0.1, 0.1, 0.1]
+  model:
+    source: "assumed: CAD mass and centre-of-mass error; payload 0 (swept separately)"
+    link_mass_scale_std: 0.05
+    com_shift_std_m: 0.005
+    payload_kg: 0.0
+    payload_offset_m: [0.0, 0.0, 0.0]
+    payload_radius_m: 0.0
+  timing:
+    source: "assumed: period jitter of a tuned kernel, overrun_prob, overrun_cycles"
+    period_jitter_std_us: 20.0
+    overrun_prob: 1.0e-4
+    overrun_cycles: 1
+  comm:
+    source: "assumed: servo packet every cycle (EtherCAT 1 kHz), packet loss and latency bursts"
+    servo_rate_hz: 0.0
+    packet_loss_prob: 1.0e-4
+    latency_burst_prob: 1.0e-4
+    burst_cycles: 2
+  transmission:
+    source: "published: stiffness K1/K2/K3 and breakpoints T1/T2 from the Harmonic Drive SHG catalog (SHG-25 joints 1-2, SHG-20 joints 3-4, SHG-14 joints 5-7), equal to cobot.deflection_comp of config/default.yaml; published: ratio 100 (eRob); assumed: damping_ratio 1 % of critical; published: error_amp_rad 1.5 arc-min Harmonic Drive transmission accuracy (partly published), lost_motion_rad HD CSG-GH 2.9e-4 rad"
+    stiffness_k1_nm_rad: [31000, 31000, 13000, 13000, 4700, 4700, 4700]
+    stiffness_k2_nm_rad: [50000, 50000, 25000, 25000, 6100, 6100, 6100]
+    stiffness_k3_nm_rad: [57000, 57000, 29000, 29000, 7100, 7100, 7100]
+    torque_t1_nm: [14, 14, 7, 7, 2, 2, 2]
+    torque_t2_nm: [48, 48, 25, 25, 6.9, 6.9, 6.9]
+    damping_ratio: 0.01
+    error_amp_rad: 4.4e-4
+    lost_motion_rad: 2.9e-4
+    ratio: 100.0
