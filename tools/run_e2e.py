@@ -25,9 +25,10 @@ thresholds keep the defaults in parentheses (E2E-11b sets rest_qd_max_rad_s to 0
 CSV qd is the measured, quantized and filtered velocity, whose noise at rest in Gazebo has std
 0.0047 rad/s per joint). cancel_after_s without waypoints fails.
 kind profiles runs `cobot_bench montecarlo` (runs seeds from seed) once per entry of `profiles`
-(name -> imperfections, hold: fail | report, thresholds) into <out>/<id>/<name> and judges each
-run from the Summary CSV metric columns; with hold: report, runs held with hold_reason
-state_timeout give the printed hold rate and are not judged, any other hold fails.
+(name -> config (optional, else the scenario's config), imperfections, hold: fail | report,
+thresholds) into <out>/<id>/<name> and judges each run from the Summary CSV metric columns; with
+hold: fail any held run fails the profile; with hold: report every held run, whatever its
+hold_reason, counts in the printed hold rate (with the reasons), is not judged and never fails.
 Scenarios tagged nightly or realism2 run only with --tag <that tag> or --scenario. Exit 0 all
 pass, 1 any fails, 2 bad arguments.
 """
@@ -62,7 +63,6 @@ from cobot_eval.metrics import (  # noqa: E402
 SCENARIO_DIR = REPO / "tests/e2e/scenarios"
 THRESHOLD_KEYS = ("final_pos_err_m", "final_rot_err_deg", "rms_joint_err_rad")
 OPT_IN_TAGS = {"nightly", "realism2"}  # never selected by a plain --all
-REPORTED_HOLD = "state_timeout"  # hold: report (design 4.6, one lost packet at servo 250 Hz)
 GAZEBO_MARGIN_S = 5.0  # real-time factor below 1 and shutdown, on top of the trajectory time
 GAZEBO_POLL_S = 0.1
 GAZEBO_CAP = 3.0  # overall wait cap, as a multiple of the minimum wait
@@ -174,21 +174,21 @@ def judge_profile(name: str, p: dict, summary: Path) -> tuple[bool, str]:
     df = sensitivity.load_summary(summary)
     th = thresholds_of({"id": name, "thresholds": p["thresholds"]})
     held = df["held"] == 1
-    reported = held & (df["hold_reason"] == REPORTED_HOLD)
     problems = []
+    if p["hold"] not in ("fail", "report"):
+        raise ValueError(f"{name}: hold must be fail or report, got {p['hold']}")
     if p["hold"] == "fail" and held.any():
         problems.append(f"{int(held.sum())} held")
-    elif p["hold"] == "report" and (held & ~reported).any():
-        problems.append("held: " + ", ".join(sorted(set(df.loc[held & ~reported, "hold_reason"]))))
-    elif p["hold"] not in ("fail", "report"):
-        raise ValueError(f"{name}: hold must be fail or report, got {p['hold']}")
     judged = df[~held]
     bad = int((~sensitivity.passes(judged, th)).sum()) if len(judged) else 0
     if bad:
         problems.append(f"{bad} of {len(judged)} judged runs over the thresholds")
     detail = f"{name}: {len(df)} runs"
     if p["hold"] == "report":
-        detail += f", hold rate {float(reported.mean()):.3g}"
+        # Every hold counts, whatever its reason; reported, never failed.
+        detail += f", hold rate {float(held.mean()):.3g}"
+        if held.any():
+            detail += f" ({', '.join(sorted(set(df.loc[held, 'hold_reason'].astype(str))))})"
     return not problems, detail + (f"; FAIL {'; '.join(problems)}" if problems else ", pass")
 
 
@@ -197,7 +197,8 @@ def run_profiles(s: dict, args: argparse.Namespace, out: Path, config: str) -> t
     for name, p in s["profiles"].items():
         runs = ("--runs", str(s["runs"]), "--seed0", str(s["seed"]))
         imperfections = str(repo_path(p["imperfections"]))
-        cmd = ("montecarlo", "--config", config, "--imperfections", imperfections, *runs)
+        cfg = str(repo_path(p["config"])) if "config" in p else config
+        cmd = ("montecarlo", "--config", cfg, "--imperfections", imperfections, *runs)
         try:
             bench(args, *cmd, "--out", str(out / name))
             good, line = judge_profile(name, p, out / name / "summary.csv")

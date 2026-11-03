@@ -1,0 +1,84 @@
+# Controller config of the budget_xarm7 reference profile (config/imperfections/budget_xarm7.yaml):
+# config/default.yaml with only cobot.computed_torque.kp/kd changed. Keep every other key
+# equal to default.yaml. Loaded by pipeline::load_config.
+# Paths are relative to this file's directory. Angles with the _deg suffix are degrees.
+cobot:
+  urdf_path: ../src/sim/urdf/cobot30_5.urdf
+  base_link: base_link
+  tip_link: link_7
+  gravity_b: [0.0, 0.0, -9.80665]      # m/s^2 in base_link
+  control_rate_hz: 1000.0
+  deterministic: true
+  # Home: inside every joint limit with >= 5 deg margin (joint_4 in [-180, -22.9] deg,
+  # joint_6 in [-5, 219] deg). Distance to singularities is checked in feature `kinematics`.
+  home_q_deg: [0.0, 30.0, 0.0, -90.0, 0.0, 60.0, 0.0]
+  trajectory:                          # MVP: one fixed straight-line trajectory (design G3)
+    goal_position_m: [-0.5, -0.6, 0.9] # tip position in base_link
+    goal_rpy_deg: [0.0, 0.0, 90.0]     # R = Rz(yaw) Ry(pitch) Rx(roll)
+    duration_s: 10.0
+    hold_s: 2.0                        # metrics are taken at duration_s + hold_s
+  clik:                                # reference generator (planning::ClikConfig)
+    kp: [100.0, 100.0, 100.0, 100.0, 100.0, 100.0]   # 1/s^2, [v; w]
+    kd: [20.0, 20.0, 20.0, 20.0, 20.0, 20.0]         # 1/s
+    k_null: 1.0                        # 1/s^2, joint-limit avoidance in the null space
+    k_damp: 2.0                        # 1/s, null-space velocity damping
+    lambda_max: 0.05                   # damped pseudo-inverse
+    cond_threshold: 100.0
+  computed_torque:                     # error dynamics e'' + kd e' + kp e = 0 per joint
+    # Critically damped at w = 20 rad/s (kp = w^2, kd = 2w), tuned to the budget_xarm7
+    # profile (owner decision 2026-11-03); default.yaml keeps w = 80.
+    # Torque commands from the host at servo 250 Hz, with the profile's 1 + 1 cycles of sensor
+    # and command delay on elastic Harmonic Drive joints, are unstable at every gain measured
+    # (w = 20..80, seeds 1-3: held on every seed with overspeed or state_timeout). w = 20 is
+    # the least aggressive gain measured; a drive-side loop is a later feature.
+    # Sweep numbers: header of tests/unit/loop_profile_stability/test_profile_stability.cpp.
+    kp: [400.0, 400.0, 400.0, 400.0, 400.0, 400.0, 400.0]  # 1/s^2
+    kd: [40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0]         # 1/s
+  friction_compensation:               # feed-forward on qd_ref (docs/derivations/control.md)
+    # Nominal identified values: deliberately 80 % of the realistic profile's plant friction
+    # (config/imperfections/realistic.yaml). Identification is never exact; under-compensation
+    # is the safe side. tau_ff = coulomb * tanh(qd_ref / eps) + viscous * qd_ref.
+    enabled: true
+    coulomb_nm: [1.36, 1.36, 1.36, 1.36, 0.192, 0.192, 0.192]   # N m, >= 0, scalar or 7 values
+    viscous_nm_s_rad: [0.4, 0.4, 0.4, 0.4, 0.08, 0.08, 0.08]    # N m s/rad, >= 0
+    velocity_eps_rad_s: 0.01           # rad/s, > 0, tanh smoothing width around qd_ref = 0
+  safety:
+    soft_margin_deg: 3.0               # hold when a joint gets this close to a limit
+    hal_timeout_ms: 5.0                # hold when no fresh state arrives for this long
+  log:
+    output_dir: ../results
+  # Optional sections below (feature loop-external); a missing one keeps the value shown.
+  command_source: config               # config: run `trajectory`; external: standby + load()
+  cartesian_limits:                    # auto durations of waypoint segments
+    v_max_m_s: 0.25                    # m/s, > 0
+    a_max_m_s2: 0.5                    # m/s^2, > 0
+    w_max_rad_s: 0.8                   # rad/s, > 0
+    alpha_max_rad_s2: 1.6              # rad/s^2, > 0
+  stop_time_s: 0.5                     # s, > 0, request_stop(): ramp to rest along the path
+  tcp_offset:                          # tool centre point in the link_7 frame (none: zero)
+    position_m: [0.0, 0.0, 0.0]
+    rpy_deg: [0.0, 0.0, 0.0]           # R = Rz(yaw) Ry(pitch) Rx(roll)
+  path_validation:                     # offline check before a waypoint run, all > 0
+    reach_pos_m: 0.001                 # m, task error allowed at a waypoint
+    reach_rot_deg: 0.5                 # deg, same for the orientation
+    joint_margin_deg: 2.0              # deg, closest approach to a URDF joint limit
+    torque_ratio: 0.9                  # of tau_max
+    max_stretch: 3.0                   # largest factor on an auto segment's duration
+  # Optional (feature joint-limits); missing: both lists are the URDF <limit effort> (momentary
+  # torque M, the plant's hard cap). eRob ratio 100 datasheet; velocity: 20-30 rpm, awaiting the
+  # H-series datasheet (the joint speeds live in the URDF <limit velocity>).
+  limits:
+    rated_torque_nm: [87, 87, 52, 52, 10, 10, 10]        # N m, > 0, R: continuous, rms_tau_ratio
+    peak_torque_nm: [204, 204, 107, 107, 36, 36, 36]     # N m, 0 < P <= M: controller tau_max
+  # Optional (feature deflection-comp, realism-2 design 4.7); missing: disabled. With positions
+  # from the motor encoder (state q_from_motor, sensor.position_source: motor) the controller works
+  # on q - deflection(g(q)): the static Harmonic Drive deflection under the gravity torque of its
+  # model, from these nominal values (catalog: SHG-25 joints 1-2, SHG-20 joints 3-4, SHG-14 joints
+  # 5-7), kept apart from the plant's imperfections.transmission. Inactive on the link encoder.
+  deflection_comp:
+    enabled: true
+    stiffness_k1_nm_rad: [31000, 31000, 13000, 13000, 4700, 4700, 4700]   # N m/rad, > 0
+    stiffness_k2_nm_rad: [50000, 50000, 25000, 25000, 6100, 6100, 6100]   # N m/rad, > 0
+    stiffness_k3_nm_rad: [57000, 57000, 29000, 29000, 7100, 7100, 7100]   # N m/rad, > 0
+    torque_t1_nm: [14, 14, 7, 7, 2, 2, 2]                                 # N m, > 0
+    torque_t2_nm: [48, 48, 25, 25, 6.9, 6.9, 6.9]                         # N m, > t1

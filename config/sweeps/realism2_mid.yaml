@@ -1,5 +1,6 @@
 # Realism-2 mid-tier sweep (design 7): one param at a time on the mid_kr1205 profile, every other
 # key at the profile's value, for each seed. sensor.position_source is not sweepable (motor).
+# Run with the profile's controller config: cobot_bench sweep --config config/mid_kr1205.yaml
 base_profile: config/imperfections/mid_kr1205.yaml
 seeds: [1, 2, 3]
 params:
