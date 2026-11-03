@@ -1,15 +1,18 @@
 """E2E-12 (feature profiles): `kind: profiles` of tools/run_e2e.py, with a fake bench.
 
 Contract (tests/e2e/scenarios/e2e_12_profiles.yaml):
-- `profiles` maps a profile name to {imperfections, hold: fail | report, thresholds:
-  {final_pos_err_m, final_rot_err_deg, rms_joint_err_rad}}; `seed` is the first seed and `runs`
-  the number of seeds per profile.
+- `profiles` maps a profile name to {config (optional, defaults to the scenario's `config`),
+  imperfections, hold: fail | report, thresholds: {final_pos_err_m, final_rot_err_deg,
+  rms_joint_err_rad}}; `seed` is the first seed and `runs` the number of seeds per profile.
 - For each profile, in file order: `cobot_bench montecarlo --config C --imperfections I --runs
-  <runs> --seed0 <seed> --out <out>/<id>/<name>`; the bench writes `summary.csv` there.
+  <runs> --seed0 <seed> --out <out>/<id>/<name>`, C the profile's config; the bench writes
+  `summary.csv` there.
 - Each run is judged from the Summary CSV metric columns (never from `passed`). hold: fail -> a
-  held run fails the profile. hold: report -> runs held with hold_reason state_timeout count in
-  the profile's hold rate, printed as `hold rate <rate:.3g>` on the profile's line, and are not
-  judged on the thresholds; a hold with any other reason fails. The scenario passes when every
+  held run fails the profile. hold: report -> every held run, whatever its hold_reason, counts in
+  the profile's hold rate, printed as `hold rate <rate:.3g>` on the profile's line with the
+  reasons, and is not judged on the thresholds; a profile with hold: report never fails on a
+  hold (budget_xarm7 is a reported finding until a drive-side loop exists, owner decision
+  2026-11-03). The scenario passes when every
   profile passes; the output names each profile and, on failure, the failing one.
 - Tagged `realism2`: runs with --scenario or --all --tag realism2; a plain --all (and --tag pr or
   nightly) never starts it.
@@ -42,8 +45,11 @@ def bench(tmp_path):
     return exe, tmp_path / "bench_calls.jsonl"
 
 
-def scenario(tmp_path, runs=3, seed=4):
-    """Synthetic E2E-12-like scenario on placeholder profile files named like the real ones."""
+def scenario(tmp_path, runs=3, seed=4, own_config=()):
+    """Synthetic E2E-12-like scenario on placeholder profile files named like the real ones.
+
+    Profiles named in own_config get their own controller config (tmp_path/controllers/<name>.yaml).
+    """
     profiles = {}
     for name in NAMES:
         path = tmp_path / "profiles" / f"{name}.yaml"
@@ -51,6 +57,11 @@ def scenario(tmp_path, runs=3, seed=4):
         path.write_text("imperfections: {}\n", encoding="utf-8")
         hold = "report" if name == "budget_xarm7" else "fail"
         profiles[name] = {"imperfections": str(path), "hold": hold, "thresholds": dict(TH)}
+        if name in own_config:
+            cfg = tmp_path / "controllers" / f"{name}.yaml"
+            cfg.parent.mkdir(exist_ok=True)
+            cfg.write_text("cobot: {}\n", encoding="utf-8")
+            profiles[name] = {"config": str(cfg), **profiles[name]}
     data = {"id": "T-profiles", "tags": ["realism2"], "runner": "bench", "kind": "profiles"}
     data |= {"config": str(CONFIG), "seed": seed, "runs": runs, "profiles": profiles}
     path = tmp_path / "T-profiles.yaml"
@@ -91,6 +102,26 @@ def test_one_montecarlo_per_profile_in_file_order(tmp_path, bench):
         assert name in out
 
 
+def test_profile_config_overrides_the_scenario_config(tmp_path, bench):
+    path = scenario(tmp_path, own_config=("premium_fr3", "budget_xarm7"))
+    code, out, calls = run_e2e(tmp_path, bench, ["--scenario", path])
+    assert code == 0, out
+    configs = {Path(flag(c, "--imperfections")).stem: Path(flag(c, "--config")) for c in calls}
+    controllers = tmp_path / "controllers"
+    assert configs["premium_fr3"].resolve() == (controllers / "premium_fr3.yaml").resolve()
+    assert configs["budget_xarm7"].resolve() == (controllers / "budget_xarm7.yaml").resolve()
+    assert configs["mid_kr1205"].resolve() == CONFIG.resolve()
+
+
+def test_budget_overspeed_hold_is_reported_not_failed(tmp_path, bench):
+    # Every hold counts under hold: report: run 0 state_timeout, run 1 overspeed -> 2/3, both named.
+    code, out, _ = run_e2e(tmp_path, bench, ["--scenario", scenario(tmp_path)], "budget_overspeed")
+    assert code == 0, out
+    budget = [line for line in out.splitlines() if "budget_xarm7" in line]
+    assert any("hold rate 0.667" in line for line in budget), out
+    assert any("overspeed" in line and "state_timeout" in line for line in budget), out
+
+
 def test_budget_hold_rate_is_reported_not_failed(tmp_path, bench):
     # Fake: budget run 0 of 3 holds (state_timeout), 0.87 m from the goal -> hold rate 1/3,
     # printed with 3 significant digits: 0.333.
@@ -112,7 +143,6 @@ def test_budget_all_held_still_passes(tmp_path, bench):
     [
         ("mid_fail", "mid_kr1205"),  # 10 mm > 5 mm, judged from the metric (passed=1 in the row)
         ("premium_hold", "premium_fr3"),  # hold: fail
-        ("budget_overspeed", "budget_xarm7"),  # only state_timeout is reported, not failed
         ("crash", "premium_fr3"),  # bench exits 3, no summary
     ],
 )
@@ -127,6 +157,7 @@ def test_only_tag_realism2_selects_it_in_all(tmp_path, bench):
     code, out, calls = run_e2e(tmp_path, bench, ["--all", "--tag", "realism2"])
     assert "E2E-12" in out, out
     assert [Path(flag(c, "--imperfections")).stem for c in calls] == NAMES
+    assert [Path(flag(c, "--config")).name for c in calls] == [f"{n}.yaml" for n in NAMES]
     assert code == 0, out
 
 
@@ -148,6 +179,8 @@ def test_e2e_12_scenario_file():
     assert s["seed"] == 1 and s["runs"] == 3  # seeds 1, 2, 3
     assert list(s["profiles"]) == NAMES
     for name, p in s["profiles"].items():
+        assert p["config"] == f"config/{name}.yaml", name  # per-profile gains
+        assert (REPO / p["config"]).is_file(), name
         assert p["imperfections"] == f"config/imperfections/{name}.yaml"
         assert (REPO / p["imperfections"]).is_file(), name
         assert p["hold"] == ("report" if name == "budget_xarm7" else "fail")
