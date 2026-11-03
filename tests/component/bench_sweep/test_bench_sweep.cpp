@@ -308,7 +308,7 @@ TEST(BenchMonteCarlo, SummaryMetricsMatchTheKeptRunCsv) {
   for (std::size_t c = 0; c < csv.front().size(); ++c) {
     col[csv.front()[c]] = c;
   }
-  ASSERT_EQ(col.size(), 57U);  // the Run CSV contract, with `hold` (feature comm-timing)
+  ASSERT_EQ(col.size(), 114U);  // the Run CSV contract: `hold` (comm-timing) + log channels
   const auto value = [&col](const std::vector<std::string>& r, const std::string& name) {
     return std::stod(r.at(col.at(name)));
   };
