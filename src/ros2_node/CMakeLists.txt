@@ -41,7 +41,14 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
   ${std_srvs_TARGETS})
 pluginlib_export_plugin_description_file(controller_interface cobot_ros2.xml)
 
+# cobot_logdump (feature blackbox-log, no ROS): `ros2 run cobot_ros2 cobot_logdump <controller>`
+# exports the black-box region after a crash of the controller or of Gazebo.
+add_executable(cobot_logdump "${COBOT_REPO_ROOT}/src/bench/logdump_main.cpp")
+cobot_set_target_defaults(cobot_logdump)
+target_link_libraries(cobot_logdump PRIVATE cobot::pipeline)
+
 install(TARGETS ${PROJECT_NAME} LIBRARY DESTINATION lib)
+install(TARGETS cobot_logdump RUNTIME DESTINATION lib/${PROJECT_NAME})
 # Waypoint client of the external command mode: `ros2 run cobot_ros2 send_waypoints.py FILE`.
 install(PROGRAMS "${COBOT_REPO_ROOT}/tools/send_waypoints.py" DESTINATION lib/cobot_ros2)
 # Default parameters: share/cobot_ros2/config/default.yaml, whose urdf_path

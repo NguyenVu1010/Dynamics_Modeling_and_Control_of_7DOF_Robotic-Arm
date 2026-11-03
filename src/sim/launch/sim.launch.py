@@ -2,12 +2,14 @@
 
 ros2 launch cobot_sim sim.launch.py [gui:=false] [controller:=effort_passthrough]
     [config_path:=YAML] [imperfections_path:=YAML] [seed:=INT] [log_path:=CSV]
-    [command_source:=config|external] [rviz:=false]
+    [log_stream_ms:=0] [command_source:=config|external] [rviz:=false]
 
-config_path, imperfections_path, seed, log_path and command_source, when given, become
-parameters of the spawned controller (cobot_controller) through a temporary parameter file,
-removed at shutdown; unset, the controller's defaults apply (command_source: the config file's
-cobot.command_source). imperfections_path defaults to the realistic profile
+config_path, imperfections_path, seed, log_path, log_stream_ms (when > 0) and command_source,
+when given, become parameters of the spawned controller (cobot_controller) through a temporary
+parameter file, removed at shutdown; unset, the controller's defaults apply (command_source: the
+config file's cobot.command_source). log_stream_ms > 0 makes the controller append its black-box
+log to log_path every log_stream_ms milliseconds; the default 0 writes it only on ~/dump_log,
+deactivate and cleanup. imperfections_path defaults to the realistic profile
 (config/imperfections/realistic.yaml); seed defaults to the profile's own seed.
 
 The profile's friction (imperfections.friction: coulomb_nm, viscous_nm_s_rad, scalar or one
@@ -89,6 +91,8 @@ def _setup(context: object) -> list:
     }
     if seed := LaunchConfiguration("seed").perform(context):
         overrides["seed"] = int(seed)
+    if (stream_ms := int(LaunchConfiguration("log_stream_ms").perform(context) or "0")) > 0:
+        overrides["log_stream_ms"] = stream_ms
     rviz = LaunchConfiguration("rviz").perform(context) == "true"
     if rviz:
         overrides.setdefault("command_source", "external")  # the panel drives the arm
@@ -166,6 +170,7 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("imperfections_path", default_value=_realistic_profile()),
             DeclareLaunchArgument("seed", default_value=""),
             DeclareLaunchArgument("log_path", default_value=""),
+            DeclareLaunchArgument("log_stream_ms", default_value="0"),
             DeclareLaunchArgument("command_source", default_value=""),
             DeclareLaunchArgument("rviz", default_value="false"),
             OpaqueFunction(function=_setup),

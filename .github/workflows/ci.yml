@@ -133,7 +133,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=ros
       - name: colcon build, asset check, smoke and gazebo E2E-07/09/11/11b in ROS 2 Jazzy + Gazebo Harmonic
         run: >
-          docker run --rm -v ${{ github.workspace }}:/repo -w /repo cobot-ros:ci
+          docker run --rm --shm-size=512m -v ${{ github.workspace }}:/repo -w /repo cobot-ros:ci
           bash tools/ci/gazebo_ci.sh
 
   arm64:

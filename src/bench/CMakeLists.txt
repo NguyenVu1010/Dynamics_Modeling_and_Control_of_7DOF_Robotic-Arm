@@ -17,3 +17,10 @@ add_executable(cobot_bench main.cpp)
 cobot_set_target_defaults(cobot_bench)
 target_link_libraries(cobot_bench PRIVATE cobot_bench_run)
 install(TARGETS cobot_bench RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+# cobot_logdump (feature blackbox-log): exports the controller's black-box region to a Run CSV.
+# src/ros2_node builds the same source as lib/cobot_ros2/cobot_logdump for `ros2 run`.
+add_executable(cobot_logdump logdump_main.cpp)
+cobot_set_target_defaults(cobot_logdump)
+target_link_libraries(cobot_logdump PRIVATE cobot::pipeline)
+install(TARGETS cobot_logdump RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})

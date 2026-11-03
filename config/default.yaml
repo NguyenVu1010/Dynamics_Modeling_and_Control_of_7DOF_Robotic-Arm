@@ -44,6 +44,7 @@ cobot:
     output_dir: ../results
     mode: recorder                   # off, recorder, recorder_live (acts as recorder for now)
     capacity_s: 60.0                 # s, > 0, history the ROS node keeps per buffer
+    lock_memory: false               # mlock the black-box region; true on the Pi 5
   # Optional sections below (feature loop-external); a missing one keeps the value shown.
   command_source: config               # config: run `trajectory`; external: standby + load()
   cartesian_limits:                    # auto durations of waypoint segments
