@@ -105,7 +105,8 @@ are not used in core.
 ### Run CSV
 
 Written by `pipeline::write_csv_header` / `write_csv_row`. Comma separated, one header row,
-doubles printed with `%.17g`. Columns in this order:
+doubles printed with `%.17g`. Rows are exported from the host-owned `pipeline::Recorder` after
+the run (bench) or on each buffer swap (controller), see ADR-020. Columns in this order:
 
 ```
 t_ns,mode,

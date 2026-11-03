@@ -43,6 +43,10 @@ struct SafetyConfig {
 //   kExternal  start() holds the measured pose in standby, trajectories arrive through load().
 enum class CommandSource { kConfig, kExternal };
 
+// What the hosts record (YAML cobot.log.mode: off | recorder | recorder_live; feature
+// pipeline-recorder, ADR-020). kRecorderLive behaves as kRecorder until the studio bridge exists.
+enum class LogMode { kOff, kRecorder, kRecorderLive };
+
 // Tool centre point in the tip frame (link_7). YAML `tcp_offset: {position_m: [3], rpy_deg: [3]}`,
 // R = Rz(yaw) Ry(pitch) Rx(roll); identity (no tool) by default.
 struct TcpOffset {
@@ -99,6 +103,8 @@ struct Config {
   control::FrictionCompensationConfig<N> friction_compensation;  // optional section: disabled
   SafetyConfig safety;
   std::filesystem::path log_output_dir = "results";
+  LogMode log_mode = LogMode::kRecorder;  // optional key cobot.log.mode
+  double log_capacity_s = 60.0;           // optional key cobot.log.capacity_s, s, > 0
   // Optional sections (feature `loop-external`); a missing one keeps these defaults.
   CommandSource command_source = CommandSource::kConfig;
   planning::CartesianLimits cartesian_limits;  // auto segment durations of waypoint trajectories

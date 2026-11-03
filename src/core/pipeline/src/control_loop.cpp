@@ -92,13 +92,16 @@ void add_clamped(const model::Model<N>& m, const common::VecN<N>& tau_ff, common
 }  // namespace
 
 template <int N>
-ControlLoop<N>::ControlLoop(const model::Model<N>& model, const Config<N>& config)
+ControlLoop<N>::ControlLoop(const model::Model<N>& model,
+                            const Config<N>& config,
+                            Recorder<N>* recorder)
     : model_(model),
       config_(config),
       clik_(model, config.clik),
       computed_torque_(model, config.computed_torque),
       friction_(config.friction_compensation),
-      hold_(model, config.computed_torque) {}
+      hold_(model, config.computed_torque),
+      recorder_(recorder) {}
 
 template <int N>
 const JointState<N>& ControlLoop<N>::compensated(const JointState<N>& measured) {
@@ -226,7 +229,7 @@ Status ControlLoop<N>::step(const JointState<N>& measured, JointCommand<N>& out)
     out.tau.setZero();
   }
 
-  // 5. Log; a full ring drops and counts the record.
+  // 5. Log; a full kStopWhenFull recorder drops and counts the record.
   kinematics::FkState<N> fk;
   kinematics::forward_kinematics(model_, state.q, fk);
   record.t = state.t;
@@ -246,7 +249,9 @@ Status ControlLoop<N>::step(const JointState<N>& measured, JointCommand<N>& out)
   }
   record.hold_reason = hold_reason_;
   last_record_ = record;
-  log_.push(record);
+  if (recorder_ != nullptr) {
+    recorder_->record(record);
+  }
 
   if (mode_ == LoopMode::kFault) {
     return Status::error("control loop: fault, non-finite torque");

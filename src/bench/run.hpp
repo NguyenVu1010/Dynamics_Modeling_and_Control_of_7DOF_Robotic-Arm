@@ -8,7 +8,8 @@
 #include "cobot/common/result.hpp"
 
 // Engines of the cobot_bench modes (feature bench-e2e, design 11.2). The host side of the
-// control loop: it owns the control thread and the CSV writer thread (ADR-008).
+// control loop: it owns the control thread and the Recorder the loop writes into; the Run CSV is
+// written after the loop (no writer thread, ADR-008, ADR-020).
 namespace cobot::bench {
 
 // One run of the configured trajectory against SimPlant with the imperfection profile.
@@ -18,6 +19,8 @@ namespace cobot::bench {
 //            (config and imperfections paths, seed, values drawn from the seed, git describe);
 //   duration_s: simulated time in s; when empty, trajectory.duration_s + hold_s. The loop
 //               runs round(duration_s * control_rate_hz) cycles and logs one row per cycle.
+//               The rows stay in memory until the loop ends: more than 2048 MB of them is an
+//               error naming duration_s, before any file is written.
 //   waypoints_yaml: waypoint file (pipeline::load_waypoints, feature bench-waypoints). When set,
 //               the run forces command_source external, starts the loop (standby at the home
 //               pose) and checks the list with pipeline::validate_path from the standby pose

@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <array>
-#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -11,8 +10,8 @@
 #include <fstream>
 #include <iomanip>
 #include <memory>
+#include <optional>
 #include <string>
-#include <thread>
 #include <utility>
 #include <vector>
 
@@ -21,6 +20,7 @@
 #include "cobot/imperfect/perturb.hpp"
 #include "cobot/pipeline/control_loop.hpp"
 #include "cobot/pipeline/path_validation.hpp"
+#include "cobot/pipeline/recorder.hpp"
 #include "cobot/pipeline/sim_joint_interface.hpp"
 #include "cobot/pipeline/waypoint_file.hpp"
 
@@ -39,10 +39,9 @@ using Loop = pipeline::ControlLoop<kN>;
 using common::Status;
 
 constexpr double kUsPerS = 1e6;
-// The control thread waits for the writer at this many records in flight, so a slow disk
-// never drops a row (the ring holds kLogCapacity - 1 records).
-constexpr std::size_t kMaxInFlight = pipeline::kLogCapacity - 2;
-constexpr std::chrono::microseconds kWriterIdle{200};
+// A run keeps every record in memory until the loop ends: at most this many bytes of records.
+constexpr double kMaxLogBytes = 2147483648.0;  // 2 GiB
+constexpr double kBytesPerMb = 1048576.0;
 constexpr double kSatFraction = 0.999;  // cobot_eval.metrics.SAT_FRACTION
 
 // `urdf` is the plant's model (tau_max = URDF effort M); `nominal` is the controller's model
@@ -113,7 +112,7 @@ void write_waypoint_meta(std::ostream& os,
   os << "]\n";
 }
 
-// RunSummary of the logged rows, fed one record at a time by the writer thread.
+// RunSummary of the logged rows, fed one record at a time after the run.
 class Metrics {
  public:
   Metrics(const Vec& tau_max, const Vec& rated, std::int64_t t_eval_ns) : t_eval_ns_(t_eval_ns) {
@@ -298,7 +297,14 @@ common::Result<RunSummary> run_profile(const std::filesystem::path& config_yaml,
                                         imperfections.timing.overrun_cycles);
     imperfect::ImperfectJointInterface<kN> io(
         sim, imperfections, period_s, false, config.limits.peak_torque_nm);
-    const std::unique_ptr<Loop> loop = std::make_unique<Loop>(setup.value().nominal, config);
+    // The loop records into `recorder`, which gets storage for one row per cycle once the cycle
+    // count is known (after the waypoint check) and before the first step; start() records
+    // nothing.
+    pipeline::HeapStorage<kN> no_rows(1, 1);
+    pipeline::Recorder<kN> recorder(no_rows.memory(), pipeline::FullPolicy::kStopWhenFull);
+    std::optional<pipeline::HeapStorage<kN>> storage;
+    const std::unique_ptr<Loop> loop =
+        std::make_unique<Loop>(setup.value().nominal, config, &recorder);
 
     hal::JointState<kN> state;
     hal::JointCommand<kN> cmd;
@@ -341,8 +347,22 @@ common::Result<RunSummary> run_profile(const std::filesystem::path& config_yaml,
     const double planned_s =
         (trajectory ? trajectory->duration_s() : config.trajectory.duration_s) +
         config.trajectory.hold_s;
-    const std::int64_t cycles =
-        std::llround(duration_s.value_or(planned_s) * config.control_rate_hz);
+    const double run_s = duration_s.value_or(planned_s);
+    const std::int64_t cycles = std::llround(run_s * config.control_rate_hz);
+    const double log_bytes =
+        static_cast<double>(cycles) * static_cast<double>(sizeof(pipeline::LogRecord<kN>));
+    if (log_bytes > kMaxLogBytes) {
+      std::array<char, 128> text{};
+      std::snprintf(text.data(),
+                    text.size(),
+                    "duration_s %g: the in-memory log would need %.0f MB (limit %.0f MB)",
+                    run_s,
+                    std::ceil(log_bytes / kBytesPerMb),
+                    kMaxLogBytes / kBytesPerMb);
+      return Out::error(text.data());
+    }
+    storage.emplace(static_cast<std::size_t>(std::max<std::int64_t>(cycles, 1)), 1);
+    recorder = pipeline::Recorder<kN>(storage->memory(), pipeline::FullPolicy::kStopWhenFull);
     metrics = Metrics(tau_max,
                       rated,
                       std::llround(planned_s * static_cast<double>(common::kNanosecondsPerSecond)));
@@ -371,37 +391,7 @@ common::Result<RunSummary> run_profile(const std::filesystem::path& config_yaml,
       meta << "git: '" << COBOT_GIT_DESCRIBE << "'\n";
     }
 
-    // Writer thread: drains the ring into the CSV; reads `done` before draining, so every
-    // record pushed before done is set gets written.
-    if (keep) {
-      pipeline::write_csv_header<kN>(csv);
-    }
-    std::atomic<bool> done{false};
-    std::atomic<std::size_t> written{0};
-    std::thread writer([&] {
-      pipeline::LogRecord<kN> r;
-      bool last = false;
-      while (!last) {
-        last = done.load(std::memory_order_acquire);
-        bool any = false;
-        while (loop->log().pop(r)) {
-          if (keep) {
-            pipeline::write_csv_row<kN>(csv, r);
-          }
-          metrics.add(r);
-          written.fetch_add(1, std::memory_order_release);
-          any = true;
-        }
-        if (!any && !last) {
-          std::this_thread::sleep_for(kWriterIdle);
-        }
-      }
-    });
     for (std::int64_t k = 0; k < cycles; ++k) {
-      while (static_cast<std::size_t>(k) - written.load(std::memory_order_acquire) >=
-             kMaxInFlight) {
-        std::this_thread::yield();
-      }
       // A failed read leaves a stale stamp and a fault zero torque: the loop's safety logic
       // handles both and the CSV records the mode.
       static_cast<void>(io.read(state));
@@ -409,10 +399,16 @@ common::Result<RunSummary> run_profile(const std::filesystem::path& config_yaml,
       static_cast<void>(io.write(cmd));
       sim.advance();
     }
-    done.store(true, std::memory_order_release);
-    writer.join();
-    if (loop->log().dropped() > 0) {
+    if (recorder.dropped() > 0) {
       return Out::error(label.string() + ": log rows dropped");
+    }
+    // After the loop: the summary and the Run CSV from the recorded rows.
+    const pipeline::RecordSpan<kN> rows = recorder.active();
+    for (std::size_t i = 0; i < rows.size(); ++i) {
+      metrics.add(rows[i]);
+    }
+    if (keep) {
+      pipeline::write_csv<kN>(csv, rows, true);
     }
   } catch (const std::exception& e) {
     return Out::error(label.string() + ": " + e.what());
@@ -437,10 +433,17 @@ common::Result<TimingStats> timing(const std::filesystem::path& config_yaml, std
   try {
     dynamics::SimPlant<kN> plant(setup.value().urdf, config.home_q_rad);
     pipeline::SimJointInterface<kN> sim(plant, period_s);
-    const std::unique_ptr<Loop> loop = std::make_unique<Loop>(setup.value().nominal, config);
+    // log.mode off: no recorder; otherwise one row per step (the copy is part of the step time).
+    std::optional<pipeline::HeapStorage<kN>> storage;
+    std::optional<pipeline::Recorder<kN>> recorder;
+    if (config.log_mode != pipeline::LogMode::kOff) {
+      storage.emplace(static_cast<std::size_t>(steps), 1);
+      recorder.emplace(storage->memory(), pipeline::FullPolicy::kStopWhenFull);
+    }
+    const std::unique_ptr<Loop> loop =
+        std::make_unique<Loop>(setup.value().nominal, config, recorder ? &*recorder : nullptr);
     hal::JointState<kN> state;
     hal::JointCommand<kN> cmd;
-    pipeline::LogRecord<kN> record;
     static_cast<void>(sim.read(state));
     const Status started = loop->start(state);
     if (!started) {
@@ -455,8 +458,6 @@ common::Result<TimingStats> timing(const std::filesystem::path& config_yaml, std
       sample = dt.count();
       static_cast<void>(sim.write(cmd));
       sim.advance();
-      while (loop->log().pop(record)) {
-      }
     }
     std::sort(us.begin(), us.end());
     const auto rank = [&us](double p) {  // nearest-rank percentile

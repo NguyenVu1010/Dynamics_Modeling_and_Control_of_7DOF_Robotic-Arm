@@ -11,13 +11,16 @@
 #include "cobot/model/model.hpp"
 #include "cobot/pipeline/config.hpp"
 #include "cobot/pipeline/log_record.hpp"
-#include "cobot/pipeline/spsc_ring.hpp"
+#include "cobot/pipeline/recorder.hpp"
 #include "cobot/planning/cartesian_trajectory.hpp"
 #include "cobot/planning/clik.hpp"
 #include "cobot/planning/waypoint_trajectory.hpp"
 
 // One control step (feature `control-loop`, design 5.4). Owns no thread; the host calls
-// step() at control_rate_hz and drains log() from another thread.
+// step() at control_rate_hz. Each step's record goes to last_record() and, when the host passed
+// one, into its Recorder (feature pipeline-recorder, ADR-020): the host owns the recorder and
+// exports it off the control thread; a ControlLoop rebuilt on the same Recorder continues the
+// same log.
 //
 // Modes: kIdle --start()--> kTracking --(t >= duration + hold)--> kFinished (keeps tracking the
 // goal reference). Any of: q within soft_margin of a limit, |qd| > qd_max, a non-finite value
@@ -50,12 +53,13 @@ using common::Status;
 using hal::JointCommand;
 using hal::JointState;
 
-inline constexpr std::size_t kLogCapacity = 8192;
-
 template <int N>
 class ControlLoop {
  public:
-  ControlLoop(const model::Model<N>& model, const Config<N>& config);
+  // `recorder` (may be null: no log) must outlive the loop.
+  ControlLoop(const model::Model<N>& model,
+              const Config<N>& config,
+              Recorder<N>* recorder = nullptr);
 
   // Resets CLIK at initial.q. Config mode: plans the trajectory from FK(initial.q) to the
   // configured goal (kTracking). External mode: kStandby at FK(initial.q).
@@ -65,9 +69,8 @@ class ControlLoop {
   LoopMode mode() const { return mode_; }
   // Why the loop entered kHolding; kNone before that and after start() or reset().
   HoldReason hold_reason() const { return hold_reason_; }
-  SpscRing<LogRecord<N>, kLogCapacity>& log() { return log_; }
-  // The record of the last step (the row pushed to log(), also when the ring dropped it), for a
-  // host that needs per-step values on the control thread without draining the ring.
+  // The record of the last step (the row given to the recorder, also when it dropped the row or
+  // there is none), for a host that needs per-step values on the control thread.
   const LogRecord<N>& last_record() const { return last_record_; }
 
   // External mode only. Accepted in kStandby when the trajectory starts at reference_pose()
@@ -105,7 +108,7 @@ class ControlLoop {
   common::Timestamp t_last_;                                 // newest state stamp seen
   std::int64_t stale_steps_ = 0;                             // steps since t_last_ last advanced
   common::VecN<N> q_last_finite_ = common::VecN<N>::Zero();  // hold target for a non-finite q
-  SpscRing<LogRecord<N>, kLogCapacity> log_;
+  Recorder<N>* recorder_ = nullptr;
   LogRecord<N> last_record_;
   // External mode.
   std::optional<planning::WaypointTrajectory> waypoints_;
