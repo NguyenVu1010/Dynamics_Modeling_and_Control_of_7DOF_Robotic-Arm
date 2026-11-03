@@ -1,0 +1,56 @@
+# E2E-12 (feature profiles, realism-2 design G3, G4, 4.6 and 10): the E2E-01 trajectory on each of
+# the three reference profiles, seeds 1, 2, 3 (seed = first seed, runs = seeds per profile).
+# kind profiles: for each profile, in this order, `cobot_bench montecarlo --config <config>
+# --imperfections <imperfections> --runs <runs> --seed0 <seed> --out <out>/E2E-12/<name>`, which
+# writes <out>/E2E-12/<name>/summary.csv; <config> is the profile's own controller config
+# (config/<name>.yaml: default.yaml with the computed-torque gains at w = 50 / 40 / 20, owner
+# decision 2026-11-03), else the scenario's. Every run is judged from the metric columns against
+# the profile's thresholds. hold: fail -> any held run fails the profile. hold: report -> every
+# held run, whatever its hold_reason, counts in the profile's hold rate, printed with the reasons;
+# held runs are not judged on the thresholds and a hold never fails the profile (budget_xarm7 is a
+# reported finding until a drive-side loop exists). Tag realism2: run with --tag realism2 or
+# --scenario; a plain --all skips it.
+#
+# Thresholds: proposed, awaiting owner approval (design 10). Measured with the per-profile
+# controller configs (bench release build, the design section 7 values, seeds 1 / 2 / 3):
+#   premium_fr3   final_pos_err_m 7.7e-5 / 1.17e-4 / 4.1e-5, final_rot_err_rad 3.7e-4 / 5.4e-4 /
+#                 3.9e-4 (max 0.031 deg), rms_joint_err_rad 3.2e-4 / 3.0e-4 / 2.9e-4, peak
+#                 |tau| / P 0.38 / 0.41 / 0.42, no hold;
+#   mid_kr1205    final_pos_err_m 2.9e-4 / 5.8e-4 / 7.4e-5, final_rot_err_rad 5.2e-4 / 1.27e-3 /
+#                 4.3e-4 (max 0.073 deg), rms_joint_err_rad 3.4e-4 / 8.6e-4 / 2.8e-4, peak
+#                 |tau| / P 0.40 / 0.45 / 0.47, no hold;
+#   budget_xarm7  hold rate 1: every seed held with state_timeout, at 0.326 / 0.487 / 0.097 s.
+# The proposal keeps the E2E-02 level for all three: premium and mid pass it with a margin of
+# about 8x on the final position error; budget is not judged while every run holds.
+id: E2E-12
+tags: [realism2]
+runner: bench
+kind: profiles
+config: config/default.yaml
+seed: 1
+runs: 3
+profiles:
+  premium_fr3:
+    config: config/premium_fr3.yaml
+    imperfections: config/imperfections/premium_fr3.yaml
+    hold: fail
+    thresholds:  # proposed, awaiting owner approval
+      final_pos_err_m: 0.005
+      final_rot_err_deg: 2.0
+      rms_joint_err_rad: 0.02
+  mid_kr1205:
+    config: config/mid_kr1205.yaml
+    imperfections: config/imperfections/mid_kr1205.yaml
+    hold: fail
+    thresholds:  # proposed, awaiting owner approval
+      final_pos_err_m: 0.005
+      final_rot_err_deg: 2.0
+      rms_joint_err_rad: 0.02
+  budget_xarm7:
+    config: config/budget_xarm7.yaml
+    imperfections: config/imperfections/budget_xarm7.yaml
+    hold: report
+    thresholds:  # proposed, awaiting owner approval
+      final_pos_err_m: 0.005
+      final_rot_err_deg: 2.0
+      rms_joint_err_rad: 0.02

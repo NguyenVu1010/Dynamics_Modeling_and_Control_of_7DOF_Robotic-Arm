@@ -1,0 +1,15 @@
+# Realism-2 budget-tier sweep (design 4.6 and 7): one param at a time on the budget_xarm7 profile,
+# every other key at the profile's value, for each seed. config.<section>.<key> sets a key of the
+# controller config (config.safety.hal_timeout_ms: the hold rate against the state timeout).
+# Run with the profile's controller config: cobot_bench sweep --config config/budget_xarm7.yaml
+base_profile: config/imperfections/budget_xarm7.yaml
+seeds: [1, 2, 3]
+params:
+  - name: config.safety.hal_timeout_ms
+    levels: [5, 8, 12, 20]
+  - name: comm.burst_cycles
+    levels: [1, 2, 5, 10]
+  - name: timing.overrun_cycles
+    levels: [1, 2, 3, 5]
+  - name: comm.packet_loss_prob
+    levels: [0, 1.0e-4, 1.0e-3, 1.0e-2]

@@ -24,8 +24,13 @@ rest_qd_max_rad_s (0.01 rad/s) and peak |tau| / tau_max <= peak_tau_ratio (1); t
 thresholds keep the defaults in parentheses (E2E-11b sets rest_qd_max_rad_s to 0.03 rad/s: the
 CSV qd is the measured, quantized and filtered velocity, whose noise at rest in Gazebo has std
 0.0047 rad/s per joint). cancel_after_s without waypoints fails.
-Scenarios tagged nightly run only with --tag nightly or --scenario. Exit 0 all pass, 1 any
-fails, 2 bad arguments.
+kind profiles runs `cobot_bench montecarlo` (runs seeds from seed) once per entry of `profiles`
+(name -> config (optional, else the scenario's config), imperfections, hold: fail | report,
+thresholds) into <out>/<id>/<name> and judges each run from the Summary CSV metric columns; with
+hold: fail any held run fails the profile; with hold: report every held run, whatever its
+hold_reason, counts in the printed hold rate (with the reasons), is not judged and never fails.
+Scenarios tagged nightly or realism2 run only with --tag <that tag> or --scenario. Exit 0 all
+pass, 1 any fails, 2 bad arguments.
 """
 
 import argparse
@@ -57,6 +62,7 @@ from cobot_eval.metrics import (  # noqa: E402
 
 SCENARIO_DIR = REPO / "tests/e2e/scenarios"
 THRESHOLD_KEYS = ("final_pos_err_m", "final_rot_err_deg", "rms_joint_err_rad")
+OPT_IN_TAGS = {"nightly", "realism2"}  # never selected by a plain --all
 GAZEBO_MARGIN_S = 5.0  # real-time factor below 1 and shutdown, on top of the trajectory time
 GAZEBO_POLL_S = 0.1
 GAZEBO_CAP = 3.0  # overall wait cap, as a multiple of the minimum wait
@@ -161,6 +167,45 @@ def run_nightly(s: dict, args: argparse.Namespace, out: Path, config: str) -> tu
     rate = float(sensitivity.passes(summary, thresholds_of(s)).mean())
     limit = float(s["thresholds"]["pass_rate"])
     return rate >= limit, f"pass rate {rate:.4g} over {len(summary)} runs (limit {limit:g})"
+
+
+def judge_profile(name: str, p: dict, summary: Path) -> tuple[bool, str]:
+    """One profile of kind profiles, judged run by run from its Summary CSV."""
+    df = sensitivity.load_summary(summary)
+    th = thresholds_of({"id": name, "thresholds": p["thresholds"]})
+    held = df["held"] == 1
+    problems = []
+    if p["hold"] not in ("fail", "report"):
+        raise ValueError(f"{name}: hold must be fail or report, got {p['hold']}")
+    if p["hold"] == "fail" and held.any():
+        problems.append(f"{int(held.sum())} held")
+    judged = df[~held]
+    bad = int((~sensitivity.passes(judged, th)).sum()) if len(judged) else 0
+    if bad:
+        problems.append(f"{bad} of {len(judged)} judged runs over the thresholds")
+    detail = f"{name}: {len(df)} runs"
+    if p["hold"] == "report":
+        # Every hold counts, whatever its reason; reported, never failed.
+        detail += f", hold rate {float(held.mean()):.3g}"
+        if held.any():
+            detail += f" ({', '.join(sorted(set(df.loc[held, 'hold_reason'].astype(str))))})"
+    return not problems, detail + (f"; FAIL {'; '.join(problems)}" if problems else ", pass")
+
+
+def run_profiles(s: dict, args: argparse.Namespace, out: Path, config: str) -> tuple[bool, str]:
+    ok, lines = True, []
+    for name, p in s["profiles"].items():
+        runs = ("--runs", str(s["runs"]), "--seed0", str(s["seed"]))
+        imperfections = str(repo_path(p["imperfections"]))
+        cfg = str(repo_path(p["config"])) if "config" in p else config
+        cmd = ("montecarlo", "--config", cfg, "--imperfections", imperfections, *runs)
+        try:
+            bench(args, *cmd, "--out", str(out / name))
+            good, line = judge_profile(name, p, out / name / "summary.csv")
+        except (OSError, ValueError, KeyError, RuntimeError) as err:
+            good, line = False, f"{name}: FAIL {err}"
+        ok, lines = ok and good, [*lines, line]
+    return ok, "\n    ".join(lines)
 
 
 def judge_run(s: dict, csv: Path, out: Path, report: bool) -> tuple[bool, str]:
@@ -366,6 +411,8 @@ def run_scenario(s: dict, args: argparse.Namespace) -> tuple[bool, str]:
         return float(match.group(1)) <= limit, f"{text.strip()} (limit p95 {limit:g} us)"
     if s["kind"] in ("montecarlo", "sweep"):
         return run_nightly(s, args, out, config)
+    if s["kind"] == "profiles":
+        return run_profiles(s, args, out, config)
     csvs = [out / f"run{k}.csv" for k in range(1, 3 if s["kind"] == "determinism" else 2)]
     for csv in csvs:
         imperfections = str(repo_path(s["imperfections"]))
@@ -415,7 +462,7 @@ def main(argv: list[str] | None = None) -> int:
     scenarios = [
         s
         for s in scenarios
-        if (args.tag in s.get("tags", []) if args.tag else "nightly" not in s.get("tags", []))
+        if (args.tag in s.get("tags", []) if args.tag else not OPT_IN_TAGS & set(s.get("tags", [])))
         or args.scenario
     ]
     if not scenarios:
