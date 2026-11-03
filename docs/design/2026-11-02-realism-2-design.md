@@ -72,6 +72,11 @@ Phản mục tiêu:
    một lần cho mọi profile** (vẫn một bộ điều khiển chung), không chỉnh riêng từng profile. Báo cáo
    ghi kết quả cả trước và sau khi chỉnh. Đáp án test đóng băng đổi theo nằm trong PR có nhãn
    `test-change`, ghi lý do.
+   **Cập nhật 2026-11-03 (sau #48):** đo cho thấy với encoder phía khâu không có ω nào từ 10 đến
+   80 rad/s ổn định (giới hạn Routh của hệ hai khối ít giảm chấn: ω ≲ 1 rad/s), nên bỏ bước chỉnh
+   hệ số. Chủ dự án chọn: khi có hộp số đàn hồi, **vòng vị trí dùng encoder phía động cơ** và bộ
+   điều khiển **bù độ xoắn tĩnh** `q̂ = q_motor − φ⁻¹(g(q))` theo độ cứng danh định; hệ số giữ
+   ω = 80. Phân tích ở `docs/lessons/02-dieu-khien.md` mục 4.
 
 ## 5. Quyết định của người thiết kế (chủ dự án có thể đổi)
 
@@ -165,7 +170,7 @@ mà không cần hỏi lại, miễn ghi nguồn (tên catalog, trang) trong YAM
 | sensor.q_offset_std_rad | 2e-4 | 1e-3 | 2e-3 | giả định: chất lượng hiệu chuẩn |
 | sensor.qd_filter_hz | 200 | 100 | 50 | giả định |
 | sensor.sensor_delay_cycles | 1 | 1 | 1 | trễ thêm của hạng rẻ đến từ servo_rate |
-| sensor.position_source | link | link | motor | FR3 và eRob có encoder kép; xArm một encoder (giả định) |
+| sensor.position_source | motor | motor | motor | vòng vị trí khép bằng encoder động cơ (mục 4.7, cập nhật 2026-11-03); encoder khâu không ổn định qua khớp đàn hồi |
 | actuator.torque_scale_std | 0.02 | 0.05 | 0.10 | FR3 theo iiwa ±2 % (công bố); còn lại giả định |
 | actuator.torque_scale_asym_frac | 0.005 | 0.01 | 0.03 | giả định |
 | actuator.torque_ripple_frac | 0.01 | 0.02 | 0.05 | giả định (vòng mô-men triệt gợn) |
@@ -208,7 +213,8 @@ mà không cần hỏi lại, miễn ghi nguồn (tên catalog, trang) trong YAM
 - Đáp án test/E2E đổi vì G1 (giới hạn khớp) nằm trong PR riêng, nhãn `test-change`, ghi lý do.
 - Ổn định với khớp đàn hồi (mục 4.7): trên mỗi profile, quỹ đạo mặc định không có dao động kéo dài
   (biên độ dao động sai số khớp sau khi tới đích giảm dần, không vào giữ vì lý do khác ngoài mất
-  gói); test chạy trên cả bộ hệ số trước và sau nếu phải chỉnh.
+  gói); với encoder phía động cơ và bù độ xoắn bật, sai số khâu thật sau đích nhỏ hơn rõ rệt so với
+  khi tắt bù.
 
 ## 9. Chia PR (dự kiến)
 
@@ -218,8 +224,8 @@ mà không cần hỏi lại, miễn ghi nguồn (tên catalog, trang) trong YAM
 4. `comm-timing`: servo_rate, mất gói, trễ dồn, quá giờ.
 5. `transmission`: đàn hồi hai khối, sai số truyền động, lost motion, vị trí encoder; đo ổn định
    với hệ số hiện tại (mục 4.7).
-5b. `retune` (chỉ khi bước 5 cho thấy mất ổn định): đổi bộ hệ số mặc định trong
-   `config/default.yaml`, cập nhật đáp án, nhãn `test-change`, ghi số đo trước/sau.
+5b. ~~`retune`~~ bỏ (mục 4.7, cập nhật 2026-11-03), thay bằng `deflection-comp`: bù độ xoắn tĩnh
+   phía bộ điều khiển khi vị trí đo từ encoder động cơ; đo sai số khâu thật trước/sau.
 6. `payload-inertia`: tải lệch tâm có quán tính.
 7. `profiles`: ba YAML, tham số quét mới, chạy E2E và báo cáo độ nhạy vào `docs/results/realism2/`,
    README.

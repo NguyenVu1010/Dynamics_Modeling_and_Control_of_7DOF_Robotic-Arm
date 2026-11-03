@@ -46,6 +46,10 @@ lại cho thấy ba lỗ hổng làm kết luận "chịu được bao nhiêu nh
   được khoá cấu hình `config.safety.hal_timeout_ms`.
 - **Cùng một bộ điều khiển** cho mọi profile. Nếu hộp số đàn hồi làm bộ điều khiển dao động, bộ hệ số
   mặc định được chỉnh **một lần** cho mọi profile, báo cáo số đo trước và sau.
+- **Cập nhật 2026-11-03:** đo ở #48 cho thấy vòng PD đo vị trí phía khâu qua khớp đàn hồi ít giảm
+  chấn không ổn định ở mọi ω dùng được (giới hạn Routh ω ≲ 1 rad/s), nên không chỉnh hệ số. Thay
+  vào đó: cả ba profile dùng `sensor.position_source: motor`, và bộ điều khiển bù độ xoắn tĩnh
+  `q̂ = q_motor − φ⁻¹(g(q))` với độ cứng danh định (tính năng `deflection-comp`); ω giữ 80 rad/s.
 
 ## Phương án đã cân nhắc
 
@@ -56,6 +60,8 @@ lại cho thấy ba lỗ hổng làm kết luận "chịu được bao nhiêu nh
 | Bỏ ngắt khi mất gói ở hạng rẻ (thời gian chờ theo tần số servo) | Hạng rẻ chạy hết quỹ đạo | Che mất tính năng an toàn; chủ dự án muốn chứng minh nó |
 | Hệ số điều khiển riêng cho từng profile | Mỗi profile đạt tốt nhất | So sánh không còn công bằng |
 | Hộp số đàn hồi trong Gazebo ngay | Demo sát hơn | Phải đổi động lực khớp của Gazebo; để sau |
+| Giảm hệ số để vòng đo phía khâu ổn định | Không đổi cấu trúc | Cần ω ≲ 1 rad/s; ω = 10 đã trượt G3 với khớp cứng |
+| Hai vòng (vận tốc theo động cơ, vị trí theo khâu) | Bám đúng góc khâu | Tính năng điều khiển mới, để sau |
 
 ## Hệ quả
 
