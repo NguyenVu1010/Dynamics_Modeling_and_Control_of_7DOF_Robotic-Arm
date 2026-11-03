@@ -23,7 +23,8 @@
 //     (sensor.position_source is not sweepable).
 // Each file loads (pipeline::load_sweep) and every param name resolves at every level: an
 // imperfection key through load_imperfections_with on the base profile, a config.<section>.<key>
-// through load_config_with on config/default.yaml (the config cobot_bench sweep runs with).
+// through load_config_with on config/budget_xarm7.yaml (the controller config the budget sweep
+// runs with: cobot_bench sweep --config config/budget_xarm7.yaml).
 namespace cobot::pipeline {
 namespace {
 
@@ -32,7 +33,7 @@ constexpr int kN = 7;
 using Levels = std::vector<double>;
 
 const fs::path kRepo = COBOT_REPO_DIR;
-const fs::path kConfig = kRepo / "config/default.yaml";
+const fs::path kConfig = kRepo / "config/budget_xarm7.yaml";
 
 // True when both paths name the same existing file (false, not a throw, when either is missing).
 bool same_file(const fs::path& a, const fs::path& b) {
