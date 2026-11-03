@@ -2,9 +2,11 @@
 // appends the rows of the black-box region "/cobot_log_<controller>" that were never exported to
 // a Run CSV (default ./<controller>-<YYYYmmdd-HHMMSS>.csv) and prints "<rows> rows -> <csv>"
 // (", <lost> rows lost" when rows were overwritten before any export). --keep leaves the rows
-// unexported, --remove removes the region afterwards. Exit 0 done, 1 no region or nothing to
-// export, 2 bad arguments, layout mismatch or a write error (reason on stderr). No ROS.
+// unexported, --remove removes the region after a successful export (kept when it fails). Exit
+// 0 done, 1 no region or nothing to export, 2 bad arguments (including a bad controller name),
+// layout mismatch or a write error (reason on stderr). No ROS.
 #include <chrono>
+#include <cstddef>
 #include <cstdio>
 #include <ctime>
 #include <filesystem>
@@ -27,6 +29,23 @@ std::string default_out(const std::string& controller) {
   char buf[32] = {};
   std::strftime(buf, sizeof(buf), "%Y%m%d-%H%M%S", &tm);
   return "./" + controller + "-" + buf + ".csv";
+}
+
+// Same rule as the region name in recorder_shm ([A-Za-z0-9_]{1,64}); checked here so a bad name
+// is a bad argument (exit 2), not a missing region.
+bool valid_controller(const std::string& name) {
+  constexpr std::size_t kMaxName = 64;
+  if (name.empty() || name.size() > kMaxName) {
+    return false;
+  }
+  for (const char c : name) {
+    const bool ok =
+        (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_';
+    if (!ok) {
+      return false;
+    }
+  }
+  return true;
 }
 
 int bad(const std::string& why) {
@@ -62,6 +81,9 @@ int main(int argc, char** argv) {
   if (controller.empty()) {
     return bad("no controller name");
   }
+  if (!valid_controller(controller)) {
+    return bad("bad controller name '" + controller + "' (want [A-Za-z0-9_]{1,64})");
+  }
   if (out.empty()) {
     out = default_out(controller);
   }
@@ -76,15 +98,19 @@ int main(int argc, char** argv) {
   }
   const cobot::common::Result<cobot::pipeline::DumpResult> dumped =
       storage.value().export_unexported(out, cobot::pipeline::ShmExport::kAll, keep);
-  if (remove) {
+  if (!dumped) {
+    std::fprintf(stderr, "cobot_logdump: %s\n", dumped.reason().c_str());
+    if (remove) {
+      std::fprintf(
+          stderr, "cobot_logdump: export failed, region /cobot_log_%s kept\n", controller.c_str());
+    }
+    return kExitBad;
+  }
+  if (remove) {  // only after a successful export: the region may hold the only copy of the log
     const cobot::common::Status removed = Storage::remove(controller);
     if (!removed) {
       std::fprintf(stderr, "cobot_logdump: %s\n", removed.reason().c_str());
     }
-  }
-  if (!dumped) {
-    std::fprintf(stderr, "cobot_logdump: %s\n", dumped.reason().c_str());
-    return kExitBad;
   }
   const cobot::pipeline::DumpResult& r = dumped.value();
   if (r.rows == 0) {

@@ -246,7 +246,8 @@ common::Result<ShmStorage<N>> ShmStorage<N>::create(const std::string& name,
   const std::size_t size = Layout<N>::size(capacity);
   const int fd = ::shm_open(region.c_str(), O_CREAT | O_EXCL | O_RDWR, kMode);
   if (fd < 0) {
-    return R::error("black-box log: cannot create " + region + ": " + errno_text(errno));
+    const int open_err = errno;
+    return R::error("black-box log: cannot create " + region + ": " + errno_text(open_err));
   }
   const int err = ::posix_fallocate(fd, 0, static_cast<off_t>(size));
   void* p =
@@ -276,8 +277,9 @@ common::Result<ShmStorage<N>> ShmStorage<N>::create(const std::string& name,
   std::memcpy(h->magic, kMagic, sizeof(kMagic));  // last: a complete header
   ShmStorage storage(base, size, capacity);
   if (lock_memory && ::mlock(base, size) != 0) {
+    const int lock_err = errno;
     storage.lock_error_ = "mlock of " + region + " (" + std::to_string(size / kMiB) +
-                          " MB) failed: " + errno_text(errno) + "; it may be swapped out";
+                          " MB) failed: " + errno_text(lock_err) + "; it may be swapped out";
   }
   return R::ok(std::move(storage));
 }
@@ -291,7 +293,8 @@ common::Result<ShmStorage<N>> ShmStorage<N>::open_existing(const std::string& na
   const std::string region = region_of(name);
   const int fd = ::shm_open(region.c_str(), O_RDWR, 0);
   if (fd < 0) {
-    return R::error("black-box log: no region " + region + ": " + errno_text(errno));
+    const int open_err = errno;
+    return R::error("black-box log: no region " + region + ": " + errno_text(open_err));
   }
   struct stat st {};
   const bool stat_ok = ::fstat(fd, &st) == 0;
@@ -335,9 +338,13 @@ common::Status ShmStorage<N>::remove(const std::string& name) {
   if (!valid_name(name)) {
     return common::Status::error("black-box log: bad region name '" + name + "'");
   }
-  if (::shm_unlink(region_of(name).c_str()) != 0 && errno != ENOENT) {
+  if (::shm_unlink(region_of(name).c_str()) != 0) {
+    const int unlink_err = errno;
+    if (unlink_err == ENOENT) {
+      return common::Status::ok();
+    }
     return common::Status::error("black-box log: cannot remove " + region_of(name) + ": " +
-                                 errno_text(errno));
+                                 errno_text(unlink_err));
   }
   return common::Status::ok();
 }
