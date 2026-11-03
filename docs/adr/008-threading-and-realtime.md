@@ -40,3 +40,10 @@ trong vòng. Test và E2E-03 cần chạy lại cho kết quả giống từng b
 Cùng một `ControlLoop` chạy dưới mọi host; cách tổ chức luồng trên Pi5 do host quyết. Đổi lại,
 mỗi host phải tự viết vòng rút ring, và log có thể mất bản ghi khi luồng ghi quá chậm (bộ đếm cho
 biết bao nhiêu).
+
+## Bổ sung (2026-11-03): bộ ghi log trong bộ nhớ
+
+ADR-020 thay ring `SpscRing<LogRecord<N>, kLogCapacity>` và luồng ghi CSV chạy suốt lần chạy bằng
+`pipeline::Recorder<N>` do host sở hữu: bước điều khiển chỉ chép một bản ghi vào bộ nhớ cấp phát
+trước; CSV được xuất sau lần chạy (bench) hoặc khi có yêu cầu, ở luồng khác (controller). Lõi vẫn
+không tạo luồng và chế độ tất định không đổi.

@@ -50,6 +50,11 @@ lại cho thấy ba lỗ hổng làm kết luận "chịu được bao nhiêu nh
   chấn không ổn định ở mọi ω dùng được (giới hạn Routh ω ≲ 1 rad/s), nên không chỉnh hệ số. Thay
   vào đó: cả ba profile dùng `sensor.position_source: motor`, và bộ điều khiển bù độ xoắn tĩnh
   `q̂ = q_motor − φ⁻¹(g(q))` với độ cứng danh định (tính năng `deflection-comp`); ω giữ 80 rad/s.
+- **Cập nhật 2026-11-03 (#51):** đo với trễ cảm biến và trễ lệnh của ba profile cho thấy ω = 80 làm
+  bản cao cấp và trung bình rung không tắt, bản giá rẻ dừng giữ. Thay cho "cùng một bộ điều khiển
+  cho mọi profile", mỗi profile có cấu hình bộ điều khiển riêng `config/<profile>.yaml`, chỉ khác hệ
+  số computed torque: `premium_fr3` ω = 50, `mid_kr1205` ω = 40, `budget_xarm7` ω = 20 rad/s;
+  `config/default.yaml` (phần cứng lý tưởng) giữ ω = 80. Xem `docs/lessons/02-dieu-khien.md` mục 5.
 
 ## Phương án đã cân nhắc
 
