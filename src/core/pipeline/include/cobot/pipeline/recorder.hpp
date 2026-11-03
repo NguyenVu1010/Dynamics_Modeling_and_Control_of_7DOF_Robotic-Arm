@@ -21,9 +21,9 @@
 // retired one and releases it).
 //
 // Threads: record() runs on the control thread only; request_swap(), swap_done(), retired() and
-// release_retired() on one exporter thread. active(), clear() and the counters other than size()
-// are read while no record() can run (size() and the counters are atomics, so reading them from
-// the control thread itself is fine too).
+// release_retired() on one exporter thread. active() and clear() only while no record() can run.
+// size(), dropped(), overwritten() and recorded() are atomic loads, readable from any thread at
+// any time.
 namespace cobot::pipeline {
 
 enum class FullPolicy {

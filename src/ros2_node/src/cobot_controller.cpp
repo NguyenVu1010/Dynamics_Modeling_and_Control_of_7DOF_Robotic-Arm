@@ -313,6 +313,7 @@ class CobotController final : public ci::ControllerInterface {
     loop_.reset();  // before the recorder it writes into
     recorder_.reset();
     storage_.reset();
+    overwritten_reported_ = 0;
     try {
       if (c.log_mode != cobot::pipeline::LogMode::kOff) {
         const long long rows = std::llround(c.log_capacity_s * c.control_rate_hz);
@@ -538,10 +539,14 @@ class CobotController final : public ci::ControllerInterface {
         }
         cobot::pipeline::write_csv<kN>(csv_, recorder_->active(), false);
         recorder_->clear();
-        if (recorder_->overwritten() > 0) {
+        // overwritten() counts since configure; warn only about the rows lost since the last
+        // warning.
+        const std::uint64_t overwritten = recorder_->overwritten();
+        if (overwritten > overwritten_reported_) {
           RCLCPP_WARN(rclcpp::get_logger("cobot"),
                       "%llu log rows overwritten before export",
-                      static_cast<unsigned long long>(recorder_->overwritten()));
+                      static_cast<unsigned long long>(overwritten - overwritten_reported_));
+          overwritten_reported_ = overwritten;
         }
       }
       csv_.close();
@@ -554,6 +559,7 @@ class CobotController final : public ci::ControllerInterface {
   // they outlive the loop.
   std::unique_ptr<cobot::pipeline::HeapStorage<kN>> storage_;
   std::unique_ptr<cobot::pipeline::Recorder<kN>> recorder_;
+  std::uint64_t overwritten_reported_ = 0;  // recorder_->overwritten() at the last warning
   std::unique_ptr<cobot::pipeline::ControlLoop<kN>> loop_;
   RosJointInterface ros_io_;
   std::unique_ptr<cobot::imperfect::ImperfectJointInterface<kN>> io_;
