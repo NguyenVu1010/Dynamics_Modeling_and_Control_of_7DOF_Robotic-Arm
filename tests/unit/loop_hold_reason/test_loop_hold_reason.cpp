@@ -258,7 +258,7 @@ std::vector<std::string> cells(const std::string& line) {
   return out;
 }
 
-TEST(HoldReasonCsv, HoldIsTheLastRunCsvColumn) {
+TEST(HoldReasonCsv, HoldStaysAtRunCsvColumn56) {
   std::ostringstream header;
   write_csv_header<kN>(header);
   std::string h = header.str();
@@ -266,8 +266,9 @@ TEST(HoldReasonCsv, HoldIsTheLastRunCsvColumn) {
   ASSERT_EQ(h.back(), '\n');
   h.pop_back();
   const std::vector<std::string> cols = cells(h);
-  // 2 + 5 * 7 + 12 + 6 + step_us + hold = 57 columns.
-  ASSERT_EQ(cols.size(), 57U);
+  // 2 + 5 * 7 + 12 + 6 + step_us + hold = 57 columns, then the log-channels blocks and cmd:
+  // 57 + 8 * 7 + 1 = 114 (feature log-channels); hold stays at index 56.
+  ASSERT_EQ(cols.size(), 114U);
   EXPECT_EQ(cols[55], "step_us");
   EXPECT_EQ(cols[56], "hold");
 
@@ -287,7 +288,7 @@ TEST(HoldReasonCsv, HoldIsTheLastRunCsvColumn) {
     ASSERT_EQ(line.back(), '\n');
     line.pop_back();
     const std::vector<std::string> c = cells(line);
-    ASSERT_EQ(c.size(), 57U);
+    ASSERT_EQ(c.size(), 114U);
     EXPECT_EQ(c[55], "12.5");
     EXPECT_EQ(c[56], to_string(reason));
   }

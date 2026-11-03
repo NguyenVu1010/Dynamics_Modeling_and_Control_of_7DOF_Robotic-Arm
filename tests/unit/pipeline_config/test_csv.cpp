@@ -77,10 +77,17 @@ TEST(Csv, HeaderHasTheContractColumns) {
   }
   expected.emplace_back("step_us");
   expected.emplace_back("hold");  // feature comm-timing
+  // Feature log-channels: eight 7-wide blocks after hold, then cmd: 57 + 8 * 7 + 1 = 114.
+  for (const char* prefix : {"qddref", "qraw", "qt", "qdt", "qddt", "qmt", "taum", "tauf"}) {
+    for (int i = 1; i <= 7; ++i) {
+      expected.push_back(prefix + std::to_string(i));
+    }
+  }
+  expected.emplace_back("cmd");
   std::ostringstream os;
   write_csv_header<7>(os);
   const auto cols = cells(os.str());
-  ASSERT_EQ(cols.size(), 57U);
+  ASSERT_EQ(cols.size(), 114U);
   EXPECT_EQ(cols, expected);
 }
 
@@ -89,7 +96,7 @@ TEST(Csv, RowRoundTripsBitExact) {
   std::ostringstream os;
   write_csv_row<7>(os, r);
   const auto cols = cells(os.str());
-  ASSERT_EQ(cols.size(), 57U);
+  ASSERT_EQ(cols.size(), 114U);
   for (const auto& c : cols) {
     EXPECT_FALSE(c.empty());
   }
@@ -125,13 +132,21 @@ TEST(Csv, DefaultRecordFaultMode) {
   std::ostringstream os;
   write_csv_row<7>(os, r);
   const auto cols = cells(os.str());
-  ASSERT_EQ(cols.size(), 57U);
+  ASSERT_EQ(cols.size(), 114U);
   EXPECT_EQ(cols[0], "0");
   EXPECT_EQ(cols[1], "fault");
-  for (std::size_t i = 2; i + 1 < cols.size(); ++i) {
+  for (std::size_t i = 2; i < 56; ++i) {
     EXPECT_EQ(std::strtod(cols[i].c_str(), nullptr), 0.0) << i;
   }
-  EXPECT_EQ(cols.back(), "none");
+  EXPECT_EQ(cols[56], "none");
+  // Feature log-channels: qddref and qraw 0, the six truth blocks unknown (nan), cmd config.
+  for (std::size_t i = 57; i < 71; ++i) {
+    EXPECT_EQ(cols[i], "0") << i;
+  }
+  for (std::size_t i = 71; i < 113; ++i) {
+    EXPECT_EQ(cols[i], "nan") << i;
+  }
+  EXPECT_EQ(cols.back(), "config");
 }
 
 TEST(Csv, IdenticalRecordsGiveIdenticalBytes) {
