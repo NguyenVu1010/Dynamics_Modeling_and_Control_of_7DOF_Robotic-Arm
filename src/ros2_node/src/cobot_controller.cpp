@@ -50,6 +50,7 @@
 #include <exception>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -141,6 +142,8 @@ class RosJointInterface final : public cobot::hal::JointInterface<kN> {
   // applied over the interval ending now); qdd, q_motor and tau_friction stay NaN (friction is
   // in the physics engine).
   const cobot::pipeline::PlantTruth<kN>& truth() const { return truth_; }
+  // Back to unknown (all NaN), so a re-activation never logs the previous activation's state.
+  void reset_truth() { truth_ = cobot::pipeline::PlantTruth<kN>{}; }
 
   cobot::common::Status read(cobot::hal::JointState<kN>& out) override {
     cobot::hal::JointState<kN> s;
@@ -151,6 +154,8 @@ class RosJointInterface final : public cobot::hal::JointInterface<kN> {
       const std::optional<double> qd = qd_[i]->get_optional();
       const std::optional<double> tau = tau_[i]->get_optional();
       if (!q || !qd || !tau) {
+        truth_.q.setConstant(kUnknown);  // no reading: the plant state is unknown, not stale
+        truth_.qd.setConstant(kUnknown);
         return cobot::common::Status::error("ros2_control: state interface not readable");
       }
       s.q(i) = *q;
@@ -168,7 +173,11 @@ class RosJointInterface final : public cobot::hal::JointInterface<kN> {
     for (int i = 0; i < kN; ++i) {
       ok = cmd_[i]->set_value(cmd.tau(i)) && ok;
     }
-    truth_.tau_motor = cmd.tau;
+    if (ok) {
+      truth_.tau_motor = cmd.tau;
+    } else {
+      truth_.tau_motor.setConstant(kUnknown);  // Gazebo may not apply what was asked
+    }
     return ok ? cobot::common::Status::ok()
               : cobot::common::Status::error("ros2_control: command interface not writable");
   }
@@ -181,6 +190,8 @@ class RosJointInterface final : public cobot::hal::JointInterface<kN> {
     });
     return it == list.end() ? nullptr : &*it;
   }
+
+  static constexpr double kUnknown = std::numeric_limits<double>::quiet_NaN();
 
   cobot::common::Timestamp stamp_;
   LoanedStateInterface* q_[kN] = {};
@@ -402,6 +413,7 @@ class CobotController final : public ci::ControllerInterface {
     cycle_ = 0;
     last_mode_ = cobot::pipeline::LoopMode::kIdle;  // start() enters standby again
     ros_io_.set_stamp(cobot::common::Timestamp{t0_ns_});
+    ros_io_.reset_truth();
     const cobot::common::Status read = io_->read(state_);
     if (!read) {
       RCLCPP_ERROR(log, "initial state: %s", read.reason().c_str());

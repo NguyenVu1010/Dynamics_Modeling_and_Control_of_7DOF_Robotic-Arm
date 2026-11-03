@@ -113,6 +113,7 @@ class ControlLoop {
   common::VecN<N> q_last_finite_ = common::VecN<N>::Zero();  // hold target for a non-finite q
   Recorder<N>* recorder_ = nullptr;
   LogRecord<N> last_record_;
+  const PlantTruth<N> unknown_truth_;  // all NaN: what step() without a truth logs
   // External mode.
   std::optional<planning::WaypointTrajectory> waypoints_;
   planning::CartesianSample reference_;  // desired sample of the last step (or of standby)

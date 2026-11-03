@@ -152,8 +152,7 @@ Status ControlLoop<N>::start(const JointState<N>& measured) {
 
 template <int N>
 Status ControlLoop<N>::step(const JointState<N>& measured, JointCommand<N>& out) {
-  static const PlantTruth<N> unknown_truth;  // all NaN
-  return step(measured, out, unknown_truth);
+  return step(measured, out, unknown_truth_);
 }
 
 template <int N>
