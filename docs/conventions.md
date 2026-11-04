@@ -58,6 +58,14 @@ mismatch, timing, seed). Which file holds what, how to pick a profile for bench
 make a custom one: README, section "Environment configuration". On the Gazebo path the profile's
 friction is written into each arm joint's `<dynamics friction damping>` (ADR-011).
 
+Optional section `cobot.manual` (studio jog and move commands, ADR-022; a missing section or key
+keeps the default): `joint_a_max_rad_s2` (7 values or one scalar broadcast, rad/s², default 5),
+`tcp_v_max_m_s` (0.25), `tcp_w_max_rad_s` (1.0), `tcp_a_max_m_s2` (0.5), `tcp_alpha_max_rad_s2`
+(2.0), all at 100 % speed and > 0 (each command's speed fraction in (0, 1] scales them; the joint
+velocity limit is the URDF qd_max); `deadman_ms` (100, > 0: a jog not refreshed for this long
+ramps to rest); `jog_margin_deg` (2, >= 0: jogs and `move_joint` stop this far inside
+`safety.soft_margin_deg`). Errors name the full key, such as `cobot.manual.deadman_ms`.
+
 ## Model and fixed-joint merge
 
 `Model<N>` holds `N` revolute joints. For each joint: `T_parent_joint`, axis, limits
@@ -138,7 +146,7 @@ feature log-channels, such as those in `docs/results/`), is still accepted by `c
 | `pdx..pdz`, `rdx..rdz` | same for `T_b_d` |
 | `e1..e6` | CLIK `task_error`, order `[v; ω]`; 0 in `holding` rows (CLIK is not stepped there, `qref*` is the hold target and `qdref*` is 0) |
 | `step_us` | wall time of `ControlLoop::step()` (µs); written as 0 when `deterministic: true` so that runs compare byte for byte (timing comes from `cobot_bench timing`) |
-| `hold` | why `ControlLoop` entered `holding`, kept in every row until a reset: `none` (never held), `non_finite` (a non-finite q or qd), `stamp_backwards` (state stamp older than the newest seen), `state_timeout` (no fresh stamp for more than `safety.hal_timeout_ms`), `joint_limit` (q within the soft margin of a limit), `overspeed` (\|qd\| above qd_max); the first in this order wins when several hold at once |
+| `hold` | why `ControlLoop` entered `holding`, kept in every row until a reset: `none` (never held), `non_finite` (a non-finite q or qd), `stamp_backwards` (state stamp older than the newest seen), `state_timeout` (no fresh stamp for more than `safety.hal_timeout_ms`), `joint_limit` (q within the soft margin of a limit), `overspeed` (\|qd\| above qd_max), `estop` (E-stop from a host, `ControlLoop::estop()`; a reset is needed); the first in this order wins when several hold at once |
 | `qddref*` | CLIK reference acceleration `q̈_d` (rad/s²); 0 in `holding`, `fault` and `idle` rows, like `qdref*` |
 | `qraw*` | measured joint position before the deflection compensation (equal to `q*` when it is inactive) |
 | `qt*`, `qdt*` | plant link position (rad) and velocity (rad/s) at the row's instant, before the sensor decorator |
@@ -146,7 +154,7 @@ feature log-channels, such as those in `docs/results/`), is still accepted by `c
 | `qmt*` | plant motor-side position in link units (rad); equal to `qt*` on a rigid joint |
 | `taum*` | torque the plant applied (N·m) over the interval ending at `t_ns`, after the decorator, motor lag and the drive cap |
 | `tauf*` | plant friction torque (N·m) over that interval: Coulomb + profile viscous (URDF `<dynamics damping>` excluded), opposing the motion; on an elastic joint the motor-side friction |
-| `cmd` | command mode: `config` (`command_source: config`) or `waypoints` (external); `jog_joint`, `jog_tcp`, `move_joint`, `move_tcp` are reserved |
+| `cmd` | command mode (`ControlLoop::command_mode()`): `config` in every row of `command_source: config`; in external mode the mode of the command running (`waypoints` for `load`, `move_tcp` for `load(..., kMoveTcp)`, `jog_joint`, `jog_tcp`, `move_joint`), `waypoints` before any command; `standby` and `holding` rows keep the mode of the last accepted command |
 
 Black-box log (ADR-020): the ROS controller records into the POSIX shared-memory region
 `/cobot_log_<controller node name>` (`pipeline::ShmStorage`, Linux only), which outlives a crash

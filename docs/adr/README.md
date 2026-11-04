@@ -45,5 +45,5 @@ thiết kế đó thành từng quyết định riêng.
 | [019](019-realism-2-hardware-profiles.md) | Realism-2: giới hạn khớp eRob, nguồn nhiễu phần cứng mới, ba profile FR3 / KR1205 / xArm 7 | chấp nhận |
 | [020](020-in-memory-recorder-and-log-modes.md) | Bộ ghi log trong bộ nhớ `Recorder<N>`, chế độ log lúc chạy, log hộp đen, kênh dữ liệu mới | đề xuất |
 | [021](021-cobot-studio-app.md) | Ứng dụng `cobot_studio`: Qt5 Widgets, `cobot_studio_core` không Qt, chạy bench trong tiến trình | đề xuất |
-| [022](022-shm-bridge-and-manual-control.md) | Cầu nối bộ nhớ chia sẻ controller–studio, quyền điều khiển, lệnh tay | đề xuất, chờ bàn |
+| [022](022-shm-bridge-and-manual-control.md) | Cầu nối bộ nhớ chia sẻ controller–studio, quyền điều khiển, lệnh tay | đề xuất |
 | [023](023-hardware-scenario-verification.md) | Kiểm nghiệm kịch bản phần cứng: tự chỉnh hệ số, Monte Carlo, kết luận ba mức có giả định và độ tin cậy | chấp nhận |
