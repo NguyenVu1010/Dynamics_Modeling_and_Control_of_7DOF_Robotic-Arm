@@ -154,8 +154,9 @@ class RosJointInterface final : public cobot::hal::JointInterface<kN> {
       const std::optional<double> qd = qd_[i]->get_optional();
       const std::optional<double> tau = tau_[i]->get_optional();
       if (!q || !qd || !tau) {
-        truth_.q.setConstant(kUnknown);  // no reading: the plant state is unknown, not stale
-        truth_.qd.setConstant(kUnknown);
+        // No reading: the plant state is unknown, not stale.
+        truth_.q.setConstant(cobot::pipeline::kUnknownTruth);
+        truth_.qd.setConstant(cobot::pipeline::kUnknownTruth);
         return cobot::common::Status::error("ros2_control: state interface not readable");
       }
       s.q(i) = *q;
@@ -176,7 +177,8 @@ class RosJointInterface final : public cobot::hal::JointInterface<kN> {
     if (ok) {
       truth_.tau_motor = cmd.tau;
     } else {
-      truth_.tau_motor.setConstant(kUnknown);  // Gazebo may not apply what was asked
+      // Gazebo may not apply what was asked.
+      truth_.tau_motor.setConstant(cobot::pipeline::kUnknownTruth);
     }
     return ok ? cobot::common::Status::ok()
               : cobot::common::Status::error("ros2_control: command interface not writable");
@@ -190,8 +192,6 @@ class RosJointInterface final : public cobot::hal::JointInterface<kN> {
     });
     return it == list.end() ? nullptr : &*it;
   }
-
-  static constexpr double kUnknown = std::numeric_limits<double>::quiet_NaN();
 
   cobot::common::Timestamp stamp_;
   LoanedStateInterface* q_[kN] = {};

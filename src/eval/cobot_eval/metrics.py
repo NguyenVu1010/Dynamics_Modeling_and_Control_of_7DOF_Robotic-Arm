@@ -42,6 +42,13 @@ def run_columns(n: int) -> list[str]:
     return cols
 
 
+_CHANNEL_COLUMN = re.compile(rf"(?:{'|'.join(_CHANNEL_PREFIXES)})\d+")
+
+
+def _is_channel_column(col: str) -> bool:
+    return col == "cmd" or _CHANNEL_COLUMN.fullmatch(col) is not None
+
+
 def load_run(path: Path) -> pd.DataFrame:
     """Read a Run CSV (current or legacy layout); raise ValueError naming the first column that
     breaks the contract."""
@@ -50,9 +57,10 @@ def load_run(path: Path) -> pd.DataFrame:
     n = sum(1 for c in actual if re.fullmatch(r"q\d+", c))
     if n == 0:
         raise ValueError(f"{path}: no joint position columns (q1, q2, ...)")
-    legacy = legacy_run_columns(n)
-    # Exactly the legacy layout, or else the full one (checked below, naming the first mismatch).
-    expected = legacy if actual == legacy else run_columns(n)
+    # The layout follows from the file's columns: any log channel column (or `cmd`) selects the
+    # full layout, otherwise the legacy one; the checks below name the first mismatch.
+    has_channels = any(_is_channel_column(c) for c in actual)
+    expected = run_columns(n) if has_channels else legacy_run_columns(n)
     for col in expected:
         if col not in actual:
             raise ValueError(f"{path}: missing column {col}")

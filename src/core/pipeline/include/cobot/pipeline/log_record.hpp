@@ -49,7 +49,9 @@ enum class CommandMode { kConfig, kWaypoints, kJogJoint, kJogTcp, kMoveJoint, kM
 // "config", "waypoints", "jog_joint", "jog_tcp", "move_joint", "move_tcp"
 const char* to_string(CommandMode mode);
 
-inline constexpr double kUnknown = std::numeric_limits<double>::quiet_NaN();
+// A truth value the host does not know (real robot, failed read): every PlantTruth field
+// defaults to it.
+inline constexpr double kUnknownTruth = std::numeric_limits<double>::quiet_NaN();
 
 // Plant state the host knows at the instant of a step (bench: SimTruthProbe); NaN = unknown.
 // q, qd, q_motor at that instant before the sensor decorator; qdd the mean link acceleration,
@@ -57,12 +59,12 @@ inline constexpr double kUnknown = std::numeric_limits<double>::quiet_NaN();
 // ending at that instant.
 template <int N>
 struct PlantTruth {
-  VecN<N> q = VecN<N>::Constant(kUnknown);
-  VecN<N> qd = VecN<N>::Constant(kUnknown);
-  VecN<N> qdd = VecN<N>::Constant(kUnknown);
-  VecN<N> q_motor = VecN<N>::Constant(kUnknown);
-  VecN<N> tau_motor = VecN<N>::Constant(kUnknown);
-  VecN<N> tau_friction = VecN<N>::Constant(kUnknown);
+  VecN<N> q = VecN<N>::Constant(kUnknownTruth);
+  VecN<N> qd = VecN<N>::Constant(kUnknownTruth);
+  VecN<N> qdd = VecN<N>::Constant(kUnknownTruth);
+  VecN<N> q_motor = VecN<N>::Constant(kUnknownTruth);
+  VecN<N> tau_motor = VecN<N>::Constant(kUnknownTruth);
+  VecN<N> tau_friction = VecN<N>::Constant(kUnknownTruth);
 };
 
 template <int N>
@@ -82,12 +84,12 @@ struct LogRecord {
   VecN<N> qdd_ref = VecN<N>::Zero();           // `qddref`: CLIK ref.qdd, 0 where qd_ref is 0
   VecN<N> q_raw = VecN<N>::Zero();             // `qraw`: measured q before deflection compensation
   // Plant truth (PlantTruth, NaN = unknown): `qt`, `qdt`, `qddt`, `qmt`, `taum`, `tauf`.
-  VecN<N> q_true = VecN<N>::Constant(kUnknown);
-  VecN<N> qd_true = VecN<N>::Constant(kUnknown);
-  VecN<N> qdd_true = VecN<N>::Constant(kUnknown);
-  VecN<N> q_motor_true = VecN<N>::Constant(kUnknown);
-  VecN<N> tau_motor = VecN<N>::Constant(kUnknown);
-  VecN<N> tau_friction = VecN<N>::Constant(kUnknown);
+  VecN<N> q_true = VecN<N>::Constant(kUnknownTruth);
+  VecN<N> qd_true = VecN<N>::Constant(kUnknownTruth);
+  VecN<N> qdd_true = VecN<N>::Constant(kUnknownTruth);
+  VecN<N> q_motor_true = VecN<N>::Constant(kUnknownTruth);
+  VecN<N> tau_motor = VecN<N>::Constant(kUnknownTruth);
+  VecN<N> tau_friction = VecN<N>::Constant(kUnknownTruth);
   CommandMode cmd_mode = CommandMode::kConfig;  // `cmd`
 };
 
