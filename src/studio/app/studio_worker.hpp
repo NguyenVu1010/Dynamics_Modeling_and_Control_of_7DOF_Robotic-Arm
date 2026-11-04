@@ -43,26 +43,6 @@ class StudioWorker : public QObject {
   std::atomic<bool> cancel_{false};
 };
 
-// The time cursor of the charts, shared with the 3D view (studio-3d).
-class TimeCursor : public QObject {
-  Q_OBJECT
- public:
-  using QObject::QObject;
-  double time() const { return time_; }
-  void set_time(double t) {
-    if (t != time_) {
-      time_ = t;
-      emit timeChanged(t);
-    }
-  }
-
- signals:
-  void timeChanged(double t);
-
- private:
-  double time_ = 0.0;
-};
-
 }  // namespace cobot::studio
 
 Q_DECLARE_METATYPE(cobot::studio::EntryHandle)

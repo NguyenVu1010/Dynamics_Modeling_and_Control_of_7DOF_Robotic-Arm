@@ -13,8 +13,9 @@ concurrency:
 
 env:
   CORE_APT: cmake ninja-build g++ libeigen3-dev libgtest-dev libgmock-dev libtinyxml2-dev libyaml-cpp-dev
-  # cobot_studio (ADR-021): only the core and lint jobs build it.
-  STUDIO_APT: qtbase5-dev libqt5charts5-dev
+  # cobot_studio (ADR-021): only the core and lint jobs build it; the 3D view test runs under
+  # xvfb-run with Mesa's software OpenGL.
+  STUDIO_APT: qtbase5-dev libqt5charts5-dev qt3d5-dev xvfb libgl1-mesa-dri
 
 jobs:
   lint:

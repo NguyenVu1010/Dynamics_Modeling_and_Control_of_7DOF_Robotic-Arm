@@ -43,6 +43,7 @@
 #include "cobot/studio/param_catalog.hpp"
 #include "cobot/studio/series.hpp"
 
+#include "robot_view.hpp"
 #include <QtCharts/QChart>
 #include <QtCharts/QChartView>
 #include <QtCharts/QLineSeries>
@@ -535,6 +536,7 @@ QWidget* MainWindow::build_tracking_tab() {
   run_list_ = new QListWidget;
   run_list_->setObjectName(QStringLiteral("runList"));
   connect(run_list_, &QListWidget::itemChanged, this, [this] { redraw_->start(); });
+  connect(run_list_, &QListWidget::currentItemChanged, this, &MainWindow::refresh_view);
   auto* remove = new QPushButton(tr("Remove"));
   auto* clear = new QPushButton(tr("Clear"));
   connect(remove, &QPushButton::clicked, this, [this] {
@@ -560,10 +562,14 @@ QWidget* MainWindow::build_tracking_tab() {
     const QRectF plot = chart_view_->chart()->plotArea();
     const double span = x_axis_->max() - x_axis_->min();
     if (plot.width() > 0.0) {
-      cursor_->set_time(x_axis_->min() + (px - plot.left()) / plot.width() * span);
+      cursor_->set_time_s(x_axis_->min() + (px - plot.left()) / plot.width() * span);
     }
   });
   chart_view_->setObjectName(QStringLiteral("chartView"));
+  // The arm's URDF is the one of the controller config (the same for every base pair).
+  robot_view_ =
+      new RobotView(pairs_.empty() ? std::filesystem::path() : pairs_.front().config_yaml, cursor_);
+  robot_view_->setObjectName(QStringLiteral("robotView"));
   chart_view_->setRubberBand(QChartView::RectangleRubberBand);
   cursor_line_ = new QGraphicsLineItem(chart);
   cursor_line_->setPen(QPen(Qt::red, 1.0));
@@ -660,7 +666,10 @@ QWidget* MainWindow::build_tracking_tab() {
   left->addLayout(list_buttons);
   auto* right = new QVBoxLayout;
   right->addLayout(chart_bar);
-  right->addWidget(chart_view_, 2);
+  auto* views = new QSplitter;
+  views->addWidget(chart_view_);
+  views->addWidget(robot_view_);
+  right->addWidget(views, 2);
   right->addWidget(table, 1);
   right->addLayout(jobs);
   auto* layout = new QHBoxLayout(tab);
@@ -691,13 +700,7 @@ void MainWindow::select_base(int index) {
 }
 
 void MainWindow::load_base_values() {
-  base_values_.clear();
-  for (const ParamInfo& p : param_catalog()) {
-    common::Result<pipeline::KeyOverride> v = base_value(config_.base, p.key);
-    if (v) {
-      base_values_[p.key] = std::move(v.value());
-    }
-  }
+  base_values_ = base_values(config_.base);
 }
 
 void MainWindow::set_override(const pipeline::KeyOverride& override_value) {
@@ -1091,12 +1094,29 @@ void MainWindow::refresh_chart() {
   }
   drawing_ = false;
   draw_cursor();
+  refresh_view();
+}
+
+void MainWindow::refresh_view() {
+  std::vector<RobotView::DrawnRun> runs;
+  for (int i = 0; i < run_list_->count(); ++i) {
+    const QListWidgetItem* item = run_list_->item(i);
+    const RunEntry* e = store_.find(item->data(Qt::UserRole).toULongLong());
+    if (item->checkState() == Qt::Checked && e != nullptr && e->data != nullptr &&
+        !e->data->records.empty()) {
+      runs.push_back({e->id, e->data, item->data(Qt::DecorationRole).value<QColor>()});
+    }
+  }
+  const QListWidgetItem* current = run_list_->currentItem();
+  robot_view_->set_runs(std::move(runs),
+                        current == nullptr ? 0 : current->data(Qt::UserRole).toULongLong(),
+                        config_.tolerance.goal_pos_m);
 }
 
 void MainWindow::draw_cursor() {
   const QRectF plot = chart_view_->chart()->plotArea();
   const double span = x_axis_->max() - x_axis_->min();
-  const double t = cursor_->time();
+  const double t = cursor_->time_s();
   const bool inside = span > 0.0 && t >= x_axis_->min() && t <= x_axis_->max();
   cursor_line_->setVisible(inside);
   if (inside) {

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <limits>
+#include <map>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -42,5 +43,8 @@ const ParamInfo* find_param(std::string_view key);  // nullptr when not listed
 // keys; omega = sqrt(kp of joint 1)), read through the pipeline loaders, so a key the file does
 // not set gives the loader's default. kNumber: double; kPerJoint: list; kBool; kChoice: string.
 common::Result<pipeline::KeyOverride> base_value(const BasePair& base, const std::string& key);
+// base_value of every catalog key, each file read once (window start-up); the keys of a file that
+// does not load are left out.
+std::map<std::string, pipeline::KeyOverride> base_values(const BasePair& base);
 
 }  // namespace cobot::studio

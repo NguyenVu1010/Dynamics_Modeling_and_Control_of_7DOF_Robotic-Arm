@@ -18,6 +18,7 @@
 
 #include "metrics.hpp"  // bench: write_run_files, write_summary_* behind the export slots
 #include "studio_worker.hpp"
+#include "time_cursor.hpp"
 
 class QAbstractButton;
 class QGraphicsLineItem;
@@ -44,6 +45,7 @@ class QValueAxis;
 namespace cobot::studio {
 
 class ErrorModel;
+class RobotView;
 
 class MainWindow : public QMainWindow {
   Q_OBJECT
@@ -88,6 +90,7 @@ class MainWindow : public QMainWindow {
   void refresh_runs();      // errorTable, chart, status bar
   void refresh_chart();
   void draw_cursor();
+  void refresh_view();  // the checked runs and the selection to the 3D view
   void start_job(bool sweep);
   void add_result(const EntryHandle& handle);
   void job_finished(const QString& error);
@@ -125,6 +128,7 @@ class MainWindow : public QMainWindow {
   QSpinBox* seed_ = nullptr;
   QListWidget* run_list_ = nullptr;
   QtCharts::QChartView* chart_view_ = nullptr;
+  RobotView* robot_view_ = nullptr;
   QtCharts::QValueAxis* x_axis_ = nullptr;
   QtCharts::QValueAxis* y_axis_ = nullptr;
   QGraphicsLineItem* cursor_line_ = nullptr;
