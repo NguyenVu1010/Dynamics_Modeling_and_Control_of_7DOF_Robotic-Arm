@@ -25,8 +25,15 @@
 //   rows from the one nearest t_arrive to the one nearest t_arrive + kStopSettleS, both included
 //   (cobot_eval STOP_SETTLE_S); error to the waypoint: position to meta.waypoint_positions_m,
 //   rotation to T_b_d of the row nearest t_arrive (the reference rests on the waypoint there).
-//   pos_err_m / rot_err_rad = the minimum error in the window; time_to_enter_s = time of the
-//   first window row within the goal tolerance, relative to t_arrive; nullopt = "not entered".
+//   pos_err_m / rot_err_rad = the minimum error in the window (cobot_eval stop_pos_err_m);
+//   time_to_enter_s = time of the first window row within the goal tolerance, relative to
+//   t_arrive, so never negative (0 when already inside at t_arrive); nullopt = "not entered" in
+//   the window. The window, not the error of the row at t_arrive, is the owner's decision
+//   (cobot_eval STOP_SETTLE_S, plan Q10): the reference does not dwell at a stop, and the studio
+//   must give cobot_eval's numbers on the same Run CSV. A stop whose t_arrive is after the last
+//   row (the run ends first) gets no entry; cobot_eval would still measure it on the last row.
+// - NaN: every maximum and minimum keeps a NaN (as bench::summarize and cobot_eval), so a
+//   diverged run gives NaN errors and fails path_ok / goal_ok.
 // - goal_ok: the summary's final errors within the goal tolerance; path_ok: both path maxima
 //   within the path tolerance.
 namespace cobot::studio {
@@ -64,7 +71,9 @@ struct StopTrace {
 struct ErrorTrace {
   std::vector<double> t_s, path_pos_m, path_rot_rad, goal_pos_m, goal_rot_rad;
   std::vector<std::uint8_t> on_path;  // 1: tracking or finished row
-  std::ptrdiff_t eval_row = -1;       // last row with t <= window_end_s, -1 when none
+  // Last row with t <= window_end_s; row 0 when no row is that early (as bench::summarize), -1
+  // only for an empty run.
+  std::ptrdiff_t eval_row = -1;
   std::vector<StopTrace> stops;
 };
 
@@ -75,8 +84,9 @@ TrackingMetrics compute_metrics(const ErrorTrace& errors,
                                 const Tolerance& tolerance);
 TrackingMetrics compute_metrics(const bench::RunData& run, const Tolerance& tolerance);
 
-// The table row of one sweep level: worst case over its seeds (max of every error and time,
-// nullopt settle when any seed has none, ok flags only when every seed is ok).
+// The table row of one sweep level: worst case over its seeds (max of every error and time, a
+// NaN in any seed kept, nullopt settle when any seed has none, ok flags only when every seed is
+// ok).
 struct LevelRow {
   std::string param;
   double level = 0.0;

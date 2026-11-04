@@ -1,5 +1,8 @@
 #include "cobot/studio/series.hpp"
 
+#include <algorithm>
+#include <cmath>
+
 #include "cobot/common/lie.hpp"
 
 namespace cobot::studio {
@@ -16,6 +19,8 @@ double joint_value(const Record& r, Channel c, int j, NoiseSource source) {
     case Channel::kQd:
       return r.qd(j);
     case Channel::kQdd:
+      return r.qdd_true(j);
+    case Channel::kQddRef:
       return r.qdd_ref(j);
     case Channel::kQTrue:
       return r.q_true(j);
@@ -35,6 +40,12 @@ double joint_value(const Record& r, Channel c, int j, NoiseSource source) {
       return common::so3_log(r.T_b_d.R * r.T_b_e.R.transpose()).norm();
   }
   return 0.0;
+}
+
+// Channels read from the plant truth, which Gazebo runs log as NaN.
+bool truth_channel(Channel c, NoiseSource source) {
+  return c == Channel::kQdd || c == Channel::kQTrue || c == Channel::kTauMotor ||
+         c == Channel::kTauFriction || (c == Channel::kNoise && source != NoiseSource::kNone);
 }
 
 }  // namespace
@@ -59,6 +70,12 @@ Series extract(const bench::RunData& run, Channel channel, int joint, NoiseSourc
     s.t_s.push_back(static_cast<double>(rows[k].t.ns) * 1e-9);
     s.y.push_back(shifted ? rows[k + 1].tau_motor(joint) - rows[k].tau(joint)
                           : joint_value(rows[k], channel, task ? 0 : joint, source));
+  }
+  if (truth_channel(channel, source) && !s.y.empty() &&
+      std::all_of(s.y.begin(), s.y.end(), [](double v) { return std::isnan(v); })) {
+    s.t_s.clear();
+    s.y.clear();
+    s.unavailable = "no plant truth in this run (logged as NaN, e.g. Gazebo)";
   }
   return s;
 }

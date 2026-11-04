@@ -84,9 +84,11 @@ std::vector<Entry> make_catalog() {
                kOmegaMin,
                kOmegaMax),
        [](const Cfg& c, const Imp&) -> Value { return std::sqrt(c.computed_torque.kp(0)); }},
-      {info("config.computed_torque.kp", "Controller", "1/s^2", K::kPerJoint, none),
+      // kp and kd are per-joint lists in the files, which bench::sweep cannot sweep as one level
+      // (it needs a scalar cobot.<section>.<key>); omega is the sweepable gain.
+      {info("config.computed_torque.kp", "Controller", "1/s^2", K::kPerJoint, none, false),
        [](const Cfg& c, const Imp&) -> Value { return list(c.computed_torque.kp); }},
-      {info("config.computed_torque.kd", "Controller", "1/s", K::kPerJoint, none),
+      {info("config.computed_torque.kd", "Controller", "1/s", K::kPerJoint, none, false),
        [](const Cfg& c, const Imp&) -> Value { return list(c.computed_torque.kd); }},
       {limited(info("config.safety.hal_timeout_ms", "Controller", "ms", K::kNumber, none),
                kHalTimeoutMin,

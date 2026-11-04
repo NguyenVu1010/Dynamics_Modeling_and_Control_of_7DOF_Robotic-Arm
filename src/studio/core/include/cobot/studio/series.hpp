@@ -15,7 +15,7 @@ enum class Channel {
   kQRef,
   kQ,
   kQd,
-  kQdd,  // qdd_ref
+  kQdd,  // plant acceleration qdd_true (design 5.1); NaN on Gazebo
   kQTrue,
   kNoise,
   kError,  // q_ref - q
@@ -24,6 +24,7 @@ enum class Channel {
   kTauFriction,
   kTaskPosErr,  // |p_d - p|
   kTaskRotErr,  // angle of R_d R^T
+  kQddRef,      // reference acceleration qdd_ref
 };
 
 struct Series {
@@ -34,7 +35,9 @@ struct Series {
 // One line of `run`: joint 0..N-1, or -1 for the task channels. Noise by source (design 5.1):
 // sensor q - q_true; actuator tau_motor[k+1] - tau[k] (taum of row k+1 is the plant's response to
 // tau of row k, so rows - 1 points at the times of rows 0..rows-2); friction tau_friction; model,
-// timing and comm sources (kNone) have no noise line and give `unavailable`.
+// timing and comm sources (kNone) have no noise line and give `unavailable`. A plant-truth
+// channel (kQdd, kQTrue, kTauMotor, kTauFriction, noise) that is NaN on every row (Gazebo) gives
+// `unavailable` with no points.
 Series extract(const bench::RunData& run,
                Channel channel,
                int joint,

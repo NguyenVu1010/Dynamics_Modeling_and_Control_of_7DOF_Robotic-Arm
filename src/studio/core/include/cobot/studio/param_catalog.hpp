@@ -27,7 +27,10 @@ struct ParamInfo {
   double min = -std::numeric_limits<double>::infinity();
   double max = std::numeric_limits<double>::infinity();
   std::vector<std::string> choices;  // kChoice
-  bool sweepable = false;            // numeric keys bench::sweep can sweep as one level
+  // Numeric keys a studio sweep can vary as one level. bench::sweep also needs the key in the
+  // base file (a scalar for config keys): a studio sweep of an imperfection key the base file
+  // does not set is rerun with cobot_bench run on each run's materialised files instead.
+  bool sweepable = false;
   NoiseSource noise = NoiseSource::kNone;
   bool gazebo_supported = true;  // phase B greys the others
 };

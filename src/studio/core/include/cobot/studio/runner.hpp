@@ -15,7 +15,9 @@
 // Studio runs on the bench engine in process (feature studio-core, cobot_studio design 6.3,
 // ADR-021). Each run materialises its inputs as <work_dir>/<run-id>/{config.yaml,
 // imperfections.yaml, studio.yaml} (rerunnable with cobot_bench) and writes nothing else; the
-// work directory is the caller's, never the repository.
+// work directory is the caller's, never the repository. <run-id> is a new run_NNNN directory
+// (the first free number), unrelated to RunEntry::id, which a RunStore assigns later: find a
+// run's files through RunEntry::inputs.
 namespace cobot::studio {
 
 using ProgressFn = std::function<void(std::size_t done, std::size_t total)>;
@@ -27,7 +29,10 @@ common::Result<RunEntry> run_once(const StudioConfig& config, const fs::path& wo
 
 struct SweepRequest {
   StudioConfig base;
-  std::string param;  // a sweepable catalog key
+  // A sweepable catalog key. An imperfection key the base file does not set can be swept here
+  // but not by cobot_bench sweep (it rejects such keys); rerun those levels with cobot_bench run
+  // on each run's materialised files (RunEntry::inputs).
+  std::string param;
   std::vector<double> levels;
   std::vector<std::uint64_t> seeds{1, 2, 3};
 };

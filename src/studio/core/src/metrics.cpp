@@ -58,6 +58,17 @@ std::optional<double> settle_time(const ErrorTrace& e,
   return e.t_s[k] - t0;
 }
 
+// Maximum and minimum that keep a NaN (Eigen::PropagateNaN in bench::summarize, np.max / np.min in
+// cobot_eval): a NaN error marks a diverged run and must not hide behind finite values, whatever
+// the order of the values.
+void worst(double& acc, double v) {
+  acc = (std::isnan(v) || v > acc) ? v : acc;
+}
+
+void least(double& acc, double v) {
+  acc = (std::isnan(v) || v < acc) ? v : acc;
+}
+
 StopMetrics stop_metrics(const StopTrace& s, const Tolerance& tol) {
   StopMetrics m;
   m.waypoint = s.waypoint;
@@ -65,18 +76,13 @@ StopMetrics stop_metrics(const StopTrace& s, const Tolerance& tol) {
   m.pos_err_m = std::numeric_limits<double>::infinity();
   m.rot_err_rad = std::numeric_limits<double>::infinity();
   for (std::size_t k = 0; k < s.t_s.size(); ++k) {
-    m.pos_err_m = std::min(m.pos_err_m, s.pos_m[k]);
-    m.rot_err_rad = std::min(m.rot_err_rad, s.rot_rad[k]);
+    least(m.pos_err_m, s.pos_m[k]);
+    least(m.rot_err_rad, s.rot_rad[k]);
     if (!m.time_to_enter_s && within(s.pos_m[k], s.rot_rad[k], tol.goal_pos_m, tol.goal_rot_rad)) {
       m.time_to_enter_s = s.t_s[k] - s.t_arrive_s;
     }
   }
   return m;
-}
-
-template <typename T>
-void worst(T& acc, T v) {
-  acc = std::max(acc, v);
 }
 
 }  // namespace
@@ -119,6 +125,9 @@ ErrorTrace make_error_trace(const bench::RunData& run) {
     StopTrace s;
     s.waypoint = w;
     s.t_arrive_s = e.t_s.front() + m.waypoint_node_times_s[w];
+    if (s.t_arrive_s > e.t_s.back()) {
+      continue;  // the run ends before the reference reaches the stop: not reached, no entry
+    }
     const std::size_t k0 = nearest(e.t_s, s.t_arrive_s);
     const std::size_t k1 = nearest(e.t_s, s.t_arrive_s + kStopSettleS);
     const common::Mat3& r_w = rows[k0].T_b_d.R;
