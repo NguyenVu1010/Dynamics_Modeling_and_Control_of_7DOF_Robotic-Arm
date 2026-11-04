@@ -306,6 +306,9 @@ void read_log_mode(Reader& l, Config<N>& c) {
   if (l.has("capacity_s")) {
     l.number("capacity_s", kPositive, c.log_capacity_s);
   }
+  if (l.has("lock_memory")) {
+    l.scalar("lock_memory", c.log_lock_memory);
+  }
 }
 
 // The optional sections of feature `loop-external`: a missing (or null) section or sub-key keeps

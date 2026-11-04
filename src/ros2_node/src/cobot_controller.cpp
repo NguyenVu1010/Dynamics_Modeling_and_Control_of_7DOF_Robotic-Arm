@@ -5,12 +5,20 @@
 // trajectory on it (activation fails when the state cannot be read). State stamps count update
 // cycles from the activation time: the `time` argument follows the ROS clock (/clock in
 // simulation), which can stall for many cycles while the interfaces are still read every cycle,
-// and the loop would hold on the stale stamp. The loop records into a Recorder of two buffers of
-// cobot.log.capacity_s each (kOverwriteOldest, feature pipeline-recorder, ADR-020); an exporter
-// thread asks for a buffer swap every 50 ms and appends the retired buffer to the Run CSV at
-// `log_path` (default: results/<run-id>/run.csv under the working directory), flushed, so the CSV
-// grows while the run goes on. Deactivation and the destructor append the rows still in the active
-// buffer. cobot.log.mode off: no recorder and no Run CSV. `~/status` carries the loop mode.
+// and the loop would hold on the stale stamp. `~/status` carries the loop mode.
+//
+// Black-box log (feature blackbox-log, ADR-020): the loop records into a Recorder of two buffers
+// of cobot.log.capacity_s each (kOverwriteOldest) in the shared-memory region
+// "/cobot_log_<node name>" (ShmStorage, mlocked with cobot.log.lock_memory), which outlives a crash
+// of the controller or of Gazebo (`cobot_logdump <node name>` exports it). on_activate first
+// recovers the unexported rows of an old region to "<log_path>.recovered-<YYYYmmdd-HHMMSS>.csv"
+// and removes it, then creates the region and starts the Run CSV at `log_path` (default:
+// results/<run-id>/run.csv under the working directory) with its header. `~/dump_log`
+// (std_srvs/Trigger) appends the rows not yet exported to it: while active by a buffer swap (up to
+// 200 ms) and the retired buffer, while inactive directly. The ROS parameter `log_stream_ms` > 0
+// does the same every log_stream_ms on an exporter thread (one export at a time). Deactivation,
+// cleanup and the destructor export the rest; the region is never removed here.
+// cobot.log.mode off: no region and no Run CSV.
 //
 // Imperfections on the Gazebo path (ADR-011, feature gazebo-realism): sensor and actuator
 // effects apply through ImperfectJointInterface; friction is applied by the physics engine
@@ -31,6 +39,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <condition_variable>
 #include <cstdint>
 #include <cstdio>
 #include <ctime>
@@ -56,6 +65,7 @@
 #include "cobot/model/model.hpp"
 #include "cobot/pipeline/control_loop.hpp"
 #include "cobot/pipeline/recorder.hpp"
+#include "cobot/pipeline/recorder_shm.hpp"
 
 #include "waypoint_server.hpp"
 #include <controller_interface/controller_interface.hpp>
@@ -63,6 +73,7 @@
 #include <rcutils/logging.h>
 #include <realtime_tools/realtime_publisher.hpp>
 #include <std_msgs/msg/string.hpp>
+#include <std_srvs/srv/trigger.hpp>
 
 namespace cobot_ros2 {
 namespace {
@@ -73,8 +84,7 @@ using hardware_interface::LoanedCommandInterface;
 using hardware_interface::LoanedStateInterface;
 
 constexpr double kStatusRateHz = 10.0;                  // ~/status messages per second
-constexpr std::chrono::milliseconds kExportPeriod{50};  // between swap requests
-constexpr std::chrono::milliseconds kSwapTimeout{100};  // longer: skip this round
+constexpr std::chrono::milliseconds kSwapTimeout{200};  // longer: the export fails
 constexpr std::chrono::milliseconds kSwapPoll{1};
 
 // Core logger -> rcutils, the sink behind rclcpp logging.
@@ -192,7 +202,7 @@ std::string run_id() {
 
 class CobotController final : public ci::ControllerInterface {
  public:
-  ~CobotController() override { stop_exporter(); }
+  ~CobotController() override { close_log(); }
 
   ci::InterfaceConfiguration command_interface_configuration() const override {
     return individual(joints_, {"effort"});
@@ -212,6 +222,7 @@ class CobotController final : public ci::ControllerInterface {
       auto_declare<std::vector<std::string>>("joints", {});
       auto_declare<std::string>("log_path", "");        // empty: <cwd>/results/<run-id>/run.csv
       auto_declare<std::string>("command_source", "");  // empty: cobot.command_source
+      auto_declare<std::int64_t>("log_stream_ms", 0);   // > 0: export every log_stream_ms
     } catch (const std::exception& e) {
       RCLCPP_ERROR(rclcpp::get_logger("cobot"), "on_init: %s", e.what());
       return CallbackReturn::ERROR;
@@ -223,6 +234,7 @@ class CobotController final : public ci::ControllerInterface {
     const rclcpp::Logger log = get_node()->get_logger();
     joints_ = get_node()->get_parameter("joints").as_string_array();
     log_path_ = get_node()->get_parameter("log_path").as_string();
+    stream_ms_ = get_node()->get_parameter("log_stream_ms").as_int();
     const std::string config_path = get_node()->get_parameter("config_path").as_string();
     const std::string imp_path = get_node()->get_parameter("imperfections_path").as_string();
     const std::int64_t seed = get_node()->get_parameter("seed").as_int();
@@ -310,25 +322,27 @@ class CobotController final : public ci::ControllerInterface {
     }
     server_.reset();
     link_.reset();
-    loop_.reset();  // before the recorder it writes into
-    recorder_.reset();
-    storage_.reset();
-    overwritten_reported_ = 0;
+    close_log();
+    if (c.log_mode == cobot::pipeline::LogMode::kOff) {
+      RCLCPP_INFO(log, "%s: cobot.log.mode off, no Run CSV", config_path.c_str());
+    }
     try {
-      if (c.log_mode != cobot::pipeline::LogMode::kOff) {
-        const long long rows = std::llround(c.log_capacity_s * c.control_rate_hz);
-        storage_ = std::make_unique<cobot::pipeline::HeapStorage<kN>>(
-            static_cast<std::size_t>(std::max(rows, 1LL)), 2);
-        recorder_ = std::make_unique<cobot::pipeline::Recorder<kN>>(
-            storage_->memory(), cobot::pipeline::FullPolicy::kOverwriteOldest);
-      } else {
-        RCLCPP_INFO(log, "%s: cobot.log.mode off, no Run CSV", config_path.c_str());
+      if (!dump_srv_) {
+        dump_srv_ = get_node()->create_service<std_srvs::srv::Trigger>(
+            "~/dump_log",
+            [this](const std::shared_ptr<std_srvs::srv::Trigger::Request>& /*request*/,
+                   const std::shared_ptr<std_srvs::srv::Trigger::Response>& response) {
+              const cobot::common::Result<cobot::pipeline::DumpResult> dumped = export_log();
+              response->success = dumped.is_ok();
+              response->message = dumped ? describe(dumped.value()) : dumped.reason();
+            });
       }
       // Model mismatch: the controller's model is perturbed instead of the plant. Its tau_max
       // is the peak torque P of cobot.limits; Gazebo enforces the URDF effort M.
-      const cobot::model::Arm7 model = cobot::imperfect::perturb_model(
-          cobot::pipeline::controller_model<kN>(arm.value(), c), profile.model, profile.seed);
-      loop_ = std::make_unique<cobot::pipeline::ControlLoop<kN>>(model, c, recorder_.get());
+      model_ = std::make_unique<cobot::model::Arm7>(cobot::imperfect::perturb_model(
+          cobot::pipeline::controller_model<kN>(arm.value(), c), profile.model, profile.seed));
+      const cobot::model::Arm7& model = *model_;
+      config_ = c;
       for (int i = 0; i < kN; ++i) {
         tau_max_(i) = model.joints[static_cast<std::size_t>(i)].tau_max;
       }
@@ -380,26 +394,35 @@ class CobotController final : public ci::ControllerInterface {
       RCLCPP_ERROR(log, "initial state: %s", read.reason().c_str());
       return CallbackReturn::ERROR;
     }
+    close_log();
+    std::filesystem::path csv;
+    if (config_.log_mode != cobot::pipeline::LogMode::kOff) {
+      std::error_code ec;
+      csv = log_path_.empty() ? std::filesystem::current_path(ec) / "results" / run_id() / "run.csv"
+                              : std::filesystem::path(log_path_);
+      std::filesystem::create_directories(csv.parent_path(), ec);
+      if (const std::string why = open_log(csv); !why.empty()) {
+        RCLCPP_ERROR(log, "black-box log: %s", why.c_str());
+        return CallbackReturn::ERROR;
+      }
+    }
+    try {
+      loop_ = std::make_unique<cobot::pipeline::ControlLoop<kN>>(*model_, config_, recorder_.get());
+    } catch (const std::exception& e) {
+      RCLCPP_ERROR(log, "%s", e.what());
+      return CallbackReturn::ERROR;
+    }
     const cobot::common::Status started = loop_->start(state_);
     if (!started) {
       RCLCPP_ERROR(log, "%s", started.reason().c_str());
       return CallbackReturn::ERROR;
     }
-    std::filesystem::path csv;
     if (recorder_) {
-      std::error_code ec;
-      csv = log_path_.empty() ? std::filesystem::current_path(ec) / "results" / run_id() / "run.csv"
-                              : std::filesystem::path(log_path_);
-      std::filesystem::create_directories(csv.parent_path(), ec);
-      csv_.open(csv, std::ios::binary | std::ios::trunc);
-      if (!csv_) {
-        RCLCPP_ERROR(log, "cannot open %s for writing", csv.c_str());
-        return CallbackReturn::ERROR;
+      recording_.store(true, std::memory_order_release);
+      if (stream_ms_ > 0) {
+        exporter_stop_ = false;
+        exporter_ = std::thread([this] { stream_log(); });
       }
-      cobot::pipeline::write_csv_header<kN>(csv_);
-      csv_.flush();
-      exporter_stop_.store(false, std::memory_order_release);
-      exporter_ = std::thread([this] { export_log(); });
     }
     if (link_) {
       // A command or reset left in the link while inactive belongs to an aborted goal or a
@@ -427,6 +450,11 @@ class CobotController final : public ci::ControllerInterface {
       link_->snapshot.mode = cobot::pipeline::LoopMode::kIdle;
     }
     stop_exporter();
+    return CallbackReturn::SUCCESS;
+  }
+
+  CallbackReturn on_cleanup(const rclcpp_lifecycle::State& /*previous_state*/) override {
+    close_log();
     return CallbackReturn::SUCCESS;
   }
 
@@ -505,61 +533,142 @@ class CobotController final : public ci::ControllerInterface {
     }
   }
 
-  // Exporter thread: every kExportPeriod, request a swap and wait up to kSwapTimeout for update()
-  // to perform it (otherwise try again next round); append the retired buffer to the Run CSV,
-  // flushed so the rows survive an abrupt end of Gazebo, and release it.
-  void export_log() {
-    while (!exporter_stop_.load(std::memory_order_acquire)) {
-      std::this_thread::sleep_for(kExportPeriod);
-      static_cast<void>(recorder_->request_swap());  // false while one is still pending
-      const auto deadline = std::chrono::steady_clock::now() + kSwapTimeout;
-      while (!recorder_->swap_done() && std::chrono::steady_clock::now() < deadline &&
-             !exporter_stop_.load(std::memory_order_acquire)) {
-        std::this_thread::sleep_for(kSwapPoll);
-      }
-      if (recorder_->swap_done()) {
-        cobot::pipeline::write_csv<kN>(csv_, recorder_->retired(), false);
-        csv_.flush();
-        recorder_->release_retired();
-      }
+  // on_activate: recovers an old region, creates the region and the Recorder, starts the Run CSV
+  // with its header. The reason of a failure, empty on success.
+  std::string open_log(const std::filesystem::path& csv) {
+    const rclcpp::Logger log = get_node()->get_logger();
+    const std::string name = get_node()->get_name();
+    const auto recovered = cobot::pipeline::recover_shm_log<kN>(name, csv);
+    if (!recovered) {
+      RCLCPP_WARN(log, "old black-box log not recovered (%s); removed", recovered.reason().c_str());
+      static_cast<void>(cobot::pipeline::ShmStorage<kN>::remove(name));
+    } else if (recovered.value()) {
+      RCLCPP_WARN(log,
+                  "rows of a previous run never exported: recovered to %s",
+                  recovered.value()->c_str());
+    }
+    const long long rows = std::llround(config_.log_capacity_s * config_.control_rate_hz);
+    auto storage = cobot::pipeline::ShmStorage<kN>::create(
+        name, static_cast<std::size_t>(std::max(rows, 1LL)), config_.log_lock_memory);
+    if (!storage) {
+      return storage.reason();
+    }
+    if (!storage.value().lock_error().empty()) {
+      RCLCPP_WARN(log, "%s", storage.value().lock_error().c_str());
+    }
+    std::ofstream out(csv, std::ios::binary | std::ios::trunc);
+    cobot::pipeline::write_csv_header<kN>(out);
+    if (!out.flush()) {
+      return "cannot write " + csv.string();
+    }
+    const std::lock_guard<std::mutex> lock(export_mutex_);
+    storage_ = std::make_unique<cobot::pipeline::ShmStorage<kN>>(std::move(storage.value()));
+    recorder_ = std::make_unique<cobot::pipeline::Recorder<kN>>(
+        storage_->memory(), cobot::pipeline::FullPolicy::kOverwriteOldest);
+    csv_path_ = csv;
+    return {};
+  }
+
+  // ~/dump_log, the stream thread and the final exports: appends the rows not yet exported to the
+  // Run CSV, one export at a time. While update() records: a buffer swap (up to kSwapTimeout),
+  // the retired buffer, release; otherwise every unexported row.
+  cobot::common::Result<cobot::pipeline::DumpResult> export_log() {
+    using R = cobot::common::Result<cobot::pipeline::DumpResult>;
+    const std::lock_guard<std::mutex> lock(export_mutex_);
+    if (!storage_ || !recorder_) {
+      return R::error("no black-box log (cobot.log.mode off or not activated)");
+    }
+    if (!recording_.load(std::memory_order_acquire)) {
+      return report(
+          storage_->export_unexported(csv_path_, cobot::pipeline::ShmExport::kAll, false));
+    }
+    static_cast<void>(recorder_->request_swap());  // false while one is pending or held
+    const auto deadline = std::chrono::steady_clock::now() + kSwapTimeout;
+    while (!recorder_->swap_done() && std::chrono::steady_clock::now() < deadline) {
+      std::this_thread::sleep_for(kSwapPoll);
+    }
+    if (!recorder_->swap_done()) {
+      return R::error("no buffer swap within 200 ms (update() not running?)");
+    }
+    R dumped = storage_->export_unexported(csv_path_, cobot::pipeline::ShmExport::kRetired, false);
+    if (dumped) {
+      recorder_->release_retired();
+    }
+    return report(std::move(dumped));
+  }
+
+  // "<csv> <rows> rows" plus ", <n> rows lost (older than log.capacity_s)".
+  static std::string describe(const cobot::pipeline::DumpResult& r) {
+    std::string text = r.csv.string() + " " + std::to_string(r.rows) + " rows";
+    if (r.lost > 0) {
+      text += ", " + std::to_string(r.lost) + " rows lost (older than log.capacity_s)";
+    }
+    return text;
+  }
+
+  static cobot::common::Result<cobot::pipeline::DumpResult> report(
+      cobot::common::Result<cobot::pipeline::DumpResult> r) {
+    if (r && r.value().lost > 0) {
+      RCLCPP_WARN(rclcpp::get_logger("cobot"), "black-box log: %s", describe(r.value()).c_str());
+    }
+    return r;
+  }
+
+  static void warn_if_failed(const cobot::common::Result<cobot::pipeline::DumpResult>& r) {
+    if (!r) {
+      RCLCPP_WARN(rclcpp::get_logger("cobot"), "black-box log: %s", r.reason().c_str());
     }
   }
 
-  // update() no longer runs: the exporter stops and the rows of the active buffer are appended.
+  // Exporter thread (log_stream_ms > 0): export_log() every stream_ms_ until stopped.
+  void stream_log() {
+    std::unique_lock<std::mutex> lock(stream_mutex_);
+    while (!stream_cv_.wait_for(
+        lock, std::chrono::milliseconds(stream_ms_), [this] { return exporter_stop_; })) {
+      lock.unlock();
+      warn_if_failed(export_log());
+      lock.lock();
+    }
+  }
+
+  // update() no longer runs: the exporter stops and the rest is exported (the region stays).
   void stop_exporter() {
     if (exporter_.joinable()) {
-      exporter_stop_.store(true, std::memory_order_release);
+      {
+        const std::lock_guard<std::mutex> lock(stream_mutex_);
+        exporter_stop_ = true;
+      }
+      stream_cv_.notify_all();
       exporter_.join();
     }
-    if (csv_.is_open()) {
-      if (recorder_) {
-        if (recorder_->swap_done()) {  // swapped after the exporter's last look: older rows first
-          cobot::pipeline::write_csv<kN>(csv_, recorder_->retired(), false);
-          recorder_->release_retired();
-        }
-        cobot::pipeline::write_csv<kN>(csv_, recorder_->active(), false);
-        recorder_->clear();
-        // overwritten() counts since configure; warn only about the rows lost since the last
-        // warning.
-        const std::uint64_t overwritten = recorder_->overwritten();
-        if (overwritten > overwritten_reported_) {
-          RCLCPP_WARN(rclcpp::get_logger("cobot"),
-                      "%llu log rows overwritten before export",
-                      static_cast<unsigned long long>(overwritten - overwritten_reported_));
-          overwritten_reported_ = overwritten;
-        }
-      }
-      csv_.close();
+    recording_.store(false, std::memory_order_release);
+    if (storage_) {
+      warn_if_failed(export_log());
     }
+  }
+
+  // Final export, then the loop, the Recorder and the mapping go (the region is not removed).
+  void close_log() {
+    stop_exporter();
+    loop_.reset();  // before the recorder it writes into
+    const std::lock_guard<std::mutex> lock(export_mutex_);
+    recorder_.reset();
+    storage_.reset();
   }
 
   std::vector<std::string> joints_;
   std::string log_path_;
-  // The loop records into recorder_ (null with log.mode off), over storage_; declared first so
-  // they outlive the loop.
-  std::unique_ptr<cobot::pipeline::HeapStorage<kN>> storage_;
+  std::int64_t stream_ms_ = 0;  // ROS parameter log_stream_ms
+  cobot::pipeline::Config<kN> config_;
+  std::unique_ptr<cobot::model::Arm7> model_;  // the controller's (perturbed) model
+  // The loop records into recorder_ (null with log.mode off), over storage_ (the black-box
+  // region); declared first so they outlive the loop. export_mutex_: one export at a time.
+  std::unique_ptr<cobot::pipeline::ShmStorage<kN>> storage_;
   std::unique_ptr<cobot::pipeline::Recorder<kN>> recorder_;
-  std::uint64_t overwritten_reported_ = 0;  // recorder_->overwritten() at the last warning
+  std::filesystem::path csv_path_;
+  std::mutex export_mutex_;
+  std::atomic<bool> recording_{false};  // between on_activate and on_deactivate
+  rclcpp::Service<std_srvs::srv::Trigger>::SharedPtr dump_srv_;
   std::unique_ptr<cobot::pipeline::ControlLoop<kN>> loop_;
   RosJointInterface ros_io_;
   std::unique_ptr<cobot::imperfect::ImperfectJointInterface<kN>> io_;
@@ -572,9 +681,10 @@ class CobotController final : public ci::ControllerInterface {
   rclcpp::Publisher<std_msgs::msg::String>::SharedPtr status_pub_;
   std::unique_ptr<StatusPublisher> status_rt_;
   std_msgs::msg::String status_msg_;
-  std::ofstream csv_;
   std::thread exporter_;
-  std::atomic<bool> exporter_stop_{false};
+  std::mutex stream_mutex_;
+  std::condition_variable stream_cv_;
+  bool exporter_stop_ = false;  // under stream_mutex_
   cobot::common::VecN<kN> tau_max_ = cobot::common::VecN<kN>::Ones();
   // External mode (null otherwise); the server goes before the link it refers to.
   std::unique_ptr<LoopLink> link_;

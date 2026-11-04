@@ -54,6 +54,34 @@ TEST(HeapStorage, MemoryDescribesTheBuffers) {
   EXPECT_EQ(m2.buffer_count, 2);
 }
 
+// A RecorderMemory that does not describe 1 or 2 buffers of capacity > 0 is rejected.
+TEST(Recorder, InvalidMemoryThrows) {
+  HeapStorage<kN> two(4, 2);
+  const RecorderMemory<kN> ok = two.memory();
+  const auto rejects = [](RecorderMemory<kN> m) {
+    EXPECT_THROW(Recorder<kN>(m, FullPolicy::kOverwriteOldest), std::invalid_argument);
+  };
+  RecorderMemory<kN> m = ok;
+  m.control = nullptr;
+  rejects(m);
+  m = ok;
+  m.buffers[0] = nullptr;
+  rejects(m);
+  m = ok;
+  m.capacity = 0;
+  rejects(m);
+  m = ok;
+  m.buffer_count = 0;
+  rejects(m);
+  m = ok;
+  m.buffer_count = 3;
+  rejects(m);
+  m = ok;
+  m.buffers[1] = nullptr;  // two buffers announced, one given
+  rejects(m);
+  EXPECT_NO_THROW(Recorder<kN>(ok, FullPolicy::kOverwriteOldest));
+}
+
 TEST(Recorder, NewRecorderIsEmpty) {
   HeapStorage<kN> storage(5, 1);
   const Recorder<kN> rec(storage.memory(), FullPolicy::kStopWhenFull);

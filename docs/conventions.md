@@ -128,6 +128,18 @@ e1..e6, step_us, hold
 | `step_us` | wall time of `ControlLoop::step()` (µs); written as 0 when `deterministic: true` so that runs compare byte for byte (timing comes from `cobot_bench timing`) |
 | `hold` | why `ControlLoop` entered `holding`, kept in every row until a reset: `none` (never held), `non_finite` (a non-finite q or qd), `stamp_backwards` (state stamp older than the newest seen), `state_timeout` (no fresh stamp for more than `safety.hal_timeout_ms`), `joint_limit` (q within the soft margin of a limit), `overspeed` (\|qd\| above qd_max); the first in this order wins when several hold at once |
 
+Black-box log (ADR-020): the ROS controller records into the POSIX shared-memory region
+`/cobot_log_<controller node name>` (`pipeline::ShmStorage`, Linux only), which outlives a crash
+of the controller or of Gazebo; `cobot.log.lock_memory: true` mlocks it (on the Pi 5). Its service
+`~/dump_log` (std_srvs/Trigger) appends the rows not yet exported to `log_path` (ROS parameter
+`log_stream_ms` > 0: every that many ms); deactivation and cleanup export the rest and leave the
+region in place. `cobot_logdump <controller> [--out <csv>] [--keep] [--remove]` (also
+`ros2 run cobot_ros2 cobot_logdump`) exports the rows not yet exported to a Run CSV, by default
+`./<controller>-<YYYYmmdd-HHMMSS>.csv`. At activation the controller writes the unexported rows of
+an old region to `<log_path>.recovered-<YYYYmmdd-HHMMSS>.csv`, removes it and creates a new one.
+Every row is exported exactly once, oldest first; once the buffer being written is full, its
+oldest row (the slot the next record overwrites) is never exported.
+
 ### Summary CSV
 
 One row per run of `cobot_bench montecarlo` / `sweep`:

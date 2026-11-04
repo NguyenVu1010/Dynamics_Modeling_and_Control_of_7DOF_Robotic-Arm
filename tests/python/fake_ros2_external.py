@@ -9,9 +9,11 @@ FAKE_ROS2_MAX_S seconds without a signal). Rows: t_ns = k * 1 ms up to FAKE_ROS2
 (default 1.0 s), q = qref, qd = 0, tau = 1 N*m. First half: tip error 50 mm, mode tracking.
 Second half: tip error from FAKE_ROS2_MODE (empty = 0, pos4mm = 4 mm, fail = 10 mm), mode
 `standby` when the launch got `command_source:=external`, else `finished`.
-Extra FAKE_ROS2_MODE flags (comma separated): nocsv = no CSV; crash = exit 3 at once;
-moving = qd1 = 0.05 rad/s on the last 50 rows; overtau = tau1 = 1000 N*m on the first row;
-holdend = second-half mode `holding` instead of `standby`.
+Extra FAKE_ROS2_MODE flags (comma separated): nocsv = no CSV (and no black-box region);
+crash = exit 3 at once; moving = qd1 = 0.05 rad/s on the last 50 rows; overtau = tau1 = 1000 N*m
+on the first row; holdend = second-half mode `holding` instead of `standby`; shortcsv = the
+second half is never written to log_path (the region holds every row); csvlost = no CSV at
+log_path, the region holds every row.
 While a launch runs it keeps a marker file (FAKE_ROS2_LOG + ".launch") holding its
 command_source.
 
@@ -25,6 +27,14 @@ value with `--field data`. Logged as {"status": [modes printed]}.
 `ros2 run cobot_ros2 send_waypoints.py FILE [...]`: logged as {"client": argv after `run`,
 "launch_running": bool}; prints a result as YAML and exits FAKE_CLIENT_EXIT, default 3 when
 --cancel-after is given (canceled as requested) else 0.
+
+Black-box log (feature blackbox-log), as fake_ros2.py:
+`ros2 service call /cobot_controller/dump_log std_srvs/srv/Trigger` is logged as
+{"dump_log": argv after `call`, "launch_running": bool}; dumpfail = exit 1, dumphang = no answer
+for 60 s. `ros2 run cobot_ros2 cobot_logdump <controller> --out CSV` is logged as
+{"logdump": argv after `run`} (not as a client); it writes the last launch's whole Run CSV to
+CSV, prints `<rows> rows -> CSV` and exits 0; with nocsv, crash or noregion it exits 1 (no
+region).
 
 `ros2 control list_controllers` reports cobot_controller active; anything else exits 0.
 """
@@ -65,6 +75,21 @@ def row(k: int, rows: int, err: float, end_mode: str, flags: set[str]) -> str:
     return ",".join(str(v) for v in vals)
 
 
+def row_count() -> int:
+    t_end_ns = round(float(os.environ.get("FAKE_ROS2_T_END_S", "1.0")) * 1e9)
+    return t_end_ns // DT_NS + 1
+
+
+def final_err(flags: set[str]) -> float:
+    return 0.01 if "fail" in flags else 0.004 if "pos4mm" in flags else 0.0
+
+
+def end_mode_of(source: str, flags: set[str]) -> str:
+    if source == "external":
+        return "holding" if "holdend" in flags else "standby"
+    return "finished"
+
+
 def append(log: Path, entry: dict) -> None:
     with log.open("a", encoding="utf-8") as f:
         f.write(json.dumps(entry) + "\n")
@@ -85,14 +110,12 @@ def launch(argv: list[str], flags: set[str], log: Path) -> int:
     marker = Path(str(log) + ".launch")
     Path(str(log) + ".echo").unlink(missing_ok=True)
     marker.write_text(source or "config", encoding="utf-8")
-    end_mode = "finished"
-    if source == "external":
-        end_mode = "holding" if "holdend" in flags else "standby"
-    t_end_ns = round(float(os.environ.get("FAKE_ROS2_T_END_S", "1.0")) * 1e9)
-    rows = t_end_ns // DT_NS + 1
-    err = 0.01 if "fail" in flags else 0.004 if "pos4mm" in flags else 0.0
+    Path(str(log) + ".source").write_text(source or "config", encoding="utf-8")
+    end_mode = end_mode_of(source, flags)
+    rows = row_count()
+    err = final_err(flags)
     csv = None
-    if "nocsv" not in flags and "log_path" in args:
+    if not flags & {"nocsv", "csvlost"} and "log_path" in args:
         path = Path(args["log_path"])
         path.parent.mkdir(parents=True, exist_ok=True)
         csv = path.open("w", encoding="utf-8")
@@ -106,7 +129,10 @@ def launch(argv: list[str], flags: set[str], log: Path) -> int:
     if not stop:
         return 4
     if csv is not None:
-        csv.writelines(row(k, rows, err, end_mode, flags) + "\n" for k in range(rows // 2, rows))
+        if "shortcsv" not in flags:
+            csv.writelines(
+                row(k, rows, err, end_mode, flags) + "\n" for k in range(rows // 2, rows)
+            )
         csv.close()
     append(log, {"signal": stop[0]})
     return 0
@@ -152,6 +178,38 @@ def client(argv: list[str], log: Path) -> int:
     return code
 
 
+def dump_log(argv: list[str], flags: set[str], log: Path) -> int:
+    append(log, {"dump_log": argv, "launch_running": Path(str(log) + ".launch").exists()})
+    print("requester: making request: std_srvs.srv.Trigger_Request()\n\nresponse:", flush=True)
+    if "dumphang" in flags:
+        time.sleep(60)
+    if "dumpfail" in flags:
+        print("std_srvs.srv.Trigger_Response(success=False, message='no recorder')")
+        return 1
+    print("std_srvs.srv.Trigger_Response(success=True, message='run.csv 0 rows')")
+    return 0
+
+
+def logdump(argv: list[str], flags: set[str], log: Path) -> int:
+    append(log, {"logdump": argv})
+    if flags & {"nocsv", "crash", "noregion"}:
+        print("cobot_logdump: no region /cobot_log_cobot_controller", file=sys.stderr)
+        return 1
+    source_file = Path(str(log) + ".source")
+    source = source_file.read_text(encoding="utf-8") if source_file.exists() else "config"
+    end_mode = end_mode_of("" if source == "config" else source, flags)
+    out = Path(argv[argv.index("--out") + 1])
+    rows = row_count()
+    err = final_err(flags)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    with out.open("w", encoding="utf-8") as f:
+        f.write(header() + "\n")
+        f.writelines(row(k, rows, TRANSIENT_M, end_mode, flags) + "\n" for k in range(rows // 2))
+        f.writelines(row(k, rows, err, end_mode, flags) + "\n" for k in range(rows // 2, rows))
+    print(f"{rows} rows -> {out}")
+    return 0
+
+
 def main() -> int:
     flags = set(filter(None, os.environ.get("FAKE_ROS2_MODE", "").split(",")))
     log = Path(os.environ["FAKE_ROS2_LOG"])
@@ -161,6 +219,10 @@ def main() -> int:
         return launch(argv, flags, log)
     if argv[:2] == ["topic", "echo"]:
         return echo(argv, flags, log)
+    if argv[:2] == ["service", "call"]:
+        return dump_log(argv[2:], flags, log)
+    if argv[:3] == ["run", "cobot_ros2", "cobot_logdump"]:
+        return logdump(argv[1:], flags, log)
     if argv[:1] == ["run"]:
         return client(argv[1:], log)
     if argv[:2] == ["control", "list_controllers"]:

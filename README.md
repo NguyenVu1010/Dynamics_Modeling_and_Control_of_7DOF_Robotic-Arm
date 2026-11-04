@@ -154,6 +154,13 @@ ros2 launch cobot_sim sim.launch.py controller:=cobot_controller [gui:=true]   [
 python tools/run_e2e.py --all --tag gazebo --out results/e2e-gazebo   # E2E-07, 09, 11, 11b
 ```
 
+The controller's log lives in the shared-memory region `/cobot_log_cobot_controller` and survives a
+crash of the controller or of Gazebo. `ros2 service call /cobot_controller/dump_log
+std_srvs/srv/Trigger` appends the rows not yet written to `log_path` (`log_stream_ms:=200` does it
+every 200 ms); after a crash, `ros2 run cobot_ros2 cobot_logdump cobot_controller [--out file.csv]`
+exports what the region still holds, and the next activation writes any leftover rows to
+`<log_path>.recovered-<YYYYmmdd-HHMMSS>.csv` before it starts.
+
 External command mode: `command_source:=external` (default: the config file's
 `cobot.command_source`) starts the arm in standby at the measured pose and offers, under
 `/cobot_controller/`, the action `follow_waypoints`, the services `preview_waypoints` (validation

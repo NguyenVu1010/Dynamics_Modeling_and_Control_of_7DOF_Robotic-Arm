@@ -81,6 +81,7 @@ jobs:
         run: >
           mkdir -p coverage &&
           gcovr --root . --filter 'src/core/' --exclude-unreachable-branches
+          --gcov-ignore-parse-errors=negative_hits.warn_once_per_file
           --print-summary --fail-under-line 80
           --html-details coverage/index.html --xml coverage/coverage.xml build
       - uses: actions/upload-artifact@v4
@@ -133,7 +134,7 @@ jobs:
           cache-to: type=gha,mode=max,scope=ros
       - name: colcon build, asset check, smoke and gazebo E2E-07/09/11/11b in ROS 2 Jazzy + Gazebo Harmonic
         run: >
-          docker run --rm -v ${{ github.workspace }}:/repo -w /repo cobot-ros:ci
+          docker run --rm --shm-size=512m -v ${{ github.workspace }}:/repo -w /repo cobot-ros:ci
           bash tools/ci/gazebo_ci.sh
 
   arm64:

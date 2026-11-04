@@ -105,6 +105,7 @@ struct Config {
   std::filesystem::path log_output_dir = "results";
   LogMode log_mode = LogMode::kRecorder;  // optional key cobot.log.mode
   double log_capacity_s = 60.0;           // optional key cobot.log.capacity_s, s, > 0
+  bool log_lock_memory = false;           // optional key cobot.log.lock_memory (mlock the region)
   // Optional sections (feature `loop-external`); a missing one keeps these defaults.
   CommandSource command_source = CommandSource::kConfig;
   planning::CartesianLimits cartesian_limits;  // auto segment durations of waypoint trajectories

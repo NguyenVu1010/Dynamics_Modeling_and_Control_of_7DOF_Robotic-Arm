@@ -18,6 +18,11 @@ the CSV appeared, stop the launch and judge the CSV; they are skipped unless --t
 gazebo scenario with `waypoints: FILE` launches with command_source:=external instead, waits for
 `standby` on /cobot_controller/status, runs `ros2 run cobot_ros2 send_waypoints.py FILE
 [--cancel-after cancel_after_s]`, lets the CSV cover hold_s more of sim time and stops the launch.
+Gazebo launches get log_stream_ms:=200 (the controller appends its black-box log to the CSV every
+200 ms); before the stop the runner calls the controller's ~/dump_log (10 s timeout, a failure is
+only reported), and when the CSV is then missing or covers less than duration_s + hold_s it runs
+`ros2 run cobot_ros2 cobot_logdump cobot_controller --out <CSV>` (appends the rows the controller
+never exported) and judges the result.
 Without cancel_after_s it passes on client exit 0 and the thresholds; with it, on client exit 3
 (canceled as requested), last row in standby, max |qd| over the last rest_window_s (0.5 s) <
 rest_qd_max_rad_s (0.01 rad/s) and peak |tau| / tau_max <= peak_tau_ratio (1); these optional
@@ -71,6 +76,11 @@ GAZEBO_STOP_S = 30.0  # graceful shutdown of the launch before it is killed
 GAZEBO_STANDBY_S = 180.0  # launch until the controller reports standby
 GAZEBO_ECHO_S = 10.0  # one `ros2 topic echo --once` call
 GAZEBO_CLIENT_S = 600.0  # send_waypoints.py run, goal included
+GAZEBO_STREAM_MS = 200  # log_stream_ms of the controller: run.csv grows while the run goes on
+GAZEBO_DUMP_S = 10.0  # one ~/dump_log service call
+GAZEBO_LOGDUMP_S = 60.0  # one cobot_logdump run
+DUMP_LOG = ["ros2", "service", "call", "/cobot_controller/dump_log", "std_srvs/srv/Trigger"]
+LOGDUMP = ["ros2", "run", "cobot_ros2", "cobot_logdump", "cobot_controller"]
 STATUS_TOPIC = "/cobot_controller/status"
 STATUS_TYPE = "std_msgs/msg/String"
 # Canceled waypoint run (E2E-11b, design 2026-10-29 section 7): at rest and within the limits.
@@ -345,6 +355,34 @@ def drive_waypoints(s: dict, proc: subprocess.Popen, csv: Path, out: Path, hold_
     return ""
 
 
+def dump_log(proc: subprocess.Popen, out: Path) -> None:
+    """Asks the running controller to write its black-box log to the CSV; failure only noted."""
+    if proc.poll() is not None:
+        return
+    with (out / "dump_log.log").open("w", encoding="utf-8") as log:
+        try:
+            done = subprocess.run(DUMP_LOG, stdout=log, stderr=log, timeout=GAZEBO_DUMP_S)
+            problem = f"exit {done.returncode}" if done.returncode != 0 else ""
+        except subprocess.TimeoutExpired:
+            problem = f"no answer within {GAZEBO_DUMP_S:g} s"
+    if problem:
+        print(f"note: ~/dump_log failed ({problem}, see {out / 'dump_log.log'})", file=sys.stderr)
+
+
+def logdump(csv: Path, out: Path) -> None:
+    """Appends what the controller never exported to csv with cobot_logdump (after the stop)."""
+    with (out / "logdump.log").open("w", encoding="utf-8") as log:
+        try:
+            done = subprocess.run(
+                [*LOGDUMP, "--out", str(csv)], stdout=log, stderr=log, timeout=GAZEBO_LOGDUMP_S
+            )
+            problem = f"exit {done.returncode}" if done.returncode != 0 else ""
+        except subprocess.TimeoutExpired:
+            problem = f"still running after {GAZEBO_LOGDUMP_S:g} s"
+    if problem:
+        print(f"note: cobot_logdump {problem} (see {out / 'logdump.log'})", file=sys.stderr)
+
+
 def judge_cancel(s: dict, csv: Path) -> tuple[bool, str]:
     th = {k: float(s.get("thresholds", {}).get(k, v)) for k, v in CANCEL_DEFAULTS.items()}
     df = load_run(csv)
@@ -375,7 +413,8 @@ def run_gazebo(s: dict, out: Path, report: bool) -> tuple[bool, str]:
     cmd = ["ros2", "launch", "cobot_sim", "sim.launch.py", "gui:=false"]
     cmd += ["controller:=cobot_controller", f"config_path:={config}"]
     cmd += [f"imperfections_path:={repo_path(s['imperfections'])}", f"seed:={int(s['seed'])}"]
-    cmd += [f"log_path:={csv}"] + (["command_source:=external"] if waypoints else [])
+    cmd += [f"log_path:={csv}", f"log_stream_ms:={GAZEBO_STREAM_MS}"]
+    cmd += ["command_source:=external"] if waypoints else []
     with (out / "launch.log").open("w", encoding="utf-8") as log:
         proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         try:
@@ -386,9 +425,12 @@ def run_gazebo(s: dict, out: Path, report: bool) -> tuple[bool, str]:
             else:
                 failed = ""
         finally:
+            dump_log(proc, out)
             stop_launch(proc)
     if failed:
         return False, failed
+    if not csv.is_file() or csv_span_ns(csv) < round(run_s * 1e9):
+        logdump(csv, out)
     if not csv.is_file():
         return False, f"no CSV at {csv}"
     if s.get("cancel_after_s") is not None:

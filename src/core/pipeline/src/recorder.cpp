@@ -11,6 +11,8 @@
 
 #include "cobot/common/dof.hpp"
 
+#include "recorder_state.hpp"
+
 // Single producer: record() is the only writer of the active buffer, its `written` count and the
 // counters, so it updates them with plain load/store (no read-modify-write). A row is copied
 // before its count is published (release), and the exporter reads a buffer only after acquiring
@@ -18,9 +20,9 @@
 namespace cobot::pipeline {
 namespace {
 
-constexpr std::uint32_t kSwapIdle = 0;       // no swap pending, no retired buffer held
-constexpr std::uint32_t kSwapRequested = 1;  // the next record() swaps
-constexpr std::uint32_t kSwapDone = 2;       // the other buffer is retired until released
+using recorder_state::kSwapDone;
+using recorder_state::kSwapIdle;
+using recorder_state::kSwapRequested;
 
 void bump(std::atomic<std::uint64_t>& counter) {
   counter.store(counter.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
