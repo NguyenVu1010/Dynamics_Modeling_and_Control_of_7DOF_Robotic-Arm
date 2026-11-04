@@ -298,6 +298,8 @@ TEST(ManualMoveTcp, LoadWithMoveTcpRunsToStandby) {
   }
   h.step();
   EXPECT_EQ(h.mode(), LoopMode::kStandby);
+  EXPECT_EQ(h.rows.back().cmd_mode, CommandMode::kWaypoints);  // rejected loads change nothing
+  h.rows.clear();
 
   ASSERT_TRUE(h.loop().load(traj, CommandMode::kMoveTcp).is_ok());
   EXPECT_EQ(h.loop().command_mode(), CommandMode::kMoveTcp);
