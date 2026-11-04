@@ -7,11 +7,14 @@
 #include <cstdint>
 #include <cstdio>
 #include <filesystem>
+#include <fstream>
+#include <initializer_list>
 #include <limits>
 #include <set>
 #include <string>
 #include <system_error>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include <Eigen/Geometry>
@@ -19,6 +22,7 @@
 
 #include "cobot/common/dof.hpp"
 #include "cobot/model/model.hpp"
+#include "cobot/pipeline/overrides.hpp"
 #include "cobot/pipeline/sweep_config.hpp"
 #include "cobot/pipeline/waypoint_file.hpp"
 
@@ -712,6 +716,163 @@ void read_sweep(Reader& root, const fs::path& dir, SweepSpec& s) {
   });
 }
 
+// --- typed key overrides (overrides.hpp) ---
+
+constexpr const char* kConfigPrefix = "config.";
+constexpr std::size_t kConfigPrefixLen = 7;
+
+std::string number_text(double v) {
+  std::array<char, 32> text{};
+  std::snprintf(text.data(), text.size(), "%.17g", v);
+  return text.data();
+}
+
+bool is_config_key(const std::string& key) {
+  return key.compare(0, kConfigPrefixLen, kConfigPrefix) == 0;
+}
+
+// A new map for the group `path` (dotted, under imperfections:): an optional group gets its
+// required keys at their off values, so one override of it loads.
+YAML::Node new_group(bool config, const std::string& path) {
+  YAML::Node g(YAML::NodeType::Map);
+  const auto zeros = [&g](std::initializer_list<const char*> keys) {
+    for (const char* k : keys) {
+      g[k] = "0";
+    }
+  };
+  if (config) {
+    return g;
+  }
+  if (path == "transmission" || path == "comm") {
+    g["source"] = "studio override";
+  }
+  if (path == "transmission") {
+    zeros({"stiffness_k1_nm_rad",
+           "stiffness_k2_nm_rad",
+           "stiffness_k3_nm_rad",
+           "torque_t1_nm",
+           "torque_t2_nm"});
+  } else if (path == "comm") {
+    zeros({"servo_rate_hz", "packet_loss_prob", "latency_burst_prob", "burst_cycles"});
+  } else if (path == "actuator.bus") {
+    zeros({"v_nom_v", "r_source_ohm", "v_min_v"});
+  }
+  return g;
+}
+
+YAML::Node list_node(const std::vector<double>& values) {
+  YAML::Node seq(YAML::NodeType::Sequence);
+  seq.SetStyle(YAML::EmitterStyle::Flow);
+  for (const double v : values) {
+    seq.push_back(number_text(v));
+  }
+  return seq;
+}
+
+// Sets the dotted `path` under `section` to the value of `o`, creating the maps on the way.
+std::string set_key(const YAML::Node& section,
+                    bool config,
+                    const std::string& path,
+                    const KeyOverride& o) {
+  std::vector<std::string> parts;
+  for (std::size_t from = 0;;) {
+    const std::size_t dot = path.find('.', from);
+    parts.push_back(path.substr(from, dot == std::string::npos ? std::string::npos : dot - from));
+    if (parts.back().empty()) {
+      return o.key + ": invalid key";
+    }
+    if (dot == std::string::npos) {
+      break;
+    }
+    from = dot + 1;
+  }
+  YAML::Node cur = section;
+  std::string at;
+  for (std::size_t i = 0; i + 1 < parts.size(); ++i) {
+    if (!cur.IsMap()) {
+      return o.key + ": " + (at.empty() ? "the top-level section" : at) + " is not a mapping";
+    }
+    at += (at.empty() ? "" : ".") + parts[i];
+    const YAML::Node& map = cur;  // const lookup never inserts the key
+    if (!map[parts[i]].IsDefined() || map[parts[i]].IsNull()) {
+      cur[parts[i]] = new_group(config, at);
+    }
+    const YAML::Node next = cur[parts[i]];
+    cur.reset(next);
+  }
+  if (!cur.IsMap()) {
+    return o.key + ": " + (at.empty() ? "the top-level section" : at) + " is not a mapping";
+  }
+  const std::string& leaf = parts.back();
+  const YAML::Node& map = cur;
+  if (const double* d = std::get_if<double>(&o.value)) {
+    const YAML::Node old = map[leaf];
+    if (old.IsDefined() && old.IsSequence()) {
+      cur[leaf] = list_node(std::vector<double>(old.size(), *d));
+    } else {
+      cur[leaf] = number_text(*d);
+    }
+  } else if (const auto* v = std::get_if<std::vector<double>>(&o.value)) {
+    cur[leaf] = list_node(*v);
+  } else if (const bool* b = std::get_if<bool>(&o.value)) {
+    cur[leaf] = *b ? "true" : "false";
+  } else {
+    cur[leaf] = std::get<std::string>(o.value);
+  }
+  return {};
+}
+
+// Applies every override to the loaded document (`config`: the controller file of `n` joints).
+std::string apply_overrides(YAML::Node& root,
+                            const std::vector<KeyOverride>& overrides,
+                            bool config,
+                            int n) {
+  std::set<std::string> seen;
+  bool omega = false;
+  bool gains = false;
+  for (const KeyOverride& o : overrides) {
+    if (!seen.insert(o.key).second) {
+      return o.key + ": overridden twice";
+    }
+    if (is_config_key(o.key) != config) {
+      return o.key + (config ? ": not a key of the controller config (config.<path>)"
+                             : ": not a key of the imperfection profile");
+    }
+    omega = omega || o.key == kOmegaKey;
+    gains = gains || o.key == "config.computed_torque.kp" || o.key == "config.computed_torque.kd";
+  }
+  if (omega && gains) {
+    return std::string(kOmegaKey) + " cannot be set together with config.computed_torque.kp/kd";
+  }
+  const YAML::Node section = root[config ? "cobot" : "imperfections"];
+  for (const KeyOverride& o : overrides) {
+    std::string bad;
+    if (o.key == kOmegaKey) {
+      const double* w = std::get_if<double>(&o.value);
+      if (w == nullptr || !std::isfinite(*w) || !(*w > 0.0)) {
+        return o.key + ": must be a number > 0";
+      }
+      const auto count = static_cast<std::size_t>(n);
+      bad = set_key(section,
+                    true,
+                    "computed_torque.kp",
+                    KeyOverride{o.key, std::vector<double>(count, *w * *w)});
+      if (bad.empty()) {
+        bad = set_key(section,
+                      true,
+                      "computed_torque.kd",
+                      KeyOverride{o.key, std::vector<double>(count, 2.0 * *w)});
+      }
+    } else {
+      bad = set_key(section, config, config ? o.key.substr(kConfigPrefixLen) : o.key, o);
+    }
+    if (!bad.empty()) {
+      return bad;
+    }
+  }
+  return {};
+}
+
 }  // namespace
 
 Result<SweepSpec> load_sweep(const fs::path& yaml) {
@@ -764,6 +925,9 @@ Result<Config<N>> load_config(const fs::path& yaml) {
 
 template <int N>
 Result<Config<N>> load_config_with(const fs::path& yaml, const std::string& key, double level) {
+  if (key == kOmegaKey) {  // virtual key: kp = omega^2, kd = 2 omega (cobot_bench sweep)
+    return load_config_with<N>(yaml, std::vector<KeyOverride>{KeyOverride{key, level}});
+  }
   const auto edit = [&key, level](YAML::Node& root) -> std::string {
     const std::string prefix = "config.";
     const std::size_t dot = key.find('.', prefix.size());
@@ -791,6 +955,83 @@ Result<Config<N>> load_config_with(const fs::path& yaml, const std::string& key,
   const fs::path dir = fs::absolute(yaml, ec).parent_path();
   return load<Config<N>>(
       yaml, [&dir](Reader& r, Config<N>& c) { read_config<N>(r, dir, c); }, edit);
+}
+
+template <int N>
+Result<Config<N>> load_config_with(const fs::path& yaml,
+                                   const std::vector<KeyOverride>& overrides) {
+  std::error_code ec;
+  const fs::path dir = fs::absolute(yaml, ec).parent_path();
+  return load<Config<N>>(
+      yaml,
+      [&dir](Reader& r, Config<N>& c) { read_config<N>(r, dir, c); },
+      [&overrides](YAML::Node& root) { return apply_overrides(root, overrides, true, N); });
+}
+
+template <int N>
+Result<imperfect::ImperfectionConfig<N>> load_imperfections_with(
+    const fs::path& yaml, const std::vector<KeyOverride>& overrides) {
+  return load<imperfect::ImperfectionConfig<N>>(
+      yaml,
+      [](Reader& r, imperfect::ImperfectionConfig<N>& c) { read_imperfections<N>(r, c); },
+      [&overrides](YAML::Node& root) { return apply_overrides(root, overrides, false, N); });
+}
+
+namespace {
+
+// Writes `src` with the overrides (and, for the controller file, absolute paths) to `dst`.
+common::Status write_with(const fs::path& src,
+                          const std::vector<KeyOverride>& overrides,
+                          const fs::path& dst,
+                          bool config) {
+  try {
+    YAML::Node root = YAML::LoadFile(src.string());
+    const std::string bad = apply_overrides(root, overrides, config, model::kArmDof);
+    if (!bad.empty()) {
+      return common::Status::error(src.string() + ": " + bad);
+    }
+    if (config) {
+      std::error_code ec;
+      const fs::path dir = fs::absolute(src, ec).parent_path();
+      YAML::Node cobot = root["cobot"];
+      YAML::Node log = cobot["log"];
+      for (const std::pair<YAML::Node*, const char*>& p :
+           {std::make_pair(&cobot, "urdf_path"), std::make_pair(&log, "output_dir")}) {
+        const YAML::Node& map = *p.first;  // const lookup never inserts the key
+        if (map[p.second].IsScalar()) {
+          (*p.first)[p.second] = (dir / map[p.second].Scalar()).lexically_normal().string();
+        }
+      }
+    }
+    YAML::Emitter out;
+    out << root;
+    std::ofstream file(dst, std::ios::binary);
+    file << out.c_str() << '\n';
+    file.flush();
+    if (!file) {
+      return common::Status::error("cannot write " + dst.string());
+    }
+  } catch (const YAML::Exception& e) {
+    return common::Status::error(src.string() + ": " + e.what());
+  }
+  return common::Status::ok();
+}
+
+}  // namespace
+
+common::Status write_config_with(const fs::path& src,
+                                 const std::vector<KeyOverride>& overrides,
+                                 const fs::path& dst) {
+  const Result<Config<model::kArmDof>> checked = load_config_with<model::kArmDof>(src, overrides);
+  return checked ? write_with(src, overrides, dst, true) : common::Status::error(checked.reason());
+}
+
+common::Status write_imperfections_with(const fs::path& src,
+                                        const std::vector<KeyOverride>& overrides,
+                                        const fs::path& dst) {
+  const Result<imperfect::ImperfectionConfig<model::kArmDof>> checked =
+      load_imperfections_with<model::kArmDof>(src, overrides);
+  return checked ? write_with(src, overrides, dst, false) : common::Status::error(checked.reason());
 }
 
 template <int N>
@@ -846,7 +1087,11 @@ Result<imperfect::ImperfectionConfig<N>> load_imperfections(const fs::path& yaml
   template model::Model<N> controller_model<N>(const model::Model<N>&, const Config<N>&);      \
   template Result<imperfect::ImperfectionConfig<N>> load_imperfections<N>(const fs::path&);    \
   template Result<imperfect::ImperfectionConfig<N>> load_imperfections_with<N>(                \
-      const fs::path&, const std::string&, double);
+      const fs::path&, const std::string&, double);                                            \
+  template Result<Config<N>> load_config_with<N>(const fs::path&,                              \
+                                                 const std::vector<KeyOverride>&);             \
+  template Result<imperfect::ImperfectionConfig<N>> load_imperfections_with<N>(                \
+      const fs::path&, const std::vector<KeyOverride>&);
 COBOT_INSTANTIATE_DOF(COBOT_INSTANTIATE)
 #undef COBOT_INSTANTIATE
 // NOLINTEND(bugprone-macro-parentheses)

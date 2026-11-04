@@ -172,11 +172,39 @@ run_id,param,level,seed,final_pos_err_m,final_rot_err_rad,rms_joint_err_rad,peak
 the first `holding` row minus `t` of the first row (s), empty when the run never held;
 `hold_reason` is the `hold` value of that row, `none` when the run never held. A sweep `param`
 named `config.<section>.<key>` (such as `config.safety.hal_timeout_ms`) replaces that scalar of
-the controller config instead of an imperfection key. `peak_tau_ratio` (max
+the controller config instead of an imperfection key; the virtual param
+`config.computed_torque.omega` (rad/s, > 0) sets `kp = omega^2` and `kd = 2 omega` on every joint. `peak_tau_ratio` (max
 `|tau| / P`) and `sat_time_s` (time with any `|tau| >= 0.999 P`) use the peak torque P of
 `cobot.limits.peak_torque_nm`, the controller's `tau_max`; `rms_tau_ratio` is the max over joints
 of `RMS(tau_j) / R_j` over the `tracking`/`finished` rows, R the rated torque
 `cobot.limits.rated_torque_nm`. Without the `limits` section both P and R are the URDF effort.
+
+### Studio file
+
+A cobot_studio configuration (`studio::load_studio_file` / `save_studio_file`, ADR-021): a base
+pair, typed key overrides with the key names of the YAML files (`config.<path under cobot:>` or
+`<path under imperfections:>`, plus the virtual `config.computed_torque.omega`), and the studio's
+own settings. Paths are relative to the file; `null` keeps the profile's seed, the configured
+trajectory and its duration.
+
+```yaml
+studio:
+  version: 1
+  base: {name: premium_fr3, config: ../config/premium_fr3.yaml, imperfections: ../config/imperfections/premium_fr3.yaml}
+  overrides:
+    config.computed_torque.omega: 50
+    sensor.q_noise_std_rad: 1.0e-4
+    friction.coulomb_nm: [1.3, 1.3, 0.8, 0.8, 0.3, 0.3, 0.3]
+  seed: 1
+  tolerance: {goal_pos_mm: 1.0, goal_rot_deg: 0.5, path_pos_mm: 2.0, path_rot_deg: 1.0}
+  speed_pct: 10
+  waypoints: null
+  duration_s: null
+```
+
+Each studio run writes `<work_dir>/<run-id>/{config.yaml, imperfections.yaml, studio.yaml}`: the
+pair with the overrides applied (and the seed written into the profile), which
+`cobot_bench run --config config.yaml --imperfections imperfections.yaml` reruns exactly.
 
 ### Waypoint file
 
