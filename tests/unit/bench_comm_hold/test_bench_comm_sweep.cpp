@@ -140,7 +140,8 @@ TEST(BenchCommRun, ConfigOverrideChangesTheTimeout) {
   ASSERT_TRUE(tight.is_ok()) << tight.reason();
   EXPECT_TRUE(tight.value().held);
 
-  // Run CSV: `hold` stays at index 56 (log channels follow it); none before the hold, state_timeout from it on.
+  // Run CSV: `hold` stays at index 56 (log channels follow it); none before the hold,
+  // state_timeout from it on.
   const std::vector<std::vector<std::string>> rows = read_csv(csv);
   ASSERT_EQ(rows.size(), 101U);  // header + round(0.1 s * 1000 Hz) rows
   ASSERT_EQ(rows.front().size(), 114U);
