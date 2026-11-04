@@ -36,6 +36,11 @@ const char* const kBenchExe = COBOT_BENCH_EXE;
 
 constexpr std::int64_t kSteps = 2000;
 constexpr double kP99GateUs = 1000.0;  // ADR-022: loose CI gate, one control period
+#if defined(__OPTIMIZE__)
+constexpr bool kOptimised = true;
+#else
+constexpr bool kOptimised = false;  // Debug, ASan, coverage: timing gates are reported only
+#endif
 
 struct Mode {
   pipeline::LogMode mode;
@@ -105,7 +110,9 @@ TEST(BenchPacedTiming, EachLogModeMeetsTheLooseGate) {
     EXPECT_LE(s.p50_us, s.p95_us) << m.name;
     EXPECT_LE(s.p95_us, s.p99_us) << m.name;
     EXPECT_LE(s.p99_us, s.max_us) << m.name;
-    EXPECT_LT(s.p99_us, kP99GateUs) << m.name;
+    if (kOptimised) {
+      EXPECT_LT(s.p99_us, kP99GateUs) << m.name;
+    }
     EXPECT_LE(s.late_cycles, static_cast<std::uint64_t>(kSteps)) << m.name;
     if (m.mode == pipeline::LogMode::kRecorderLive) {
       EXPECT_GT(s.reader_samples, 0U);
