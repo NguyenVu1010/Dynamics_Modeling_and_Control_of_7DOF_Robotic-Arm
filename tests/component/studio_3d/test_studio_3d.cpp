@@ -399,9 +399,11 @@ TEST_F(Studio3d, SelectedRunIsSolidAndTheOtherCheckedRunIsAGhost) {
   EXPECT_TRUE(all_same(first.opaque_colours));
   EXPECT_TRUE(all_same(first.alpha_colours));
   for (const float a : first.alphas) {
-    EXPECT_FLOAT_EQ(a, 0.25F);
+    EXPECT_NEAR(a, 0.25F, 1e-4F);  // 16-bit QColor alpha: 16384 / 65535
   }
-  EXPECT_NE(first.opaque_colours.front(), first.alpha_colours.front()) << "one colour per run";
+  // Compare RGB only: QPhongAlphaMaterial keeps its alpha in the diffuse colour.
+  EXPECT_NE(first.opaque_colours.front().rgb(), first.alpha_colours.front().rgb())
+      << "one colour per run";
 
   run_list_->setCurrentRow(1);
   spin_for(100);
@@ -409,10 +411,10 @@ TEST_F(Studio3d, SelectedRunIsSolidAndTheOtherCheckedRunIsAGhost) {
   ASSERT_EQ(second.opaque, kLinksPerRun);
   ASSERT_EQ(second.alpha, kLinksPerRun);
   // The newly selected run (the former ghost) is solid in its own colour, and the other way round.
-  EXPECT_EQ(second.opaque_colours.front(), first.alpha_colours.front());
-  EXPECT_EQ(second.alpha_colours.front(), first.opaque_colours.front());
+  EXPECT_EQ(second.opaque_colours.front().rgb(), first.alpha_colours.front().rgb());
+  EXPECT_EQ(second.alpha_colours.front().rgb(), first.opaque_colours.front().rgb());
   for (const float a : second.alphas) {
-    EXPECT_FLOAT_EQ(a, 0.25F);
+    EXPECT_NEAR(a, 0.25F, 1e-4F);  // 16-bit QColor alpha: 16384 / 65535
   }
 }
 
