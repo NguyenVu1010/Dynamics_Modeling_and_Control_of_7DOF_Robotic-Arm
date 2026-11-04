@@ -146,6 +146,9 @@ TEST(BenchPacedTiming, ErrorsRemoveTheRegionToo) {
 // No allocation per step: a paced run of 4000 steps allocates exactly as often as one of 2000
 // (set-up, thread start and the step-time buffer are counted once in both).
 TEST(BenchPacedTiming, AllocationCountDoesNotGrowWithSteps) {
+  // Warm-up outside any count: yaml-cpp builds its tables lazily on the first parse in the process
+  // (about 460 extra allocations once), which is not a per-step cost.
+  static_cast<void>(timing(kConfig, 1, paced(kModes[0].mode)));
   for (const Mode& m : kModes) {
     std::size_t short_run = 0;
     std::size_t long_run = 0;
