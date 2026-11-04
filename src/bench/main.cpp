@@ -12,8 +12,11 @@
 #include <stdexcept>
 #include <string>
 
+#include "cobot/pipeline/config.hpp"
+
 #include "engine.hpp"
 #include "run.hpp"
+#include "run_data.hpp"
 
 namespace {
 
@@ -26,11 +29,14 @@ const char* const kUsage =
     "       cobot_bench montecarlo --config <yaml> --imperfections <yaml> --runs <n> "
     "--seed0 <u64> --out <dir> [--keep-runs] [--duration-s <s>]\n"
     "       cobot_bench sweep --config <yaml> --sweep <yaml> --out <dir> [--duration-s <s>]\n"
-    "       cobot_bench timing --config <yaml> --steps <n>\n";
+    "       cobot_bench timing --config <yaml> --steps <n> [--paced] "
+    "[--log-mode off|recorder|recorder_live]\n";
 
 const char* const kKeepRuns = "--keep-runs";
+const char* const kPaced = "--paced";
+const char* const kLogMode = "--log-mode";
 
-// "--name value" pairs after the mode (--keep-runs takes no value and maps to ""); throws
+// "--name value" pairs after the mode (--keep-runs and --paced take no value and map to ""); throws
 // std::invalid_argument on a bad command line.
 std::map<std::string, std::string> parse_flags(int argc,
                                                char** argv,
@@ -39,7 +45,7 @@ std::map<std::string, std::string> parse_flags(int argc,
   std::map<std::string, std::string> flags;
   for (int i = 2; i < argc; i += 2) {
     const std::string name = argv[i];
-    const bool is_switch = name == kKeepRuns;
+    const bool is_switch = name == kKeepRuns || name == kPaced;
     if (known.count(name) == 0 || (!is_switch && i + 1 >= argc) ||
         !flags.emplace(name, is_switch ? "" : argv[i + 1]).second) {
       throw std::invalid_argument("unknown, repeated or valueless argument " + name);
@@ -74,6 +80,37 @@ std::optional<double> parse_duration(const std::map<std::string, std::string>& f
     throw std::invalid_argument("not a number: " + f.at("--duration-s"));
   }
   return v;
+}
+
+cobot::pipeline::LogMode parse_log_mode(const std::string& text) {
+  if (text == "off") {
+    return cobot::pipeline::LogMode::kOff;
+  }
+  if (text == "recorder") {
+    return cobot::pipeline::LogMode::kRecorder;
+  }
+  if (text == "recorder_live") {
+    return cobot::pipeline::LogMode::kRecorderLive;
+  }
+  throw std::invalid_argument("--log-mode: expected off, recorder or recorder_live, got " + text);
+}
+
+const char* log_mode_name(cobot::pipeline::LogMode mode) {
+  switch (mode) {
+    case cobot::pipeline::LogMode::kOff:
+      return "off";
+    case cobot::pipeline::LogMode::kRecorder:
+      return "recorder";
+    case cobot::pipeline::LogMode::kRecorderLive:
+      return "recorder_live";
+  }
+  return "recorder";
+}
+
+// cobot.log.mode of a config that bench::timing already loaded.
+cobot::pipeline::LogMode configured_log_mode(const std::string& config_yaml) {
+  const auto config = cobot::pipeline::load_config<cobot::bench::kN>(config_yaml);
+  return config ? config.value().log_mode : cobot::pipeline::LogMode::kRecorder;
 }
 
 int report(const char* mode, const cobot::common::Status& status) {
@@ -136,18 +173,40 @@ int main_impl(int argc, char** argv) {
         cobot::bench::sweep(f.at("--config"), f.at("--sweep"), f.at("--out"), parse_duration(f)));
   }
   if (mode == "timing") {
-    const auto f = parse_flags(argc, argv, {"--config", "--steps"}, {"--config", "--steps"});
+    const auto f =
+        parse_flags(argc, argv, {"--config", "--steps", kPaced, kLogMode}, {"--config", "--steps"});
     const std::uint64_t steps = parse_u64(f.at("--steps"));
+    cobot::bench::TimingOptions options;
+    options.paced = f.count(kPaced) > 0;
+    if (f.count(kLogMode) > 0) {
+      options.log_mode = parse_log_mode(f.at(kLogMode));
+    }
+    const bool pf01 = !options.paced && !options.log_mode;
     const cobot::common::Result<cobot::bench::TimingStats> stats =
-        cobot::bench::timing(f.at("--config"), static_cast<std::int64_t>(steps));
+        cobot::bench::timing(f.at("--config"), static_cast<std::int64_t>(steps), options);
     if (!stats) {
       std::fprintf(stderr, "cobot_bench timing: %s\n", stats.reason().c_str());
       return kExitBadInput;
     }
-    std::printf("p50_us=%.3f p95_us=%.3f max_us=%.3f\n",
-                stats.value().p50_us,
-                stats.value().p95_us,
-                stats.value().max_us);
+    const cobot::bench::TimingStats& s = stats.value();
+    if (pf01) {  // PF-01 line, unchanged
+      std::printf("p50_us=%.3f p95_us=%.3f max_us=%.3f\n", s.p50_us, s.p95_us, s.max_us);
+      return 0;
+    }
+    std::printf(
+        "p50_us=%.3f p95_us=%.3f p99_us=%.3f max_us=%.3f log_mode=%s paced=%d late_cycles=%llu "
+        "late_p99_us=%.3f reader_samples=%llu reader_lost=%llu reader_cpu=%s\n",
+        s.p50_us,
+        s.p95_us,
+        s.p99_us,
+        s.max_us,
+        log_mode_name(options.log_mode ? *options.log_mode : configured_log_mode(f.at("--config"))),
+        options.paced ? 1 : 0,
+        static_cast<unsigned long long>(s.late_cycles),
+        s.late_p99_us,
+        static_cast<unsigned long long>(s.reader_samples),
+        static_cast<unsigned long long>(s.reader_lost),
+        s.reader_on_other_cpu ? "other" : "shared");
     return 0;
   }
   throw std::invalid_argument("unknown mode '" + mode + "'");

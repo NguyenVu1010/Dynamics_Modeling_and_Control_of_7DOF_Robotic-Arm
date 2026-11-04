@@ -229,3 +229,36 @@ The poses are of the TCP; the loader returns tip (`link_7`) poses
 `T_b_tip = T_b_tcp * T_tip_tcp^-1` with `T_tip_tcp` from `cobot.tcp_offset`, and the writer
 stores `T_b_tcp = T_b_tip * T_tip_tcp`. Numbers are written with `%.17g`, so a saved list
 loads back within 1e-9. Errors name the file and the key (`waypoints[2].rpy_deg: ...`).
+
+### Studio bridge
+
+The shared-memory link between a controller and `cobot_studio` (`cobot::bridge`, ADR-022,
+`cobot/bridge/wire.hpp`, `endpoint.hpp`), Linux only. Region `/cobot_<name>` (name
+`[A-Za-z0-9_]{1,64}`; `cobot_bench timing` uses `timing_<pid>`), about 3 MB for N = 7, reserved with
+`posix_fallocate`. The server (controller) creates it and never unlinks it on destruction; a
+region whose server pid is gone is replaced. The header starts with the magic `COTBRDG1`, then the
+layout version (`kBridgeLayoutVersion`, bumped on any wire or header change), N, the sizes of
+`StateSample<N>`, `Command<N>` and `Response`, and the three ring capacities; a client refuses a
+mismatch naming the field and both values (`dof: region 2, client 7`).
+
+| Part | Size | Writer -> reader |
+| --- | --- | --- |
+| state ring | 4096 `StateSample<N>` (~4 s at 1 kHz), seqlock per slot | control thread -> studio; overwrites, never waits; lost samples are counted by the reader |
+| command ring | 64 `Command<N>` | studio (owner only) -> bridge thread |
+| response ring | 16 `Response` | bridge thread -> studio (owner only); a full ring refuses and counts the response |
+| jog slot | one `JogRequest`, seqlock | studio (owner only) -> control thread |
+| session | one `SessionInfo<N>`, seqlock | server at start and after "apply config" (generation + 1) |
+
+Units: SI and radians; times `*_ns` are `CLOCK_MONOTONIC` nanoseconds (`bridge::monotonic_ns`, the
+same clock in every process), durations `*_s` seconds, `step_time_us` microseconds. `WirePose`
+holds `p[3]` (m) and `R[9]` row-major (`R[3 r + c] = R(r, c)`); state poses are tip poses
+(`T_b_e`, `T_b_d`), command and waypoint poses are TCP poses. Enum fields carry the integer value
+of the pipeline enum (`mode`: `LoopMode`, `hold_reason`: `HoldReason`, `cmd_mode`: `CommandMode`,
+`WireIssue::issue`: `PathIssue`); `q_true` is NaN when the host does not know the truth. Text
+fields are 0-terminated (`kTextChars` 256, `kPathChars` 512); longer text ends with `...`.
+
+Authority: one owner at a time. A client claims with its random non-zero token (compare-and-swap
+from 0), then writes its pid and beats every 50 ms (`kHeartbeatPeriodNs`); the server sees the owner as
+lost after 200 ms without a beat (`kHeartbeatTimeoutNs`) or when its pid is gone. Commands carry
+the id given by `send` (1, 2, ...) and the owner's token; `refresh` of a jog write is the slot's
+write count + 1, so it changes on every write, also when the owner changes.

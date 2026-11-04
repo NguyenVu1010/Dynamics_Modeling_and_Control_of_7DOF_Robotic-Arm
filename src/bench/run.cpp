@@ -2,19 +2,29 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
+#include <ctime>
 #include <exception>
 #include <fstream>
 #include <iomanip>
 #include <memory>
 #include <optional>
+#include <pthread.h>
+#include <sched.h>
 #include <string>
+#include <thread>
+#include <unistd.h>
 #include <utility>
 #include <vector>
 
+#include "cobot/bridge/endpoint.hpp"
+#include "cobot/bridge/wire.hpp"
 #include "cobot/common/lie.hpp"
 #include "cobot/imperfect/imperfect_joint_interface.hpp"
 #include "cobot/imperfect/perturb.hpp"
@@ -42,6 +52,7 @@ constexpr double kUsPerS = 1e6;
 // A run keeps every record in memory until the loop ends: at most this many bytes of records.
 constexpr double kMaxLogBytes = 2147483648.0;  // 2 GiB
 constexpr double kBytesPerMb = 1048576.0;
+constexpr std::int64_t kNsPerS = 1000000000;
 
 // `urdf` is the plant's model (tau_max = URDF effort M); `nominal` is the controller's model
 // (pipeline::controller_model, tau_max = peak torque P), used by the loop and validate_path.
@@ -334,7 +345,142 @@ common::Result<RunSummary> run_profile(const std::filesystem::path& config_yaml,
   return Out::ok(run.value().summary);
 }
 
+namespace {
+
+using Server = bridge::ServerEndpoint<kN>;
+using Client = bridge::ClientEndpoint<kN>;
+
+// Nearest-rank percentile of sorted values.
+double percentile(const std::vector<double>& sorted, double p) {
+  const auto k = static_cast<std::size_t>(std::ceil(p * static_cast<double>(sorted.size())));
+  return sorted[std::max<std::size_t>(k, 1) - 1];
+}
+
+void sleep_until(std::int64_t t_ns) {
+  timespec ts{};
+  ts.tv_sec = static_cast<time_t>(t_ns / kNsPerS);
+  ts.tv_nsec = static_cast<long>(t_ns % kNsPerS);
+  while (::clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, nullptr) == EINTR) {
+  }
+}
+
+bool pin_to(int cpu) {
+  cpu_set_t set;
+  CPU_ZERO(&set);
+  CPU_SET(cpu, &set);
+  return ::pthread_setaffinity_np(::pthread_self(), sizeof(set), &set) == 0;
+}
+
+// Pins the calling (loop) thread to the first allowed CPU when at least two are allowed and
+// restores the caller's affinity when destroyed. timing() pins in every paced run, whatever the
+// log mode, and whenever a reader runs, so the PF-02 modes are measured with the same placement.
+class LoopPin {
+ public:
+  LoopPin() = default;
+  LoopPin(const LoopPin&) = delete;
+  LoopPin& operator=(const LoopPin&) = delete;
+  LoopPin(LoopPin&&) = delete;
+  LoopPin& operator=(LoopPin&&) = delete;
+  ~LoopPin() {
+    if (pinned_) {
+      ::pthread_setaffinity_np(::pthread_self(), sizeof(saved_), &saved_);
+    }
+  }
+  // The CPU for the reader (the last allowed one), -1 without pinning.
+  int pin() {
+    CPU_ZERO(&saved_);
+    if (::sched_getaffinity(0, sizeof(saved_), &saved_) != 0 || CPU_COUNT(&saved_) < 2) {
+      return -1;
+    }
+    int first = -1;
+    int last = -1;
+    for (int cpu = 0; cpu < CPU_SETSIZE; ++cpu) {
+      if (CPU_ISSET(cpu, &saved_)) {
+        first = first < 0 ? cpu : first;
+        last = cpu;
+      }
+    }
+    pinned_ = pin_to(first);
+    return pinned_ ? last : -1;
+  }
+
+ private:
+  cpu_set_t saved_{};
+  bool pinned_ = false;
+};
+
+// Drains the bridge state ring in a loop with yield; after stop() it drains once more, so
+// samples + client.lost() accounts for every publish. Joined when destroyed.
+class StateReader {
+ public:
+  StateReader() = default;
+  StateReader(const StateReader&) = delete;
+  StateReader& operator=(const StateReader&) = delete;
+  StateReader(StateReader&&) = delete;
+  StateReader& operator=(StateReader&&) = delete;
+  ~StateReader() { stop(); }
+
+  void start(Client& client, int cpu) {
+    thread_ = std::thread([this, &client, cpu] {
+      pinned_ = cpu >= 0 && pin_to(cpu);
+      std::vector<bridge::StateSample<kN>> got;
+      got.reserve(bridge::kStateSlots);
+      for (;;) {
+        const bool last = stop_.load(std::memory_order_acquire);
+        got.clear();
+        samples_ += client.read_states(got);
+        if (last) {
+          return;
+        }
+        std::this_thread::yield();
+      }
+    });
+  }
+  void stop() {
+    stop_.store(true, std::memory_order_release);
+    if (thread_.joinable()) {
+      thread_.join();
+    }
+  }
+  // After stop().
+  std::uint64_t samples() const { return samples_; }
+  bool pinned() const { return pinned_; }
+
+ private:
+  std::atomic<bool> stop_{false};
+  std::thread thread_;
+  std::uint64_t samples_ = 0;
+  bool pinned_ = false;
+};
+
+// Removes the bridge region `name` (when not empty) on every exit path.
+class RegionRemover {
+ public:
+  explicit RegionRemover(std::string name) : name_(std::move(name)) {}
+  RegionRemover(const RegionRemover&) = delete;
+  RegionRemover& operator=(const RegionRemover&) = delete;
+  RegionRemover(RegionRemover&&) = delete;
+  RegionRemover& operator=(RegionRemover&&) = delete;
+  ~RegionRemover() {
+    if (!name_.empty()) {
+      static_cast<void>(Server::remove(name_));
+    }
+  }
+  const std::string& name() const { return name_; }
+
+ private:
+  std::string name_;
+};
+
+}  // namespace
+
 common::Result<TimingStats> timing(const std::filesystem::path& config_yaml, std::int64_t steps) {
+  return timing(config_yaml, steps, TimingOptions{});
+}
+
+common::Result<TimingStats> timing(const std::filesystem::path& config_yaml,
+                                   std::int64_t steps,
+                                   const TimingOptions& options) {
   using Out = common::Result<TimingStats>;
   const common::Result<Setup> setup = load_setup(config_yaml, std::nullopt);
   if (!setup || steps <= 0) {
@@ -342,7 +488,10 @@ common::Result<TimingStats> timing(const std::filesystem::path& config_yaml, std
   }
   pipeline::Config<kN> config = setup.value().config;
   config.deterministic = false;
+  config.log_mode = options.log_mode.value_or(config.log_mode);
+  const bool live = config.log_mode == pipeline::LogMode::kRecorderLive;
   const double period_s = 1.0 / config.control_rate_hz;
+  const std::int64_t period_ns = std::llround(period_s * static_cast<double>(kNsPerS));
   try {
     dynamics::SimPlant<kN> plant(setup.value().urdf, config.home_q_rad);
     pipeline::SimJointInterface<kN> sim(plant, period_s);
@@ -356,6 +505,26 @@ common::Result<TimingStats> timing(const std::filesystem::path& config_yaml, std
     }
     const std::unique_ptr<Loop> loop =
         std::make_unique<Loop>(setup.value().nominal, config, recorder ? &*recorder : nullptr);
+    // recorder_live: the bridge region and its reader.
+    const RegionRemover region(live ? "timing_" + std::to_string(::getpid()) : std::string());
+    std::optional<Server> server;
+    std::optional<Client> client;
+    if (live) {
+      bridge::SessionInfo<kN> session{};
+      session.control_rate_hz = config.control_rate_hz;
+      common::Result<Server> created = Server::create(region.name(), session);
+      if (!created) {
+        return Out::error(created.reason());
+      }
+      server.emplace(std::move(created.value()));
+      if (options.reader) {
+        common::Result<Client> opened = Client::open(region.name());
+        if (!opened) {
+          return Out::error(opened.reason());
+        }
+        client.emplace(std::move(opened.value()));
+      }
+    }
     hal::JointState<kN> state;
     hal::JointCommand<kN> cmd;
     static_cast<void>(sim.read(state));
@@ -364,22 +533,49 @@ common::Result<TimingStats> timing(const std::filesystem::path& config_yaml, std
       return Out::error(started.reason());
     }
     std::vector<double> us(static_cast<std::size_t>(steps));
-    for (double& sample : us) {
+    std::vector<double> late_us(static_cast<std::size_t>(steps), 0.0);
+    TimingStats stats;
+    LoopPin loop_pin;
+    const int reader_cpu = options.paced || client ? loop_pin.pin() : -1;
+    StateReader reader;
+    if (client) {
+      reader.start(*client, reader_cpu);
+    }
+    std::int64_t deadline = bridge::monotonic_ns();
+    for (std::size_t k = 0; k < us.size(); ++k) {
+      if (options.paced) {
+        deadline += period_ns;
+        sleep_until(deadline);
+        const std::int64_t late_ns = bridge::monotonic_ns() - deadline;
+        stats.late_cycles += late_ns > period_ns ? 1 : 0;
+        late_us[k] = static_cast<double>(late_ns) / 1e3;
+      }
       static_cast<void>(sim.read(state));
       const pipeline::PlantTruth<kN>& truth = probe.sample();  // outside the timed window
       const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
       static_cast<void>(loop->step(state, cmd, truth));
+      if (server) {
+        server->publish(bridge::to_sample(loop->last_record(), k + 1, 0));
+      }
       const std::chrono::duration<double, std::micro> dt = std::chrono::steady_clock::now() - t0;
-      sample = dt.count();
+      us[k] = dt.count();
       static_cast<void>(sim.write(cmd));
       sim.advance();
     }
+    reader.stop();
+    if (client) {
+      stats.reader_samples = reader.samples();
+      stats.reader_lost = client->lost();
+      stats.reader_on_other_cpu = reader.pinned();
+    }
     std::sort(us.begin(), us.end());
-    const auto rank = [&us](double p) {  // nearest-rank percentile
-      const auto k = static_cast<std::size_t>(std::ceil(p * static_cast<double>(us.size())));
-      return us[std::max<std::size_t>(k, 1) - 1];
-    };
-    return Out::ok(TimingStats{rank(0.50), rank(0.95), us.back()});
+    std::sort(late_us.begin(), late_us.end());
+    stats.p50_us = percentile(us, 0.50);
+    stats.p95_us = percentile(us, 0.95);
+    stats.p99_us = percentile(us, 0.99);
+    stats.max_us = us.back();
+    stats.late_p99_us = percentile(late_us, 0.99);
+    return Out::ok(stats);
   } catch (const std::exception& e) {
     return Out::error(config_yaml.string() + ": " + e.what());
   }

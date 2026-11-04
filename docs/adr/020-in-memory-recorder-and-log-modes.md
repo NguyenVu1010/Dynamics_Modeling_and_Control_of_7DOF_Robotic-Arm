@@ -61,7 +61,7 @@ Lập kế hoạch tìm ra bốn điểm thiết kế chưa khớp với code, g
 
 | Khoá | Kiểu, mặc định | Ý nghĩa |
 | --- | --- | --- |
-| `cobot.log.mode` | `off \| recorder \| recorder_live`, `recorder` | `LogMode::kOff/kRecorder/kRecorderLive`. `recorder_live` được nhận và chạy như `recorder` cho tới khi có cầu nối `shm-bridge` (ADR-022) |
+| `cobot.log.mode` | `off \| recorder \| recorder_live`, `recorder` | `LogMode::kOff/kRecorder/kRecorderLive`. `recorder_live` được nhận và chạy như `recorder` cho tới khi có cầu nối `shm-bridge` (ADR-022). Bổ sung 2026-11-04: `recorder_live` nay ghi thêm vào vòng trạng thái của cầu nối ở host có cầu nối (`cobot_bench timing`; controller từ `controller-bridge`) |
 | `cobot.log.capacity_s` | số > 0, `60.0` | cửa sổ của controller (`kOverwriteOldest`) |
 | `cobot.log.lock_memory` | bool, `false` | `mlock` vùng log; bật trên Pi 5; `mlock` thất bại thì cảnh báo, chạy tiếp |
 

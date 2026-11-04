@@ -1,5 +1,5 @@
 # core: C++17 library, no ROS. Layering (enforced by target links):
-#   pipeline -> {control, planning, imperfect} -> {dynamics, kinematics} -> model -> common
+#   bridge -> pipeline -> {control, planning, imperfect} -> {dynamics, kinematics} -> model -> common
 #   control -> hal, imperfect -> hal, hal -> common
 cmake_minimum_required(VERSION 3.22)
 project(cobot_core VERSION 0.1.0 LANGUAGES CXX)
@@ -10,7 +10,7 @@ include(cobot_warnings)
 
 find_package(Eigen3 3.4 REQUIRED NO_MODULE)
 
-set(COBOT_MODULES common model kinematics dynamics hal planning control imperfect pipeline)
+set(COBOT_MODULES common model kinematics dynamics hal planning control imperfect pipeline bridge)
 foreach(module IN LISTS COBOT_MODULES)
   add_subdirectory(${module})
 endforeach()

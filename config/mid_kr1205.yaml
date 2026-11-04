@@ -48,7 +48,7 @@ cobot:
     hal_timeout_ms: 5.0                # hold when no fresh state arrives for this long
   log:
     output_dir: ../results
-    mode: recorder                   # off, recorder, recorder_live (acts as recorder for now)
+    mode: recorder                   # off, recorder, recorder_live: recorder plus the studio bridge state ring
     capacity_s: 60.0                 # s, > 0, history the ROS node keeps per buffer
     lock_memory: false               # mlock the black-box region; true on the Pi 5
   # Optional sections below (feature loop-external); a missing one keeps the value shown.
