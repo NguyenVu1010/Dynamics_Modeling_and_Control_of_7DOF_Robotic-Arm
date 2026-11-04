@@ -6,6 +6,7 @@
 #include <optional>
 
 #include "cobot/common/result.hpp"
+#include "cobot/pipeline/config.hpp"
 
 // Engines of the cobot_bench modes (feature bench-e2e, design 11.2). The host side of the
 // control loop: it owns the control thread and the Recorder the loop writes into; the Run CSV is
@@ -75,13 +76,34 @@ common::Status sweep(const std::filesystem::path& config_yaml,
                      std::optional<double> duration_s);
 
 // Wall time of ControlLoop::step() over `steps` cycles of an ideal run (no imperfections,
-// deterministic forced off), in microseconds.
+// deterministic forced off), in microseconds. PF-02 (ADR-022): with log mode recorder_live the
+// timed window is step() + bridge::to_sample + publish into a ServerEndpoint<7> on the region
+// "/cobot_timing_<pid>" (removed at the end, also on error).
+struct TimingOptions {
+  bool paced = false;  // clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME) per period
+  std::optional<pipeline::LogMode> log_mode;  // overrides cobot.log.mode
+  // recorder_live: a reader thread drains the state ring (ClientEndpoint::read_states, yield).
+  // With >= 2 allowed CPUs the loop thread is pinned to the first and the reader to the last
+  // (the caller's affinity is restored at the end).
+  bool reader = true;
+};
+
 struct TimingStats {
   double p50_us = 0.0;
   double p95_us = 0.0;
   double max_us = 0.0;
+  double p99_us = 0.0;
+  std::uint64_t late_cycles = 0;  // paced: wake-ups later than one period after their deadline
+  double late_p99_us = 0.0;       // paced: p99 of the wake-up lateness
+  std::uint64_t reader_samples = 0, reader_lost = 0;
+  bool reader_on_other_cpu = false;
 };
 
+common::Result<TimingStats> timing(const std::filesystem::path& config_yaml,
+                                   std::int64_t steps,
+                                   const TimingOptions& options);
+
+// PF-01: timing(config_yaml, steps, {}).
 common::Result<TimingStats> timing(const std::filesystem::path& config_yaml, std::int64_t steps);
 
 }  // namespace cobot::bench
