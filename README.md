@@ -198,6 +198,23 @@ preview and reference paths, the panel docked) and starts the controller with
 4. Stop: cancels the goal; the arm decelerates along the path and waits in standby.
 5. Reset: leaves the safety hold once its cause is gone (`/cobot_controller/reset`).
 
+## cobot_studio
+
+A Qt5 desktop app over `cobot_studio_core` (ADR-021): a Configuration tab (base pair, parameter
+overrides, controller gains, tolerances, studio file, export for `cobot_bench`) and a Tracking
+tab (bench runs and sweeps on a worker thread, overlaid charts, an error table that recomputes on
+tolerance edits, Run CSV and Summary CSV export). It is off by default:
+
+```bash
+sudo apt install qtbase5-dev libqt5charts5-dev
+cmake -S . -B build -DCOBOT_BUILD_STUDIO=ON && cmake --build build   # or: tools/wsl/build.sh --studio
+build/src/studio/app/cobot_studio [--config-dir config] [--work-dir ~/.cache/cobot_studio/runs]
+```
+
+Under WSL the window opens through WSLg (Windows 11, no X server needed). Each run materialises
+its inputs under the work dir, never in the repository. The source stays MIT; the `cobot_studio`
+binary links Qt Charts (GPLv3), so the binary as distributed is under GPLv3.
+
 ## Environment configuration
 
 Two kinds of YAML file, kept apart:

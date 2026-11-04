@@ -156,6 +156,18 @@ hal      -> common
 - Scripts take paths as arguments and write results to `results/<run-id>/` or to a path
   given as argument. They never write into the source tree.
 
+## Qt code (src/studio/app)
+
+- Only `src/studio/app` uses Qt (Qt5 5.15 from apt, Widgets and Charts), built with
+  `-DCOBOT_BUILD_STUDIO=ON`; everything testable without Qt goes into `cobot_studio_core`.
+- `Q_OBJECT` classes live in headers; AUTOMOC is set on the target, never globally. No
+  `#include "*.moc"`, so clang-tidy parses the sources without a build.
+- Every widget a test or another module looks up has an object name (`setObjectName`, lower
+  camel case such as `runButton`); the names of a feature brief are part of its contract.
+- Every user-visible string goes through `tr()`.
+- Only the GUI thread touches widgets and the `RunStore`; workers hand results over by queued
+  signals.
+
 ## Build and run (dev machine: Windows + WSL Ubuntu-24.04)
 
 The C++ toolchain lives in WSL. From PowerShell run the scripts as

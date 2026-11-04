@@ -8,7 +8,7 @@ source "$repo/tools/wsl/paths.sh" "$repo"
 venv="$(cobot_venv)"
 
 pkgs=(cmake ninja-build ccache g++ libeigen3-dev libgtest-dev libgmock-dev libtinyxml2-dev
-  libyaml-cpp-dev clang-format-18 clang-tidy-18 gcovr python3-venv)
+  libyaml-cpp-dev clang-format-18 clang-tidy-18 gcovr python3-venv qtbase5-dev libqt5charts5-dev)
 missing=()
 for p in "${pkgs[@]}"; do dpkg -s "$p" >/dev/null 2>&1 || missing+=("$p"); done
 if [ "${#missing[@]}" -gt 0 ]; then
