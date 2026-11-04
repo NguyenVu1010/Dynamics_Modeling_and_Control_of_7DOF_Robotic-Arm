@@ -13,6 +13,8 @@ concurrency:
 
 env:
   CORE_APT: cmake ninja-build g++ libeigen3-dev libgtest-dev libgmock-dev libtinyxml2-dev libyaml-cpp-dev
+  # cobot_studio (ADR-021): only the core and lint jobs build it.
+  STUDIO_APT: qtbase5-dev libqt5charts5-dev
 
 jobs:
   lint:
@@ -20,7 +22,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: { fetch-depth: 0 }
-      - run: sudo apt-get update && sudo apt-get install -y $CORE_APT clang-format-18 clang-tidy-18
+      - run: sudo apt-get update && sudo apt-get install -y $CORE_APT $STUDIO_APT clang-format-18 clang-tidy-18
       - name: clang-format
         run: git ls-files '*.cpp' '*.hpp' | xargs -r clang-format-18 --dry-run --Werror
       - uses: actions/setup-python@v5
@@ -30,7 +32,8 @@ jobs:
       - name: clang-tidy on changed C++ files
         if: github.event_name == 'pull_request'
         run: |
-          cmake -S . -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_BUILD_TYPE=Release
+          # COBOT_BUILD_STUDIO puts src/studio/app/*.cpp in compile_commands.json (Qt includes).
+          cmake -S . -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_BUILD_TYPE=Release -DCOBOT_BUILD_STUDIO=ON
           # ros2_node and ros2_gui need the ROS headers: the gazebo job runs clang-tidy on them (sim.sh tidy).
           files=$(git diff --name-only --diff-filter=AM origin/${{ github.base_ref }}...HEAD -- '*.cpp' ':!src/ros2_node/**' ':!src/ros2_gui/**')
           if [ -n "$files" ]; then clang-tidy-18 -p build --quiet --warnings-as-errors='*' $files; fi
@@ -53,8 +56,8 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y $CORE_APT
-      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCOBOT_WERROR=ON
+      - run: sudo apt-get update && sudo apt-get install -y $CORE_APT $STUDIO_APT
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCOBOT_WERROR=ON -DCOBOT_BUILD_STUDIO=ON
       - run: cmake --build build --parallel 4
       - run: ctest --test-dir build --output-on-failure --parallel 4
 
@@ -139,7 +142,8 @@ jobs:
 
   arm64:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    # QEMU emulation: the image took 71 min on #58 and hit 90 min on main right after it.
+    timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3

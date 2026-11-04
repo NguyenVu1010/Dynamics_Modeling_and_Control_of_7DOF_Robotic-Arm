@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "cobot/studio/param_catalog.hpp"
@@ -45,5 +46,12 @@ Series extract(const bench::RunData& run,
 
 // The noise source of the first changed key that has one (catalog), kNone otherwise.
 NoiseSource noise_source_of(const StudioConfig& config);
+
+// Min/max decimation for plotting: keeps the first and last sample of [t0, t1] and, per pixel
+// column of [t0, t1], the samples with the min and max y in time order. At most 2 * pixels + 2
+// points, each an input sample (t[i], y[i]); `t` is non-decreasing. pixels <= 0 or no sample in
+// [t0, t1] gives an empty result.
+std::vector<std::pair<double, double>> decimate_minmax(
+    const std::vector<double>& t, const std::vector<double>& y, double t0, double t1, int pixels);
 
 }  // namespace cobot::studio

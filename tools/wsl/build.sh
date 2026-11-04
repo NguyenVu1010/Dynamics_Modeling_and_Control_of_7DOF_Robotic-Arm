@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Configure, build and test the C++ superbuild inside WSL (or any Ubuntu 24.04).
-# Usage: build.sh [--asan] [--coverage] [--build-dir DIR] [--target T] [--no-test]
+# Usage: build.sh [--asan] [--coverage] [--studio] [--build-dir DIR] [--target T] [--no-test]
+# --studio builds cobot_studio (Qt5, -DCOBOT_BUILD_STUDIO=ON); never auto-detected.
 set -euo pipefail
 
-usage() { echo "Usage: $0 [--asan] [--coverage] [--build-dir DIR] [--target T] [--no-test]" >&2; }
+usage() { echo "Usage: $0 [--asan] [--coverage] [--studio] [--build-dir DIR] [--target T] [--no-test]" >&2; }
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 # shellcheck source=git_env.sh
@@ -12,6 +13,7 @@ source "$repo/tools/wsl/git_env.sh" "$repo"
 source "$repo/tools/wsl/paths.sh" "$repo"
 asan=0
 coverage=0
+studio=OFF
 build_dir=""
 target=""
 run_tests=1
@@ -21,6 +23,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --asan) asan=1 ;;
     --coverage) coverage=1 ;;
+    --studio) studio=ON ;;
     --build-dir)
       [ $# -ge 2 ] || { usage; exit 2; }
       build_dir="$2"
@@ -48,7 +51,7 @@ if [ -z "$build_dir" ]; then
   fi
 fi
 
-args=(-S "$repo" -B "$build_dir" -DCOBOT_WERROR=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON)
+args=(-S "$repo" -B "$build_dir" -DCOBOT_WERROR=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON "-DCOBOT_BUILD_STUDIO=$studio")
 if [ "$asan" = 1 ]; then
   args+=(-DCMAKE_BUILD_TYPE=Debug "-DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -fno-omit-frame-pointer")
 elif [ "$coverage" = 1 ]; then

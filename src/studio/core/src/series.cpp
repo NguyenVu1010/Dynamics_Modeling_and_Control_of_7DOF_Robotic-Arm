@@ -90,4 +90,44 @@ NoiseSource noise_source_of(const StudioConfig& config) {
   return NoiseSource::kNone;
 }
 
+std::vector<std::pair<double, double>> decimate_minmax(
+    const std::vector<double>& t, const std::vector<double>& y, double t0, double t1, int pixels) {
+  std::vector<std::pair<double, double>> out;
+  const std::size_t n = std::min(t.size(), y.size());
+  const auto first = std::lower_bound(t.begin(), t.begin() + static_cast<std::ptrdiff_t>(n), t0);
+  const auto end = std::upper_bound(first, t.begin() + static_cast<std::ptrdiff_t>(n), t1);
+  if (pixels <= 0 || first == end) {
+    return out;
+  }
+  const auto i0 = static_cast<std::size_t>(first - t.begin());
+  const auto i1 = static_cast<std::size_t>(end - t.begin());  // one past the last sample
+  const double scale = t1 > t0 ? static_cast<double>(pixels) / (t1 - t0) : 0.0;
+  out.reserve(2 * static_cast<std::size_t>(pixels) + 2);
+  out.emplace_back(t[i0], y[i0]);
+  const auto column = [&](std::size_t i) {
+    return std::min(pixels - 1, static_cast<int>((t[i] - t0) * scale));
+  };
+  std::size_t lo = i0;
+  std::size_t hi = i0;
+  const auto flush = [&] {
+    out.emplace_back(t[std::min(lo, hi)], y[std::min(lo, hi)]);
+    if (lo != hi) {
+      out.emplace_back(t[std::max(lo, hi)], y[std::max(lo, hi)]);
+    }
+  };
+  for (std::size_t i = i0 + 1; i < i1; ++i) {
+    if (column(i) != column(lo)) {
+      flush();
+      lo = hi = i;
+    } else if (y[i] < y[lo]) {
+      lo = i;
+    } else if (y[i] > y[hi]) {
+      hi = i;
+    }
+  }
+  flush();
+  out.emplace_back(t[i1 - 1], y[i1 - 1]);
+  return out;
+}
+
 }  // namespace cobot::studio
