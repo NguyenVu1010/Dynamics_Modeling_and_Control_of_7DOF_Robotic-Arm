@@ -24,22 +24,6 @@ namespace {
 template <int N>
 using MatN6 = Eigen::Matrix<double, N, 6>;
 
-// sigma_max / sigma_min over the min(6, N) singular values of J; infinite when J loses rank.
-template <int N>
-double condition_number(const Mat6N<N>& J) {
-  if constexpr (N == 1) {  // one singular value, |J|
-    return J.norm() > 0.0 ? 1.0 : std::numeric_limits<double>::infinity();
-  } else {
-    const Eigen::JacobiSVD<Mat6N<N>> svd(J);
-    const typename Eigen::JacobiSVD<Mat6N<N>>::SingularValuesType& sv = svd.singularValues();
-    const double sv_min = sv(sv.size() - 1);
-    if (!(sv_min > 0.0)) {
-      return std::numeric_limits<double>::infinity();
-    }
-    return sv(0) / sv_min;
-  }
-}
-
 // lambda = 0 up to cond_threshold, then a linear ramp that reaches lambda_max at twice the
 // threshold. A NaN condition number (J not finite) takes the fully damped branch.
 double damping(double cond, const ClikConfig& config) {
@@ -94,6 +78,21 @@ VecN<N> joint_limit_gradient(const Model<N>& model, const VecN<N>& q) {
 }  // namespace
 
 template <int N>
+double jacobian_condition_number(const Mat6N<N>& J) {
+  if constexpr (N == 1) {  // one singular value, |J|
+    return J.norm() > 0.0 ? 1.0 : std::numeric_limits<double>::infinity();
+  } else {
+    const Eigen::JacobiSVD<Mat6N<N>> svd(J);
+    const typename Eigen::JacobiSVD<Mat6N<N>>::SingularValuesType& sv = svd.singularValues();
+    const double sv_min = sv(sv.size() - 1);
+    if (!(sv_min > 0.0)) {
+      return std::numeric_limits<double>::infinity();
+    }
+    return sv(0) / sv_min;
+  }
+}
+
+template <int N>
 ClikReference<N>::ClikReference(const Model<N>& model, const ClikConfig& config) {
   // Assigned in the body on purpose: copying const& arguments in a member initializer list trips
   // clang-tidy modernize-pass-by-value (in this file and in the interface header), and the header
@@ -126,7 +125,8 @@ const JointReference<N>& ClikReference<N>::step(const CartesianSample& x_d, doub
   const Vec6 task_acc =
       x_d.xdd_d + config_.kd.cwiseProduct(edot) + config_.kp.cwiseProduct(e) - jdot_qd;
 
-  const double lambda = damping(condition_number<N>(J), config_);
+  condition_number_ = jacobian_condition_number<N>(J);
+  const double lambda = damping(condition_number_, config_);
   const MatN6<N> J_pinv = damped_pinv<N>(J, lambda);
   const MatN<N> null_proj = MatN<N>::Identity() - J_pinv * J;
   const VecN<N> null_acc =
@@ -152,7 +152,9 @@ const JointReference<N>& ClikReference<N>::step(const CartesianSample& x_d, doub
   return ref_;
 }
 
-#define COBOT_CLIK_INSTANTIATE(N) template class ClikReference<(N)>;
+#define COBOT_CLIK_INSTANTIATE(N)    \
+  template class ClikReference<(N)>; \
+  template double jacobian_condition_number<(N)>(const Mat6N<(N)>& J);
 COBOT_INSTANTIATE_DOF(COBOT_CLIK_INSTANTIATE)
 #undef COBOT_CLIK_INSTANTIATE
 

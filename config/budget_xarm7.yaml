@@ -58,6 +58,14 @@ cobot:
     w_max_rad_s: 0.8                   # rad/s, > 0
     alpha_max_rad_s2: 1.6              # rad/s^2, > 0
   stop_time_s: 0.5                     # s, > 0, request_stop(): ramp to rest along the path
+  manual:                              # studio jog and move commands (ADR-022), optional
+    joint_a_max_rad_s2: [15.0, 7.5, 12.5, 12.5, 15.0, 20.0, 20.0]  # at 100 % speed (URDF <limit acceleration>)
+    tcp_v_max_m_s: 0.25                # m/s at 100 % speed
+    tcp_w_max_rad_s: 1.0               # rad/s at 100 % speed
+    tcp_a_max_m_s2: 0.5                # m/s^2 at 100 % speed
+    tcp_alpha_max_rad_s2: 2.0          # rad/s^2 at 100 % speed
+    deadman_ms: 100.0                  # a jog not refreshed for this long ramps to rest
+    jog_margin_deg: 2.0                # jog and move_joint stop this far inside safety.soft_margin_deg
   tcp_offset:                          # tool centre point in the link_7 frame (none: zero)
     position_m: [0.0, 0.0, 0.0]
     rpy_deg: [0.0, 0.0, 0.0]           # R = Rz(yaw) Ry(pitch) Rx(roll)

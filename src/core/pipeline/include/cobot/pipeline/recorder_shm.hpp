@@ -27,7 +27,8 @@
 // Recorder restarts the record numbers).
 namespace cobot::pipeline {
 
-inline constexpr std::uint32_t kShmLogLayoutVersion = 2;  // bump on any LogRecord or header change
+// Bump on any LogRecord or header change. 3: estop hold reason value.
+inline constexpr std::uint32_t kShmLogLayoutVersion = 3;
 
 static_assert(std::is_standard_layout_v<LogRecord<1>>, "ADR-020: LogRecord in shared memory");
 

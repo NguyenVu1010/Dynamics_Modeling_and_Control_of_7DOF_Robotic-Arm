@@ -36,10 +36,11 @@ enum class HoldReason {
   kStampBackwards,
   kStateTimeout,
   kJointLimit,
-  kOverspeed
+  kOverspeed,
+  kEstop  // ControlLoop::estop() from a host (feature manual-commands)
 };
 
-// "none", "non_finite", "stamp_backwards", "state_timeout", "joint_limit", "overspeed"
+// "none", "non_finite", "stamp_backwards", "state_timeout", "joint_limit", "overspeed", "estop"
 const char* to_string(HoldReason reason);
 
 // Where the loop's reference comes from: config (command_source config), waypoints (external);

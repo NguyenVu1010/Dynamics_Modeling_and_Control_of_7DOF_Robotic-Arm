@@ -60,8 +60,13 @@ const char* to_string(LoopMode mode) {
 }
 
 const char* to_string(HoldReason reason) {
-  constexpr std::array<const char*, 6> kNames = {
-      "none", "non_finite", "stamp_backwards", "state_timeout", "joint_limit", "overspeed"};
+  constexpr std::array<const char*, 7> kNames = {"none",
+                                                 "non_finite",
+                                                 "stamp_backwards",
+                                                 "state_timeout",
+                                                 "joint_limit",
+                                                 "overspeed",
+                                                 "estop"};
   return kNames[static_cast<std::size_t>(reason)];
 }
 

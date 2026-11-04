@@ -11,6 +11,7 @@
 #include "cobot/model/model.hpp"
 #include "cobot/pipeline/config.hpp"
 #include "cobot/pipeline/log_record.hpp"
+#include "cobot/pipeline/manual.hpp"
 #include "cobot/pipeline/recorder.hpp"
 #include "cobot/planning/cartesian_trajectory.hpp"
 #include "cobot/planning/clik.hpp"
@@ -47,6 +48,32 @@
 // evaluation of the controller's model per call, qd unchanged) before anything else: the safety
 // checks, CLIK, the computed torque, the hold and the log (LogRecord::q, T_b_e) all see q_hat.
 // Otherwise the state is used as given, bit for bit.
+//
+// Manual commands (feature manual-commands, ADR-022 "Lệnh tay"; external mode only, generators in
+// manual.hpp). Each is called on the control thread, allocates nothing and rejects with literals.
+// - Joint jog: target velocity direction * speed * qd_max_j, acceleration speed * a_max_j
+//   (semi-implicit per step: v toward the target by at most a dt, q += v dt). The other joints
+//   hold their q_ref exactly. The jog brakes so that q_ref comes to rest at the jog limit
+//   q_max_j - (soft_margin + jog_margin) (or q_min_j + ...) and stops there with kSoftLimit
+//   (never kHolding). Deadman: when deadman_s * control_rate_hz steps pass without a refresh
+//   call, ramp to 0 with kDeadman. At rest: CLIK reset at q_ref, standby at FK(q_ref).
+// - Joint move: q_ref = q_ref0 + s Δ, qd_ref = s' Δ, qdd_ref = s'' Δ from the plan, Δ re-based on
+//   joint_reference(); at duration_s -> standby at FK(q_goal) with kFinished.
+// - Joint-mode rows (jog_joint, move_joint): T_b_d = FK(q_ref) (tip), e1..e6 = pose_error(T_b_d,
+//   T_b_e) (CLIK's sign convention), qddref = qdd_ref. CLIK is not stepped.
+// - TCP jog: one axis unit vector e fixed in b at the start (base frame: the base axis; tool frame:
+//   that axis of R_b_tcp at the start). Scalar speed v ramps to direction * speed * v_max at
+//   speed * a_max (translation tcp_v/tcp_a, rotation tcp_w/tcp_alpha). Desired TCP pose
+//   p += v dt e or R = so3_exp(v dt e) R; tip reference T_b_tcp * inverse(T_tip_tcp), so rotations
+//   turn about the TCP point; then CLIK and computed torque as for waypoints. After each CLIK
+//   step: condition_number() > clik.cond_threshold -> ramp to 0 with kSingularity; a joint whose
+//   distance to its jog limit (in the direction qd_ref moves) minus qd_ref^2 / (2 speed a_max_j)
+//   is <= 0 -> ramp to 0 with kSoftLimit. At rest -> standby at the reached reference pose.
+// - TCP move: load(trajectory, kMoveTcp); end -> standby with kFinished; stop as ADR-018.
+// - `cmd` column = command_mode(): the mode of the command running, or of the last accepted one
+//   in standby/holding rows; kWaypoints in external mode before any command; kConfig in config
+//   mode.
+// - The safety checks (ADR-008) are unchanged and apply in every manual mode.
 namespace cobot::pipeline {
 
 using common::Status;
@@ -79,9 +106,14 @@ class ControlLoop {
   // External mode only. Accepted in kStandby when the trajectory starts at reference_pose()
   // within 1e-4 m and 1.745e-4 rad; the trajectory is copied (fixed storage) and runs from the
   // next step.
-  Status load(const planning::WaypointTrajectory& trajectory);
-  // In external kTracking: slow the trajectory time down to rest along the path over
-  // stop_time_s (rate r = 1 - smoothstep(t / stop_time_s)). Ignored otherwise or when stopping.
+  // `cmd` is the command mode to log: kWaypoints (RViz/studio waypoints) or kMoveTcp; anything
+  // else is an error.
+  Status load(const planning::WaypointTrajectory& trajectory,
+              CommandMode cmd = CommandMode::kWaypoints);
+  // In external kTracking of a trajectory or a joint move: slow the trajectory time (or s(t))
+  // down to rest over stop_time_s (rate r = 1 - smoothstep(t / stop_time_s)); of a jog: ramp the
+  // velocity to 0 at the jog's deceleration ("release"). Ends in kStandby with manual_stop() ==
+  // kStopped. Ignored otherwise or when stopping.
   void request_stop();
   // From kHolding (external mode), when `state` is finite, its stamp fresh and every joint
   // outside the soft margin and below qd_max: kStandby at FK(state.q) with CLIK reset there.
@@ -90,10 +122,41 @@ class ControlLoop {
   std::size_t segment() const;  // segment_at(trajectory_time_s()), 0 when nothing was loaded
   double trajectory_time_s() const { return tau_; }  // trajectory time of the next step
 
+  // Manual commands (see above). direction -1 or +1; joint 0-based; speed in (0, 1].
+  // Accepted in kStandby (starts a jog), or while the SAME jog runs (refresh: restarts the
+  // deadman count). Rejected: not standby / another command running ("jog_joint: not in
+  // standby"), bad joint, direction or speed, joint already at its jog limit in that direction
+  // ("jog_joint: joint at its soft limit in that direction"), a different jog running ("jog:
+  // release the running jog first").
+  Status jog_joint(int joint, int direction, double speed);
+  // Same rules. Rejected at start when CLIK's condition number > clik.cond_threshold ("jog_tcp:
+  // near a singularity") or a joint is inside its jog band ("jog_tcp: a joint is at its soft
+  // limit").
+  Status jog_tcp(JogAxis axis, int direction, JogFrame frame, double speed);
+  // kStandby only; move.q_start within 1e-3 rad (max norm) of joint_reference(), else
+  // "move_joint: plan does not start at the reference". Runs from joint_reference() (re-based).
+  Status move_joint(const JointMove<N>& move);
+  // From kStandby or kTracking: the next step() enters kHolding at that step's measured q with
+  // HoldReason::kEstop (unless another hold reason fires in the same step: existing order wins).
+  // kHolding / kFault / kIdle: no-op, returns ok. Config mode: "estop: command_source is config".
+  Status estop();
+  ManualStop manual_stop() const { return manual_stop_; }
+  CommandMode command_mode() const { return cmd_; }  // what `cmd` logs (plan ambiguity 12)
+  // q_ref of the last step (CLIK's or the joint profile's).
+  const VecN<N>& joint_reference() const;
+
  private:
   // External mode.
   void enter_standby(const common::Pose& pose);
   void advance_external(double dt);  // kTracking: sets reference_, advances tau_ or ends
+  // Stop ramp rate r and dr/dt of this step; true when the ramp has reached rest.
+  bool stop_rate(double dt, double& r, double& r_dot);
+  void advance_joint(double dt);       // jog_joint / move_joint: joint_ref_, reference_ or ends
+  bool advance_joint_move(double dt);  // true at the end of the move
+  bool joint_mode() const;             // kTracking of jog_joint or move_joint
+  // Rules shared by jog_joint and jog_tcp; `refreshed` when `jog` refreshed the running one.
+  Status check_jog(const ManualJog& jog, bool& refreshed);
+  void start_jog(const ManualJog& jog, CommandMode cmd);
   bool external() const { return config_.command_source == CommandSource::kExternal; }
   // `measured`, or state_hat_ holding it with q_hat when the compensation applies.
   const JointState<N>& compensated(const JointState<N>& measured);
@@ -121,6 +184,16 @@ class ControlLoop {
   bool stopping_ = false;
   std::int64_t stop_steps_ = 0;  // steps since request_stop()
   JointState<N> state_hat_;      // last compensated state (deflection-comp)
+  // Manual commands.
+  CommandMode cmd_ = CommandMode::kConfig;
+  ManualStop manual_stop_ = ManualStop::kNone;
+  bool estop_requested_ = false;
+  ManualJog jog_;
+  JointMove<N> move_;
+  VecN<N> move_q0_ = VecN<N>::Zero();      // joint_reference() when the move started
+  planning::JointReference<N> joint_ref_;  // reference of the joint modes
+  VecN<N> jog_lo_ = VecN<N>::Zero();       // jog limits: q_min + band, q_max - band
+  VecN<N> jog_hi_ = VecN<N>::Zero();
 };
 
 }  // namespace cobot::pipeline
