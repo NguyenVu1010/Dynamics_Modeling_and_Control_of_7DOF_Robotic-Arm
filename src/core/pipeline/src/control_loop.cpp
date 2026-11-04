@@ -361,7 +361,10 @@ bool ControlLoop<N>::joint_mode() const {
 
 template <int N>
 const VecN<N>& ControlLoop<N>::joint_reference() const {
-  return joint_mode() ? joint_ref_.q : clik_.reference().q;
+  if (joint_mode()) {
+    return joint_ref_.q;
+  }
+  return mode_ == LoopMode::kHolding ? hold_.q_hold() : clik_.reference().q;
 }
 
 // One step of a joint mode; at rest CLIK restarts at q_ref and the loop stands by at FK(q_ref).
@@ -431,11 +434,13 @@ Status ControlLoop<N>::check_jog(const ManualJog& jog, bool& refreshed) {
   }
   if (mode_ == LoopMode::kTracking &&
       (cmd_ == CommandMode::kJogJoint || cmd_ == CommandMode::kJogTcp)) {
-    const bool same = jog_.braking == ManualStop::kNone && jog_.joint == jog.joint &&
-                      jog_.axis == jog.axis && jog_.frame == jog.frame &&
+    const bool same = jog_.joint == jog.joint && jog_.axis == jog.axis && jog_.frame == jog.frame &&
                       jog_.direction == jog.direction && jog_.speed == jog.speed;
     if (!same) {
       return Status::error("jog: release the running jog first");
+    }
+    if (jog_.braking != ManualStop::kNone) {
+      return Status::error(tcp ? "jog_tcp: jog is stopping" : "jog_joint: jog is stopping");
     }
     jog_.idle_steps = 0;
     refreshed = true;
@@ -502,7 +507,8 @@ Status ControlLoop<N>::jog_tcp(JogAxis axis, int direction, JogFrame frame, doub
   if (!st.is_ok() || refreshed) {
     return st;
   }
-  if (clik_.condition_number() > config_.clik.cond_threshold) {
+  // NaN (CLIK not stepped since start()) is refused too.
+  if (!(clik_.condition_number() <= config_.clik.cond_threshold)) {
     return Status::error("jog_tcp: near a singularity");
   }
   const VecN<N>& q = clik_.reference().q;

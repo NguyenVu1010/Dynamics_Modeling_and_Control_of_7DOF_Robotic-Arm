@@ -24,6 +24,7 @@ using common::Vec3;
 
 constexpr double kAtGoalRad = 1e-9;  // plan_joint_move: |q_goal - q_start| at or below: no move
 constexpr std::size_t kMessageChars = 128;
+constexpr double kLandedRad = 1e-12;  // joint jog: q_ref this close to the jog limit is on it
 
 template <typename... Args>
 std::string format(const char* fmt, Args... args) {
@@ -42,6 +43,26 @@ double ramp_toward(double v, double target, double a_dt) {
     return target;
   }
   return target > v ? v + a_dt : v - a_dt;
+}
+
+// Largest velocity v for this step from which the stepped ramp (v, v - a dt, v - 2 a dt, ...,
+// each held for one step with q += v dt) covers at most `dist`. That distance is
+// g(v) = dt (m + 1) (v - m a dt / 2) with m = ceil(v / (a dt)) - 1, so g(v) - g(v - a dt) = v dt:
+// a step at the cap leaves exactly the cap minus a dt for the next one, and v lands on rest at
+// the end of `dist` with |dv| <= a dt on every step (the continuous sqrt(2 a dist) does not).
+double stop_cap(double dist, double a, double dt) {
+  if (!(dist > 0.0)) {
+    return 0.0;
+  }
+  const double u = a * dt;
+  // Smallest m >= 0 with g((m + 1) u) = dt u (m + 1) (m + 2) / 2 >= dist.
+  double m = std::max(std::ceil((-3.0 + std::sqrt(1.0 + 8.0 * dist / (dt * u))) / 2.0), 0.0);
+  if (m > 0.0 && dt * u * m * (m + 1.0) / 2.0 >= dist) {
+    m -= 1.0;  // rounding of the estimate
+  } else if (dt * u * (m + 1.0) * (m + 2.0) / 2.0 < dist) {
+    m += 1.0;
+  }
+  return dist / (dt * (m + 1.0)) + u * m / 2.0;
 }
 
 // Deadman count (one step) and the velocity of this step.
@@ -109,7 +130,7 @@ common::Result<JointMove<N>> plan_joint_move(const model::Model<N>& model,
     const double near = to_min < to_max ? p.q_min : p.q_max;
     if (std::min(to_min, to_max) < band) {
       return R::error(
-          format("move_joint: goal joint %d %.4g rad is within %.4g rad of its limit %.4g",
+          format("move_joint: goal joint %d %.4g rad is within %.3g rad of its limit %.4g",
                  j + 1,
                  q_goal(j),
                  band,
@@ -155,7 +176,7 @@ common::Result<JointMove<N>> plan_joint_move(const model::Model<N>& model,
       const double ratio = std::abs(tau(j)) / model.joints[static_cast<std::size_t>(j)].tau_max;
       if (ratio > ratio_max) {
         return R::error(format(
-            "move_joint: torque joint %d %.3g > %.3g at t = %.3f s", j + 1, ratio, ratio_max, t));
+            "move_joint: torque joint %d %.3g > %.3g at t = %.3g s", j + 1, ratio, ratio_max, t));
       }
     }
   }
@@ -200,12 +221,13 @@ bool joint_jog_step(
     ManualJog& jog, double q_lo, double q_hi, double dt, planning::JointReference<N>& ref) {
   const int j = jog.joint;
   const double dist = jog.direction > 0 ? q_hi - ref.q(j) : ref.q(j) - q_lo;
-  const double cap = std::sqrt(2.0 * jog.a_max * std::max(dist, 0.0));
-  double v = next_velocity(jog, cap, dt);
+  const double v = next_velocity(jog, stop_cap(dist, jog.a_max, dt), dt);
   ref.q(j) += v * dt;
-  if (jog.direction > 0 ? ref.q(j) >= q_hi : ref.q(j) <= q_lo) {
+  // The cap lands q_ref on the limit; the snap only takes rounding. v (<= a_max dt there) ramps
+  // to 0 on the next step, whose cap is 0.
+  const double left = jog.direction > 0 ? q_hi - ref.q(j) : ref.q(j) - q_lo;
+  if (left <= kLandedRad) {
     ref.q(j) = jog.direction > 0 ? q_hi : q_lo;
-    v = 0.0;
     jog.braking = jog.braking == ManualStop::kNone ? ManualStop::kSoftLimit : jog.braking;
   }
   ref.qdd(j) = (v - jog.v) / dt;

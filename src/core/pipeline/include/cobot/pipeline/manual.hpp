@@ -88,9 +88,11 @@ struct ManualJog {
   common::Pose T_tcp_tip;  // TCP jog: inverse(T_tip_tcp)
 };
 
-// Joint jog step: the deadman count, then v toward its target, capped at sqrt(2 a_max d) so that
-// q_ref comes to rest at the jog limit [q_lo, q_hi] (reached: clamped there, kSoftLimit); then
-// q_ref(j) += v dt. Only joint `jog.joint` of `ref` changes. True when v is back at rest.
+// Joint jog step: the deadman count, then v toward its target, capped at the largest speed whose
+// stepped ramp (v, v - a_max dt, ..., one step each) covers the distance d left to the jog limit
+// [q_lo, q_hi], so that q_ref comes to rest on the limit with |qdd_ref| <= a_max (reached: set
+// there, kSoftLimit); then q_ref(j) += v dt. Only joint `jog.joint` of `ref` changes. True when v
+// is back at rest.
 template <int N>
 bool joint_jog_step(
     ManualJog& jog, double q_lo, double q_hi, double dt, planning::JointReference<N>& ref);
