@@ -372,7 +372,8 @@ bool pin_to(int cpu) {
 }
 
 // Pins the calling (loop) thread to the first allowed CPU when at least two are allowed and
-// restores the caller's affinity when destroyed.
+// restores the caller's affinity when destroyed. timing() pins in every paced run, whatever the
+// log mode, and whenever a reader runs, so the PF-02 modes are measured with the same placement.
 class LoopPin {
  public:
   LoopPin() = default;
@@ -535,9 +536,10 @@ common::Result<TimingStats> timing(const std::filesystem::path& config_yaml,
     std::vector<double> late_us(static_cast<std::size_t>(steps), 0.0);
     TimingStats stats;
     LoopPin loop_pin;
+    const int reader_cpu = options.paced || client ? loop_pin.pin() : -1;
     StateReader reader;
     if (client) {
-      reader.start(*client, loop_pin.pin());
+      reader.start(*client, reader_cpu);
     }
     std::int64_t deadline = bridge::monotonic_ns();
     for (std::size_t k = 0; k < us.size(); ++k) {

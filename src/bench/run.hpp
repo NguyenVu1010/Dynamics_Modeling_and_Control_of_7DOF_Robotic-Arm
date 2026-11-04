@@ -83,8 +83,10 @@ struct TimingOptions {
   bool paced = false;  // clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME) per period
   std::optional<pipeline::LogMode> log_mode;  // overrides cobot.log.mode
   // recorder_live: a reader thread drains the state ring (ClientEndpoint::read_states, yield).
-  // With >= 2 allowed CPUs the loop thread is pinned to the first and the reader to the last
-  // (the caller's affinity is restored at the end).
+  // With >= 2 allowed CPUs the loop thread is pinned to the first allowed CPU in every paced run
+  // (all three log modes alike, so their numbers compare) and whenever a reader runs; the reader
+  // goes to the last. The caller's affinity is restored at the end. An unpaced run without a
+  // reader (PF-01) is not pinned.
   bool reader = true;
 };
 

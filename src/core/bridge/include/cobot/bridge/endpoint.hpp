@@ -51,7 +51,8 @@ class ServerEndpoint {  // controller side; move-only; destructor unmaps, never 
   bool push_response(const Response& r) noexcept;  // false when the ring is full (counted)
   void beat(std::int64_t now_ns) noexcept;         // server heartbeat
   // kNone without owner; kProcessGone when kill(pid, 0) == ESRCH; kHeartbeatLost when the owner's
-  // heartbeat is older than kHeartbeatTimeoutNs; kAlive while a claim is in progress (pid 0).
+  // heartbeat is older than kHeartbeatTimeoutNs; kAlive while a claim is in progress (pid 0),
+  // kHeartbeatLost once that has lasted kHeartbeatTimeoutNs since this server first saw it.
   OwnerState owner_state(std::int64_t now_ns) const noexcept;
   void clear_owner() noexcept;                         // CAS the current token -> 0
   void set_session(const SessionInfo<N>& s) noexcept;  // generation + 1
@@ -62,6 +63,9 @@ class ServerEndpoint {  // controller side; move-only; destructor unmaps, never 
   detail::Region<N>* region_ = nullptr;
   std::size_t size_ = 0;
   std::uint64_t generation_ = 0;
+  // owner_state(): the claim-in-progress token (pid 0) and when it was first seen.
+  mutable std::uint64_t pending_token_ = 0;
+  mutable std::int64_t pending_since_ns_ = 0;
 };
 
 template <int N>
@@ -91,7 +95,9 @@ class ClientEndpoint {  // studio side; move-only
   // Commands: id and token filled in; checks ownership right before the push. Errors "not the
   // owner", "command ring full".
   common::Result<std::uint64_t> send(Command<N> c);
-  // False while another client owns the region (the responses are the owner's; one consumer).
+  // False while another client owns the region (the responses are the owner's). Without an owner
+  // any client may poll (each response reaches one of them), including responses left by a
+  // previous owner: claim before polling to get only your own.
   bool poll_response(Response& out) noexcept;
   // Owner only: token filled in; refresh = the slot's write count + 1, so it changes on every
   // write, also across owners.

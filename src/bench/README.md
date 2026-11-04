@@ -13,5 +13,6 @@ Timing: `cobot_bench timing --config <yaml> --steps <n>` prints the PF-01 line
 (absolute deadlines) and `--log-mode off|recorder|recorder_live` overrides `cobot.log.mode`; with
 either flag the line is PF-02's (ADR-022): `p50_us p95_us p99_us max_us log_mode paced late_cycles
 late_p99_us reader_samples reader_lost reader_cpu`. `recorder_live` publishes every step into the
-studio bridge region `/cobot_timing_<pid>` (removed at the end) while a reader thread drains it,
-pinned to another CPU when at least two are allowed.
+studio bridge region `/cobot_timing_<pid>` (removed at the end) while a reader thread drains it.
+With at least two allowed CPUs every paced run pins the loop thread to the first one, whatever the
+log mode, so the three modes compare; the reader goes to the last one.

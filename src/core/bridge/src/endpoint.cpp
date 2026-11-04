@@ -111,7 +111,9 @@ void* map(int fd, std::size_t size) {
 
 // Server pid of an existing bridge region that is still served, 0 when stale (server gone, not a
 // bridge region, or unreadable). A region whose magic is not stored yet is still being created:
-// its server pid counts as well, so a live creator's region is never unlinked under it.
+// its server pid counts as well once stored. Not covered: a region found before its creator's
+// posix_fallocate or server_pid store reads as stale and is replaced, so concurrent create() calls
+// for one name are not supported (one controller per name).
 std::uint64_t live_server(const std::string& region) {
   const int fd = ::shm_open(region.c_str(), O_RDWR, 0);
   if (fd < 0) {
@@ -202,7 +204,9 @@ template <int N>
 ServerEndpoint<N>::ServerEndpoint(ServerEndpoint&& other) noexcept
     : region_(std::exchange(other.region_, nullptr)),
       size_(std::exchange(other.size_, 0)),
-      generation_(other.generation_) {}
+      generation_(other.generation_),
+      pending_token_(other.pending_token_),
+      pending_since_ns_(other.pending_since_ns_) {}
 
 template <int N>
 ServerEndpoint<N>& ServerEndpoint<N>::operator=(ServerEndpoint&& other) noexcept {
@@ -213,6 +217,8 @@ ServerEndpoint<N>& ServerEndpoint<N>::operator=(ServerEndpoint&& other) noexcept
     region_ = std::exchange(other.region_, nullptr);
     size_ = std::exchange(other.size_, 0);
     generation_ = other.generation_;
+    pending_token_ = other.pending_token_;
+    pending_since_ns_ = other.pending_since_ns_;
   }
   return *this;
 }
@@ -339,12 +345,21 @@ void ServerEndpoint<N>::beat(std::int64_t now_ns) noexcept {
 template <int N>
 OwnerState ServerEndpoint<N>::owner_state(std::int64_t now_ns) const noexcept {
   const Header& h = region_->h;
-  if (load(h.owner_token) == 0) {
+  const std::uint64_t token = load(h.owner_token);
+  if (token == 0) {
     return OwnerState::kNone;
   }
   const std::uint64_t pid = load(h.owner_pid);
   if (pid == 0) {
-    return OwnerState::kAlive;  // a claim in progress: its pid and heartbeat follow the token
+    // A claim in progress: its pid and heartbeat follow the token. Bounded by the heartbeat
+    // timeout from the first time this server saw it, so a claimer killed between the token CAS
+    // and its stamps does not hold the region forever.
+    if (pending_token_ != token) {
+      pending_token_ = token;
+      pending_since_ns_ = now_ns;
+    }
+    return now_ns - pending_since_ns_ > kHeartbeatTimeoutNs ? OwnerState::kHeartbeatLost
+                                                            : OwnerState::kAlive;
   }
   if (!pid_alive(pid)) {
     return OwnerState::kProcessGone;
@@ -535,12 +550,18 @@ bool ClientEndpoint<N>::poll_response(Response& out) noexcept {
   if (owner != 0 && owner != token_) {
     return false;  // one consumer: the responses belong to the owner
   }
-  const std::uint64_t t = region_->response_tail.load(std::memory_order_relaxed);
+  // Without an owner several clients may poll: the tail moves by CAS, so each response goes to
+  // exactly one of them, and a copy whose slot was freed (and maybe refilled) under it is dropped.
+  std::uint64_t t = load(region_->response_tail);
   if (load(region_->response_head) == t) {
     return false;
   }
-  std::memcpy(&out, &region_->responses[t % kResponseSlots], sizeof(Response));
-  region_->response_tail.store(t + 1, std::memory_order_release);
+  Response copy;
+  std::memcpy(&copy, &region_->responses[t % kResponseSlots], sizeof(Response));
+  if (!region_->response_tail.compare_exchange_strong(t, t + 1, std::memory_order_acq_rel)) {
+    return false;  // another client took it; poll again
+  }
+  out = copy;
   return true;
 }
 
