@@ -23,8 +23,10 @@ const common::VecN<model::kArmDof>& display_q(const pipeline::LogRecord<model::k
 
 struct Traces {
   std::vector<common::Vec3> tip, desired;  // one per row, in base_link
-  std::vector<common::Vec3> goals;  // waypoint positions, else the last row's desired position
-  std::optional<double> hold_t_s;   // summary.hold_time_s when the run held
+  // Waypoint positions; else the final goal, the desired position of the row at first row +
+  // meta.goal_time_s; empty when the run ends before that time (no goal and no tolerance sphere).
+  std::vector<common::Vec3> goals;
+  std::optional<double> hold_t_s;  // summary.hold_time_s when the run held
 };
 
 // tip from display_q (RobotScene::tip_pose), desired from T_b_d.

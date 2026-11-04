@@ -215,7 +215,7 @@ RobotView::RobotView(fs::path config_yaml, TimeCursor* cursor, QWidget* parent)
   });
 
   // Meshes and buffers off the GUI thread; the result is queued back to this object (dropped if
-  // it is gone, and the destructor joins first).
+  // it is gone). The destructor sets cancel_ and joins, so it waits for at most one mesh.
   loader_ = std::thread([this, config_yaml = std::move(config_yaml)] {
     auto loaded = std::make_shared<Loaded>();
     const auto config = pipeline::load_config<model::kArmDof>(config_yaml);
@@ -227,6 +227,9 @@ RobotView::RobotView(fs::path config_yaml, TimeCursor* cursor, QWidget* parent)
                         : common::Result<RobotScene>::error(config.reason());
     if (scene) {
       for (const VisualLink& v : scene.value().links()) {
+        if (cancel_.load()) {
+          return;
+        }
         const auto mesh = load_stl(v.mesh);
         if (!mesh) {
           scene = common::Result<RobotScene>::error(mesh.reason());
@@ -248,11 +251,15 @@ RobotView::RobotView(fs::path config_yaml, TimeCursor* cursor, QWidget* parent)
     } else {
       loaded->error = QString::fromStdString(scene.reason());
     }
+    if (cancel_.load()) {
+      return;
+    }
     QMetaObject::invokeMethod(this, [this, loaded] { on_loaded(loaded); }, Qt::QueuedConnection);
   });
 }
 
 RobotView::~RobotView() {
+  cancel_.store(true);
   if (loader_.joinable()) {
     loader_.join();
   }
@@ -375,16 +382,29 @@ void RobotView::rebuild() {
   ghost_label_->setText(
       tr("%1 checked run(s) hidden (at most %2 ghosts)").arg(hidden).arg(kMaxGhosts));
   ghost_label_->setVisible(hidden > 0);
-  if (traced_ != solid_id) {
+  const auto traced = visuals_.find(solid_id);
+  const bench::RunData* traced_data =
+      traced == visuals_.end() ? nullptr : traced->second.run.data.get();
+  if (traced_ != solid_id || traced_data_ != traced_data) {
     traced_ = solid_id;
-    const auto v = visuals_.find(solid_id);
-    traces_ = v == visuals_.end() ? Traces{} : make_traces(*scene_, *v->second.run.data);
+    traced_data_ = traced_data;
+    traces_ = traced_data == nullptr ? Traces{} : make_traces(*scene_, *traced_data);
   }
   build_overlays();
   update_poses();
 }
 
 void RobotView::build_overlays() {
+  // Chart redraws call set_runs() often; rebuild only when the traced run, the tolerance or the
+  // magnification changed.
+  const int magnify = magnify_->value();
+  if (traced_data_ == overlay_data_ && goal_tol_m_ == overlay_tol_m_ &&
+      magnify == overlay_magnify_) {
+    return;
+  }
+  overlay_data_ = traced_data_;
+  overlay_tol_m_ = goal_tol_m_;
+  overlay_magnify_ = magnify;
   delete overlays_;
   overlays_ = nullptr;
   const auto v = visuals_.find(traced_);
@@ -393,7 +413,7 @@ void RobotView::build_overlays() {
   }
   overlays_ = add_entity(root_, QStringLiteral("overlays"), {});
   // The tip's deviation from the desired path, magnified.
-  const double m = magnify_->value();
+  const double m = magnify;
   std::vector<common::Vec3> tip(traces_.tip.size());
   for (std::size_t k = 0; k < tip.size(); ++k) {
     const common::Vec3 d = traces_.desired[k] + m * (traces_.tip[k] - traces_.desired[k]);
@@ -430,12 +450,16 @@ void RobotView::build_overlays() {
   auto* tolerance = new Qt3DExtras::QPhongAlphaMaterial(overlays_);
   tolerance->setDiffuse(Qt::green);
   tolerance->setAlpha(kOverlayAlpha);
-  sphere(traces_.goals.back(),
-         static_cast<float>(m * goal_tol_m_),
-         tolerance,
-         QStringLiteral("toleranceSphere"));
+  if (!traces_.goals.empty()) {
+    sphere(traces_.goals.back(),
+           static_cast<float>(m * goal_tol_m_),
+           tolerance,
+           QStringLiteral("toleranceSphere"));
+  }
   if (traces_.hold_t_s) {
-    const common::Vec3 at = traces_.tip[row_at(*v->second.run.data, *traces_.hold_t_s)];
+    // On the drawn (magnified) tip trace.
+    const std::size_t k = row_at(*v->second.run.data, *traces_.hold_t_s);
+    const common::Vec3 at = traces_.desired[k] + m * (traces_.tip[k] - traces_.desired[k]);
     std::vector<common::Vec3> cross;
     for (int axis = 0; axis < 3; ++axis) {
       cross.emplace_back(at - kCrossHalfM * common::Vec3::Unit(axis));

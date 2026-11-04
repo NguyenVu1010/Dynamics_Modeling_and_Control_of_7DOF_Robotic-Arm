@@ -3,6 +3,7 @@
 #include <QColor>
 #include <QElapsedTimer>
 #include <QWidget>
+#include <atomic>
 #include <cstdint>
 #include <filesystem>
 #include <map>
@@ -87,6 +88,7 @@ class RobotView : public QWidget {
 
   TimeCursor* cursor_;
   std::thread loader_;
+  std::atomic<bool> cancel_{false};  // set by the destructor; the loader stops between meshes
   bool loaded_ = false;
   std::optional<RobotScene> scene_;
   std::vector<Qt3DRender::QGeometryRenderer*> meshes_;  // one per visual link
@@ -98,7 +100,12 @@ class RobotView : public QWidget {
   double goal_tol_m_ = 0.0;
   std::map<std::uint64_t, RunVisual> visuals_;
   std::uint64_t traced_ = 0;  // run whose traces_ are cached
+  const bench::RunData* traced_data_ = nullptr;
   Traces traces_;
+  // What the drawn overlays were built from; build_overlays() returns early when it is unchanged.
+  const bench::RunData* overlay_data_ = nullptr;
+  double overlay_tol_m_ = -1.0;
+  int overlay_magnify_ = 0;
 
   QTimer* timer_ = nullptr;
   QElapsedTimer clock_;

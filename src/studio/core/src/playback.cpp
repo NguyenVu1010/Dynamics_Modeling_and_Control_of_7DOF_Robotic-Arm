@@ -33,7 +33,14 @@ Traces make_traces(const RobotScene& scene, const bench::RunData& run) {
   }
   traces.goals = run.meta.waypoint_positions_m;
   if (traces.goals.empty() && !run.records.empty()) {
-    traces.goals.push_back(run.records.back().T_b_d.p);
+    // The reference rests on the final goal from first row + goal_time_s (metrics.hpp). A run that
+    // ends before then has no final goal to draw.
+    const std::int64_t t_goal_ns =
+        run.records.front().t.ns + std::llround(run.meta.goal_time_s * 1e9);
+    if (run.records.back().t.ns >= t_goal_ns) {
+      const std::size_t k = row_at(run, static_cast<double>(t_goal_ns) * 1e-9);
+      traces.goals.push_back(run.records[k].T_b_d.p);
+    }
   }
   if (run.summary.held) {
     traces.hold_t_s = run.summary.hold_time_s;

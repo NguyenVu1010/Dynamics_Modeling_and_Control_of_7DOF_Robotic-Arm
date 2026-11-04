@@ -90,6 +90,10 @@ common::Result<TriangleMesh> load_stl(const std::filesystem::path& file) {
   }
   const std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
   if (bytes.size() < kHeaderBytes) {
+    // Too short for a binary header; a small ASCII file is still valid.
+    if (bytes.compare(0, 5, "solid") == 0) {
+      return load_ascii(bytes, name);
+    }
     return R::error(name + ": truncated STL (" + std::to_string(bytes.size()) + " bytes)");
   }
   std::uint32_t count = 0;
