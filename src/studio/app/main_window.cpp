@@ -1,6 +1,7 @@
 #include "main_window.hpp"
 
 #include <QAbstractTableModel>
+#include <QApplication>
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialog>
@@ -77,22 +78,38 @@ const std::array<QColor, 8> kPalette = {QColor(31, 119, 180),
 const std::array<Qt::PenStyle, 5> kStyles = {
     Qt::SolidLine, Qt::DashLine, Qt::DotLine, Qt::DashDotLine, Qt::DashDotDotLine};
 
+// The literal arrays below are source strings of MainWindow::tr() at use time; QT_TRANSLATE_NOOP
+// lists them for lupdate. paramTree group names (param_catalog()):
+[[maybe_unused]] constexpr std::array<const char*, 8> kGroupNames = {
+    QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "Sensor"),
+    QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "Actuator"),
+    QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "Friction"),
+    QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "Model"),
+    QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "Timing"),
+    QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "Comm"),
+    QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "Transmission"),
+    QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "Controller")};
+
 struct Toggle {
   const char* name;
   const char* text;
   Channel channel;
 };
 const std::array<Toggle, 10> kToggles = {
-    {{"showQRef", "q ref", Channel::kQRef},
-     {"showQ", "q", Channel::kQ},
-     {"showQd", "q'", Channel::kQd},
-     {"showQdd", "q''", Channel::kQdd},
-     {"showQTrue", "q true", Channel::kQTrue},
-     {"showNoise", "noise", Channel::kNoise},
-     {"showError", "error", Channel::kError},
-     {"showTau", "tau", Channel::kTau},
-     {"showTauMotor", "tau motor", Channel::kTauMotor},
-     {"showTauFriction", "tau friction", Channel::kTauFriction}}};
+    {{"showQRef", QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "q ref"), Channel::kQRef},
+     {"showQ", QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "q"), Channel::kQ},
+     {"showQd", QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "q'"), Channel::kQd},
+     {"showQdd", QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "q''"), Channel::kQdd},
+     {"showQTrue", QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "q true"), Channel::kQTrue},
+     {"showNoise", QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "noise"), Channel::kNoise},
+     {"showError", QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "error"), Channel::kError},
+     {"showTau", QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "tau"), Channel::kTau},
+     {"showTauMotor",
+      QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "tau motor"),
+      Channel::kTauMotor},
+     {"showTauFriction",
+      QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "tau friction"),
+      Channel::kTauFriction}}};
 
 bool same(const Value& a, const Value& b) {
   const auto close = [](double x, double y) {
@@ -155,18 +172,19 @@ class ErrorModel : public QAbstractTableModel {
     return {};
   }
   QVariant headerData(int section, Qt::Orientation orientation, int role) const override {
-    static const std::array<const char*, kColumns> names = {"run",
-                                                            "changes",
-                                                            "final pos (mm)",
-                                                            "final rot (deg)",
-                                                            "path max pos (mm)",
-                                                            "path max rot (deg)",
-                                                            "settle (s)",
-                                                            "stops (s)",
-                                                            "held",
-                                                            "hold time (s)",
-                                                            "hold reason",
-                                                            "hold rate"};
+    static const std::array<const char*, kColumns> names = {
+        QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "run"),
+        QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "changes"),
+        QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "final pos (mm)"),
+        QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "final rot (deg)"),
+        QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "path max pos (mm)"),
+        QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "path max rot (deg)"),
+        QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "settle (s)"),
+        QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "stops (s)"),
+        QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "held"),
+        QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "hold time (s)"),
+        QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "hold reason"),
+        QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "hold rate")};
     if (role != Qt::DisplayRole || orientation != Qt::Horizontal) {
       return QAbstractTableModel::headerData(section, orientation, role);
     }
@@ -566,7 +584,10 @@ QWidget* MainWindow::build_tracking_tab() {
     joint_combo_->addItem(tr("Joint %1").arg(j));
   }
   joint_combo_->addItem(tr("Task"));
-  connect(joint_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this] {
+  connect(joint_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged), this, [this](int i) {
+    if (i >= kJoints) {
+      error_toggle_->setChecked(true);  // the only series of the Task view
+    }
     redraw_->start();
   });
   auto* chart_bar = new QHBoxLayout;
@@ -576,6 +597,9 @@ QWidget* MainWindow::build_tracking_tab() {
     box->setObjectName(QString::fromLatin1(t.name));
     box->setChecked(t.channel == Channel::kQRef || t.channel == Channel::kQ);
     connect(box, &QCheckBox::toggled, this, [this] { redraw_->start(); });
+    if (t.channel == Channel::kError) {
+      error_toggle_ = box;
+    }
     chart_bar->addWidget(box);
     toggles_.push_back(box);
   }
@@ -767,7 +791,14 @@ void MainWindow::refresh_fields() {
     waypoints_->setText(config_.waypoints_yaml
                             ? QString::fromStdString(config_.waypoints_yaml->string())
                             : QString());
-    seed_->setValue(config_.seed ? static_cast<int>(*config_.seed) : 0);
+    // A studio file seed above the spin box range shows clamped; the tooltip has the true value
+    // and config_.seed keeps it until the field is edited.
+    const std::uint64_t seed = config_.seed.value_or(0);
+    const auto max = static_cast<std::uint64_t>(seed_->maximum());
+    seed_->setValue(static_cast<int>(std::min(seed, max)));
+    seed_->setToolTip(
+        seed > max ? tr("Seed %1 (above the field's range)").arg(static_cast<qulonglong>(seed))
+                   : QString());
   }
   set_double(duration_, config_.duration_s.value_or(0.0));
 
@@ -830,6 +861,9 @@ void MainWindow::set_busy(bool busy) {
   run_button_->setEnabled(!busy && valid_);
   sweep_button_->setEnabled(!busy && valid_);
   cancel_button_->setEnabled(busy);
+  // run_once has no cancel hook: a single run always finishes.
+  cancel_button_->setToolTip(
+      busy && !sweeping_ ? tr("A single run finishes before cancelling takes effect") : QString());
 }
 
 void MainWindow::start_job(bool sweep) {
@@ -841,6 +875,7 @@ void MainWindow::start_job(bool sweep) {
     w->arm();
     QMetaObject::invokeMethod(w, [w, c = config_] { w->run(c); }, Qt::QueuedConnection);
     progress_->setRange(0, 0);
+    sweeping_ = false;
     set_busy(true);
     return;
   }
@@ -864,6 +899,7 @@ void MainWindow::start_job(bool sweep) {
   QMetaObject::invokeMethod(w, [w, request] { w->sweep(request); }, Qt::QueuedConnection);
   progress_->setRange(0, static_cast<int>(request.levels.size() * request.seeds.size()));
   progress_->setValue(0);
+  sweeping_ = true;
   set_busy(true);
 }
 
@@ -954,6 +990,7 @@ void MainWindow::refresh_runs() {
     r.text[1] = QString::fromStdString(same_level.front()->diff);
     fill(r, level.worst);
     r.text[8] = QStringLiteral("%1/%2").arg(level.held).arg(level.seeds);
+    // Display ratio of LevelRow::held over LevelRow::seeds (both from worst_case).
     r.text[11] =
         num(level.seeds == 0 ? 0.0
                              : static_cast<double>(level.held) / static_cast<double>(level.seeds));
@@ -985,13 +1022,12 @@ void MainWindow::refresh_chart() {
         continue;
       }
       any_checked = true;
-      const Channel ch = task ? Channel::kTaskPosErr : kToggles.at(k).channel;
+      // The Task view plots the task position error only, behind the error toggle.
       Series s;
-      if (task && ch != Channel::kTaskPosErr) {
-        s.unavailable = tr("joint channels only").toStdString();
-      } else if (task && kToggles.at(k).channel != Channel::kError) {
+      if (task && kToggles.at(k).channel != Channel::kError) {
         s.unavailable = tr("the task view plots the position error (error toggle)").toStdString();
       } else {
+        const Channel ch = task ? Channel::kTaskPosErr : kToggles.at(k).channel;
         s = extract(*e->data, ch, task ? -1 : index, noise_source_of(e->config));
       }
       if (!s.unavailable.empty()) {
@@ -1091,12 +1127,19 @@ bool MainWindow::open_studio(const QString& path) {
   return true;
 }
 
+// Synchronous on the GUI thread, bounded by one run: a 12 s run (12 000 rows, 27 MB) writes in
+// about 0.2 s, shown with a wait cursor. The Summary CSV is one line per run (< 1 ms).
 bool MainWindow::export_run(const QString& csv_path) {
   const QListWidgetItem* item = run_list_->currentItem();
   const RunEntry* e =
       item == nullptr ? nullptr : store_.find(item->data(Qt::UserRole).toULongLong());
-  return e != nullptr && e->data != nullptr &&
-         static_cast<bool>(bench::write_run_files(*e->data, csv_path.toStdString()));
+  if (e == nullptr || e->data == nullptr) {
+    return false;
+  }
+  QApplication::setOverrideCursor(Qt::WaitCursor);
+  const bool ok = static_cast<bool>(bench::write_run_files(*e->data, csv_path.toStdString()));
+  QApplication::restoreOverrideCursor();
+  return ok;
 }
 
 bool MainWindow::export_summary(const QString& csv_path) {

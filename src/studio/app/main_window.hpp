@@ -102,6 +102,7 @@ class MainWindow : public QMainWindow {
   std::map<std::uint64_t, int> sweep_batch_;  // RunEntry::id -> sweep number
   int sweeps_ = 0;
   bool busy_ = false;
+  bool sweeping_ = false;  // the job in progress is a sweep (cancellable between runs)
   bool zoomed_ = false;
   bool drawing_ = false;
   bool valid_ = true;
@@ -130,6 +131,7 @@ class MainWindow : public QMainWindow {
   QTimer* redraw_ = nullptr;
   QComboBox* joint_combo_ = nullptr;
   std::vector<QAbstractButton*> toggles_;
+  QAbstractButton* error_toggle_ = nullptr;  // showError
   QPushButton* run_button_ = nullptr;
   QPushButton* sweep_button_ = nullptr;
   QPushButton* cancel_button_ = nullptr;
