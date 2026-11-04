@@ -88,8 +88,9 @@ bộ điều khiển (`config/default.yaml` và ba file realism-2) có cùng ba 
   B không đặt `LogRecord<N>` lên vùng nhớ chung mà dùng bản ghi POD riêng (ADR-022).
 - Kích thước vùng được giữ trước bằng `posix_fallocate`: `/dev/shm` nhỏ là lỗi rõ lúc activate
   ("`/dev/shm too small: need <n> MB`"), không bao giờ là SIGBUS giữa lần chạy.
-- Cỡ: khoảng 0,55 KB mỗi bản ghi hiện nay, khoảng 1 KB sau khi thêm kênh. 60 s × 1 kHz × 2 bộ đệm ≈
-  66 MB hiện nay, ≈ 120 MB sau. Container `gazebo` trên CI chạy với `--shm-size=512m`.
+- Cỡ: `sizeof(LogRecord<7>)` = 1024 B sau khi thêm kênh (560 B trước đó; `kShmLogLayoutVersion`
+  1 → 2). 60 s × 1 kHz × 2 bộ đệm + số thứ tự mỗi ô = 123 840 128 B ≈ 118 MiB (68 160 128 B ≈
+  65 MiB trước đó). Container `gazebo` trên CI chạy với `--shm-size=512m`.
 
 **Controller** (`cobot_controller`, tên vùng `cobot_log_` + tên node):
 

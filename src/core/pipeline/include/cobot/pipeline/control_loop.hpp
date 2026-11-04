@@ -64,7 +64,10 @@ class ControlLoop {
   // Resets CLIK at initial.q. Config mode: plans the trajectory from FK(initial.q) to the
   // configured goal (kTracking). External mode: kStandby at FK(initial.q).
   Status start(const JointState<N>& initial);
+  // Truth unknown: the record's plant truth columns are NaN.
   Status step(const JointState<N>& state, JointCommand<N>& out);
+  // `truth` (feature log-channels) is copied into the record verbatim; nothing else uses it.
+  Status step(const JointState<N>& state, JointCommand<N>& out, const PlantTruth<N>& truth);
 
   LoopMode mode() const { return mode_; }
   // Why the loop entered kHolding; kNone before that and after start() or reset().
@@ -110,6 +113,7 @@ class ControlLoop {
   common::VecN<N> q_last_finite_ = common::VecN<N>::Zero();  // hold target for a non-finite q
   Recorder<N>* recorder_ = nullptr;
   LogRecord<N> last_record_;
+  const PlantTruth<N> unknown_truth_;  // all NaN: what step() without a truth logs
   // External mode.
   std::optional<planning::WaypointTrajectory> waypoints_;
   planning::CartesianSample reference_;  // desired sample of the last step (or of standby)

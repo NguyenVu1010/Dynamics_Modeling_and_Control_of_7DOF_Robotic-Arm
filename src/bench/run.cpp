@@ -295,6 +295,7 @@ common::Result<RunSummary> run_profile(const std::filesystem::path& config_yaml,
                                         imperfections.seed,
                                         imperfections.timing.overrun_prob,
                                         imperfections.timing.overrun_cycles);
+    pipeline::SimTruthProbe<kN> probe(plant);
     imperfect::ImperfectJointInterface<kN> io(
         sim, imperfections, period_s, false, config.limits.peak_torque_nm);
     // The loop records into `recorder`, which gets storage for one row per cycle once the cycle
@@ -395,7 +396,7 @@ common::Result<RunSummary> run_profile(const std::filesystem::path& config_yaml,
       // A failed read leaves a stale stamp and a fault zero torque: the loop's safety logic
       // handles both and the CSV records the mode.
       static_cast<void>(io.read(state));
-      static_cast<void>(loop->step(state, cmd));
+      static_cast<void>(loop->step(state, cmd, probe.sample()));
       static_cast<void>(io.write(cmd));
       sim.advance();
     }
@@ -433,6 +434,7 @@ common::Result<TimingStats> timing(const std::filesystem::path& config_yaml, std
   try {
     dynamics::SimPlant<kN> plant(setup.value().urdf, config.home_q_rad);
     pipeline::SimJointInterface<kN> sim(plant, period_s);
+    pipeline::SimTruthProbe<kN> probe(plant);
     // log.mode off: no recorder; otherwise one row per step (the copy is part of the step time).
     std::optional<pipeline::HeapStorage<kN>> storage;
     std::optional<pipeline::Recorder<kN>> recorder;
@@ -452,8 +454,9 @@ common::Result<TimingStats> timing(const std::filesystem::path& config_yaml, std
     std::vector<double> us(static_cast<std::size_t>(steps));
     for (double& sample : us) {
       static_cast<void>(sim.read(state));
+      const pipeline::PlantTruth<kN>& truth = probe.sample();  // outside the timed window
       const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
-      static_cast<void>(loop->step(state, cmd));
+      static_cast<void>(loop->step(state, cmd, truth));
       const std::chrono::duration<double, std::micro> dt = std::chrono::steady_clock::now() - t0;
       sample = dt.count();
       static_cast<void>(sim.write(cmd));

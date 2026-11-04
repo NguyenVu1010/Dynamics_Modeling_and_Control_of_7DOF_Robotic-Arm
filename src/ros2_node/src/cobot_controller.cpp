@@ -29,6 +29,10 @@
 // jitter has no meaning on the sim clock and is ignored with a warning. `seed` >= 0 overrides
 // the profile's seed.
 //
+// Log channels (feature log-channels): each step gets RosJointInterface's PlantTruth: qt, qdt are
+// the raw Gazebo reading before the decorator, taum the last command written to Gazebo (the
+// decorator's output, motor lag included); qddt, qmt and tauf are `nan`.
+//
 // `command_source` ("" = the config file's, "config" or "external") picks the trajectory source.
 // External (feature waypoint-ros): the loop waits in standby and WaypointServer offers
 // ~/follow_waypoints, ~/preview_waypoints, ~/reset and the latched ~/reference_path; update()
@@ -46,6 +50,7 @@
 #include <exception>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -132,6 +137,13 @@ class RosJointInterface final : public cobot::hal::JointInterface<kN> {
     return ok;
   }
   void set_stamp(cobot::common::Timestamp t) { stamp_ = t; }
+  // Plant truth on the Gazebo path (feature log-channels): q, qd of the last raw read (before the
+  // decorator) and, as tau_motor, the last command written to Gazebo (the decorator's output,
+  // applied over the interval ending now); qdd, q_motor and tau_friction stay NaN (friction is
+  // in the physics engine).
+  const cobot::pipeline::PlantTruth<kN>& truth() const { return truth_; }
+  // Back to unknown (all NaN), so a re-activation never logs the previous activation's state.
+  void reset_truth() { truth_ = cobot::pipeline::PlantTruth<kN>{}; }
 
   cobot::common::Status read(cobot::hal::JointState<kN>& out) override {
     cobot::hal::JointState<kN> s;
@@ -142,6 +154,9 @@ class RosJointInterface final : public cobot::hal::JointInterface<kN> {
       const std::optional<double> qd = qd_[i]->get_optional();
       const std::optional<double> tau = tau_[i]->get_optional();
       if (!q || !qd || !tau) {
+        // No reading: the plant state is unknown, not stale.
+        truth_.q.setConstant(cobot::pipeline::kUnknownTruth);
+        truth_.qd.setConstant(cobot::pipeline::kUnknownTruth);
         return cobot::common::Status::error("ros2_control: state interface not readable");
       }
       s.q(i) = *q;
@@ -149,6 +164,8 @@ class RosJointInterface final : public cobot::hal::JointInterface<kN> {
       s.tau_measured(i) = *tau;
     }
     out = s;
+    truth_.q = s.q;
+    truth_.qd = s.qd;
     return cobot::common::Status::ok();
   }
 
@@ -156,6 +173,12 @@ class RosJointInterface final : public cobot::hal::JointInterface<kN> {
     bool ok = true;
     for (int i = 0; i < kN; ++i) {
       ok = cmd_[i]->set_value(cmd.tau(i)) && ok;
+    }
+    if (ok) {
+      truth_.tau_motor = cmd.tau;
+    } else {
+      // Gazebo may not apply what was asked.
+      truth_.tau_motor.setConstant(cobot::pipeline::kUnknownTruth);
     }
     return ok ? cobot::common::Status::ok()
               : cobot::common::Status::error("ros2_control: command interface not writable");
@@ -175,6 +198,7 @@ class RosJointInterface final : public cobot::hal::JointInterface<kN> {
   LoanedStateInterface* qd_[kN] = {};
   LoanedStateInterface* tau_[kN] = {};
   LoanedCommandInterface* cmd_[kN] = {};
+  cobot::pipeline::PlantTruth<kN> truth_;  // fixed size, updated by read() and write()
 };
 
 ci::InterfaceConfiguration individual(const std::vector<std::string>& joints,
@@ -389,6 +413,7 @@ class CobotController final : public ci::ControllerInterface {
     cycle_ = 0;
     last_mode_ = cobot::pipeline::LoopMode::kIdle;  // start() enters standby again
     ros_io_.set_stamp(cobot::common::Timestamp{t0_ns_});
+    ros_io_.reset_truth();
     const cobot::common::Status read = io_->read(state_);
     if (!read) {
       RCLCPP_ERROR(log, "initial state: %s", read.reason().c_str());
@@ -466,7 +491,7 @@ class CobotController final : public ci::ControllerInterface {
     if (link_) {
       take_commands();
     }
-    static_cast<void>(loop_->step(state_, cmd_));
+    static_cast<void>(loop_->step(state_, cmd_, ros_io_.truth()));
     static_cast<void>(io_->write(cmd_));
     if (link_) {
       publish_snapshot();

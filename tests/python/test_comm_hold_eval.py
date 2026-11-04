@@ -71,10 +71,18 @@ def is_empty(value) -> bool:
 
 
 def test_run_columns_end_with_hold():
-    cols = metrics.run_columns(7)
+    # Feature log-channels: the legacy layout keeps hold last; the current one appends eight
+    # 7-wide channel blocks and cmd after it.
+    legacy = metrics.legacy_run_columns(7)
     # 2 + 5 * 7 + 12 + 6 + step_us + hold = 57
-    assert len(cols) == 57
-    assert cols[-2:] == ["step_us", "hold"]
+    assert len(legacy) == 57
+    assert legacy[-2:] == ["step_us", "hold"]
+    cols = metrics.run_columns(7)
+    # 57 + 8 * 7 + cmd = 114
+    assert len(cols) == 114
+    assert cols[:57] == legacy
+    assert cols[56] == "hold"
+    assert cols[-1] == "cmd"
 
 
 def test_load_run_requires_the_hold_column(tmp_path):

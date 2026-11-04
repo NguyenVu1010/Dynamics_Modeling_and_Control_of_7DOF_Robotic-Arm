@@ -27,7 +27,7 @@
 // Recorder restarts the record numbers).
 namespace cobot::pipeline {
 
-inline constexpr std::uint32_t kShmLogLayoutVersion = 1;  // bump on any LogRecord or header change
+inline constexpr std::uint32_t kShmLogLayoutVersion = 2;  // bump on any LogRecord or header change
 
 static_assert(std::is_standard_layout_v<LogRecord<1>>, "ADR-020: LogRecord in shared memory");
 
@@ -68,7 +68,16 @@ constexpr std::uint64_t log_record_fingerprint() {
                             offsetof(R, T_b_d),
                             offsetof(R, task_error),
                             offsetof(R, step_time_us),
-                            offsetof(R, hold_reason)});
+                            offsetof(R, hold_reason),
+                            offsetof(R, qdd_ref),
+                            offsetof(R, q_raw),
+                            offsetof(R, q_true),
+                            offsetof(R, qd_true),
+                            offsetof(R, qdd_true),
+                            offsetof(R, q_motor_true),
+                            offsetof(R, tau_motor),
+                            offsetof(R, tau_friction),
+                            offsetof(R, cmd_mode)});
 }
 
 struct DumpResult {

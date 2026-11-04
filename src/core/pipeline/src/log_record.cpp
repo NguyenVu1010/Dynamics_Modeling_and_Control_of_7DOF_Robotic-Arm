@@ -1,6 +1,7 @@
 #include "cobot/pipeline/log_record.hpp"
 
 #include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <ostream>
@@ -17,7 +18,12 @@ using common::Vec3;
 
 constexpr std::size_t kCellChars = 40;  // "%.17g" of a double needs at most 24 characters
 
+// NaN is always `nan`: printf writes "-nan" for a NaN with the sign bit set.
 void put(std::ostream& os, double v) {
+  if (std::isnan(v)) {
+    os << "nan";
+    return;
+  }
   std::array<char, kCellChars> buf{};
   const int n = std::snprintf(buf.data(), buf.size(), "%.17g", v);
   os.write(buf.data(), n);
@@ -59,6 +65,12 @@ const char* to_string(HoldReason reason) {
   return kNames[static_cast<std::size_t>(reason)];
 }
 
+const char* to_string(CommandMode mode) {
+  constexpr std::array<const char*, 6> kNames = {
+      "config", "waypoints", "jog_joint", "jog_tcp", "move_joint", "move_tcp"};
+  return kNames[static_cast<std::size_t>(mode)];
+}
+
 template <int N>
 void write_csv_header(std::ostream& os) {
   os << "t_ns,mode";
@@ -69,7 +81,11 @@ void write_csv_header(std::ostream& os) {
   put_names(os, "tau", N);
   os << ",px,py,pz,rx,ry,rz,pdx,pdy,pdz,rdx,rdy,rdz";
   put_names(os, "e", 6);
-  os << ",step_us,hold\n";
+  os << ",step_us,hold";
+  for (const char* prefix : {"qddref", "qraw", "qt", "qdt", "qddt", "qmt", "taum", "tauf"}) {
+    put_names(os, prefix, N);
+  }
+  os << ",cmd\n";
 }
 
 template <int N>
@@ -87,7 +103,16 @@ void write_csv_row(std::ostream& os, const LogRecord<N>& record) {
   put_all<6>(os, record.task_error);
   os.put(',');
   put(os, record.step_time_us);
-  os << ',' << to_string(record.hold_reason) << '\n';
+  os << ',' << to_string(record.hold_reason);
+  put_all<N>(os, record.qdd_ref);
+  put_all<N>(os, record.q_raw);
+  put_all<N>(os, record.q_true);
+  put_all<N>(os, record.qd_true);
+  put_all<N>(os, record.qdd_true);
+  put_all<N>(os, record.q_motor_true);
+  put_all<N>(os, record.tau_motor);
+  put_all<N>(os, record.tau_friction);
+  os << ',' << to_string(record.cmd_mode) << '\n';
 }
 
 #define COBOT_INSTANTIATE(N)                            \

@@ -340,13 +340,24 @@ void SimPlant<N>::substep(double h) {
   theta_ += w * (k1.theta + 2.0 * k2.theta + 2.0 * k3.theta + k4.theta);
   thetad_ += w * (k1.thetad + 2.0 * k2.thetad + 2.0 * k3.thetad + k4.thetad);
 
+  // Motor-side friction of the elastic joints over this sub-step (URDF damping excluded).
+  VecN<N> friction = VecN<N>::Zero();
   for (int j = 0; j < N; ++j) {
+    if (elastic_(j) == 0.0) {
+      continue;
+    }
     const double c = effects_.coulomb_nm(j);
-    if (elastic_(j) != 0.0 && c > 0.0 && motor_stuck_(j) == 0.0) {
+    const double damping = model_.joints[static_cast<std::size_t>(j)].damping;
+    if (c > 0.0 && motor_stuck_(j) == 0.0) {
       const double b = motor_inertia_(j);
       const double v_rk4 = thetad_(j);
       thetad_(j) = slide_or_stick(v_rk4, h * c / b, h * motor_viscous_proj_(j) / b);
       theta_(j) += 0.5 * h * (thetad_(j) - v_rk4);
+      friction(j) = (damping * thetad_(j)) - (b * (v_rk4 - thetad_(j)) / h);
+    } else if (c > 0.0) {
+      friction(j) = tau_s(j) - tau_applied_(j);  // static friction holding the motor
+    } else {
+      friction(j) = 0.0 - (effects_.viscous_nm_s_rad(j) * thetad_(j));
     }
   }
   // With N == 1 the only joint is elastic, so there is no rigid joint to project.
@@ -357,6 +368,30 @@ void SimPlant<N>::substep(double h) {
     }
   }
   clamp_to_stops(model_, q_, qd_);
+  friction_substep_ += friction + rigid_friction(h);
+}
+
+// Projected joints: -lambda / h is the Coulomb + viscous + URDF damping torque; the damping part
+// (at the end velocity, implicit) is added back. A stuck joint's static friction stays within
+// +-coulomb (the projection accepts lambda up to rounding above h * coulomb). Other rigid joints:
+// the viscous torque inside RK4 at the end state. Elastic joints: 0 (motor side, substep()).
+template <int N>
+VecN<N> SimPlant<N>::rigid_friction(double h) const {
+  VecN<N> friction = VecN<N>::Zero();
+  for (int j = 0; j < N; ++j) {
+    const double c = rigid_coulomb_(j);
+    if (elastic_(j) != 0.0) {
+      continue;
+    }
+    if (c > 0.0) {
+      const double damping = model_.joints[static_cast<std::size_t>(j)].damping;
+      const double f = (damping * qd_(j)) - (friction_impulse_(j) / h);
+      friction(j) = qd_(j) == 0.0 ? std::clamp(f, -c, c) : f;
+    } else {
+      friction(j) = 0.0 - (viscous_rk4_(j) * qd_(j));
+    }
+  }
+  return friction;
 }
 
 template <int N>
@@ -387,9 +422,11 @@ void SimPlant<N>::step(const VecN<N>& tau_cmd, double dt_s) {
     const double n_real = std::ceil(dt_s * std::sqrt(omega2) / kOmegaStep);
     const int n = std::isfinite(n_real) ? std::clamp(static_cast<int>(n_real), 1, kMaxSubsteps)
                                         : kMaxSubsteps;
+    friction_substep_.setZero();
     for (int k = 0; k < n; ++k) {
       substep(dt_s / n);
     }
+    tau_friction_ = friction_substep_ / static_cast<double>(n);
     tau_spring_ = spring(State{q_, qd_, theta_, thetad_});
     for (int j = 0; j < N; ++j) {
       if (elastic_(j) == 0.0) {
@@ -422,6 +459,7 @@ void SimPlant<N>::step(const VecN<N>& tau_cmd, double dt_s) {
     apply_friction(model_, effects_.coulomb_nm, viscous_projection_, h, friction_impulse_, q_, qd_);
   }
   clamp_to_stops(model_, q_, qd_);
+  tau_friction_ = rigid_friction(h);
   // Rigid plant: the motor is the link.
   theta_ = q_;
   thetad_ = qd_;
