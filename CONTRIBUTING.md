@@ -24,6 +24,7 @@ src/
     imperfect/   configurable sensor/actuator/model imperfections (decorator on hal)
     pipeline/    ControlLoop, Config from YAML (only place that parses YAML), SPSC ring,
                  Recorder (in-memory log), CSV writer, SimJointInterface
+    bridge/      studio bridge in POSIX shared memory: state, command and response rings
   ros2_node/   ament package: ros2_control ControllerInterface wrapping ControlLoop
   bench/       cobot_bench binary without ROS: ControlLoop + SimPlant, run/montecarlo/sweep/timing
   sim/         ament package cobot_sim: URDF/xacro, meshes, world SDF, controller config, launch
@@ -42,6 +43,7 @@ Fixed, and enforced by the linker because every module is its own target `cobot:
 (real name `cobot_<module>`, `INTERFACE` until it has sources):
 
 ```
+bridge   -> pipeline
 pipeline -> control, planning, hal, imperfect
 control  -> dynamics, hal
 planning -> kinematics
@@ -50,7 +52,7 @@ dynamics -> kinematics -> model -> common
 hal      -> common
 ```
 
-- `ros2_node` and `bench` link only `cobot::pipeline`.
+- `ros2_node` and `bench` link only `cobot::pipeline` and `cobot::bridge`.
 - `src/core/` never includes ROS, Gazebo, KDL or Pinocchio headers.
 - External dependencies of `src/core/`: Eigen 3.4 (all), tinyxml2 (`model`), yaml-cpp
   (`pipeline`). Tests add GTest. Everything must be installable with `apt` on Ubuntu 24.04
