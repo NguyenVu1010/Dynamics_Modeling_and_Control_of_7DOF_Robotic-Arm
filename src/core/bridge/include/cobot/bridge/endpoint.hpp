@@ -51,7 +51,7 @@ class ServerEndpoint {  // controller side; move-only; destructor unmaps, never 
   bool push_response(const Response& r) noexcept;  // false when the ring is full (counted)
   void beat(std::int64_t now_ns) noexcept;         // server heartbeat
   // kNone without owner; kProcessGone when kill(pid, 0) == ESRCH; kHeartbeatLost when the owner's
-  // heartbeat is older than kHeartbeatTimeoutNs.
+  // heartbeat is older than kHeartbeatTimeoutNs; kAlive while a claim is in progress (pid 0).
   OwnerState owner_state(std::int64_t now_ns) const noexcept;
   void clear_owner() noexcept;                         // CAS the current token -> 0
   void set_session(const SessionInfo<N>& s) noexcept;  // generation + 1
@@ -91,8 +91,11 @@ class ClientEndpoint {  // studio side; move-only
   // Commands: id and token filled in; checks ownership right before the push. Errors "not the
   // owner", "command ring full".
   common::Result<std::uint64_t> send(Command<N> c);
+  // False while another client owns the region (the responses are the owner's; one consumer).
   bool poll_response(Response& out) noexcept;
-  void write_jog(JogRequest j) noexcept;  // token filled in, refresh incremented (owner only)
+  // Owner only: token filled in; refresh = the slot's write count + 1, so it changes on every
+  // write, also across owners.
+  void write_jog(JogRequest j) noexcept;
   // Appends every sample published since the last call (since open: the samples still in the
   // ring), oldest first; samples overwritten before they were read, or torn while copying, are
   // skipped and counted in lost().
@@ -107,7 +110,6 @@ class ClientEndpoint {  // studio side; move-only
   std::string region_name_;
   std::uint64_t token_ = 0;
   std::uint64_t next_id_ = 0;
-  std::uint64_t jog_refresh_ = 0;
   std::uint64_t next_sample_ = 1;  // number of the next state sample to read
   std::uint64_t lost_ = 0;
 };

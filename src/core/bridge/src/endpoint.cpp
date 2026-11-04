@@ -5,6 +5,7 @@
 #include <csignal>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <cstring>
 #include <ctime>
 #include <fcntl.h>
@@ -109,7 +110,8 @@ void* map(int fd, std::size_t size) {
 }
 
 // Server pid of an existing bridge region that is still served, 0 when stale (server gone, not a
-// complete bridge region, or unreadable).
+// bridge region, or unreadable). A region whose magic is not stored yet is still being created:
+// its server pid counts as well, so a live creator's region is never unlinked under it.
 std::uint64_t live_server(const std::string& region) {
   const int fd = ::shm_open(region.c_str(), O_RDWR, 0);
   if (fd < 0) {
@@ -123,9 +125,16 @@ std::uint64_t live_server(const std::string& region) {
     return 0;
   }
   const auto* h = std::launder(static_cast<Header*>(p));
-  const std::uint64_t pid = load(h->magic) == kBridgeMagic ? load(h->server_pid) : 0;
+  const std::uint64_t magic = load(h->magic);
+  const std::uint64_t pid = magic == kBridgeMagic || magic == 0 ? load(h->server_pid) : 0;
   ::munmap(p, sizeof(Header));
   return pid != 0 && pid_alive(pid) ? pid : 0;
+}
+
+std::string hex(std::uint64_t v) {
+  char buf[19];
+  std::snprintf(buf, sizeof(buf), "0x%016llx", static_cast<unsigned long long>(v));
+  return buf;
 }
 
 std::string mismatch(const char* field, std::uint64_t region, std::uint64_t client) {
@@ -141,8 +150,9 @@ std::string check_header(const Header& h, std::size_t size) {
     std::uint32_t region;
     std::size_t client;
   };
-  if (load(h.magic) != kBridgeMagic) {
-    return "bad magic (not a bridge region)";
+  if (const std::uint64_t magic = load(h.magic); magic != kBridgeMagic) {
+    return "magic: region " + hex(magic) + ", client " + hex(kBridgeMagic) +
+           " (not a bridge region)";
   }
   const Field fields[] = {
       {"layout version", h.layout_version, kBridgeLayoutVersion},
@@ -332,7 +342,11 @@ OwnerState ServerEndpoint<N>::owner_state(std::int64_t now_ns) const noexcept {
   if (load(h.owner_token) == 0) {
     return OwnerState::kNone;
   }
-  if (!pid_alive(load(h.owner_pid))) {
+  const std::uint64_t pid = load(h.owner_pid);
+  if (pid == 0) {
+    return OwnerState::kAlive;  // a claim in progress: its pid and heartbeat follow the token
+  }
+  if (!pid_alive(pid)) {
     return OwnerState::kProcessGone;
   }
   const auto beat = static_cast<std::int64_t>(load(h.owner_beat_ns));
@@ -341,8 +355,15 @@ OwnerState ServerEndpoint<N>::owner_state(std::int64_t now_ns) const noexcept {
 
 template <int N>
 void ServerEndpoint<N>::clear_owner() noexcept {
-  std::uint64_t token = load(region_->h.owner_token);
-  region_->h.owner_token.compare_exchange_strong(token, 0, std::memory_order_acq_rel);
+  Header& h = region_->h;
+  std::uint64_t token = load(h.owner_token);
+  if (token == 0) {
+    return;
+  }
+  // Stamps first, so the next owner's token is never paired with this owner's pid or heartbeat.
+  h.owner_pid.store(0, std::memory_order_release);
+  h.owner_beat_ns.store(0, std::memory_order_release);
+  h.owner_token.compare_exchange_strong(token, 0, std::memory_order_acq_rel);
 }
 
 template <int N>
@@ -372,7 +393,6 @@ ClientEndpoint<N>::ClientEndpoint(ClientEndpoint&& other) noexcept
       region_name_(std::move(other.region_name_)),
       token_(other.token_),
       next_id_(other.next_id_),
-      jog_refresh_(other.jog_refresh_),
       next_sample_(other.next_sample_),
       lost_(other.lost_) {}
 
@@ -387,7 +407,6 @@ ClientEndpoint<N>& ClientEndpoint<N>::operator=(ClientEndpoint&& other) noexcept
     region_name_ = std::move(other.region_name_);
     token_ = other.token_;
     next_id_ = other.next_id_;
-    jog_refresh_ = other.jog_refresh_;
     next_sample_ = other.next_sample_;
     lost_ = other.lost_;
   }
@@ -439,14 +458,12 @@ common::Status ClientEndpoint<N>::claim(std::int64_t now_ns) {
   Header& h = region_->h;
   const auto me = static_cast<std::uint64_t>(::getpid());
   std::uint64_t held = load(h.owner_token);
-  if (held == 0) {
-    // Heartbeat and pid before the token, so the server never pairs the new token with a previous
-    // owner's stamp; written again once owned in case a concurrent claim overwrote them.
-    h.owner_beat_ns.store(static_cast<std::uint64_t>(now_ns), std::memory_order_relaxed);
-    h.owner_pid.store(me, std::memory_order_relaxed);
-    if (h.owner_token.compare_exchange_strong(held, token_, std::memory_order_acq_rel)) {
-      held = token_;
-    }
+  // The pid and heartbeat are written only once the token is ours, so a losing concurrent claim
+  // never stamps its pid next to the winner's token. Until then they are 0 (release() and
+  // clear_owner() zero them before freeing the token), which the server reads as a claim in
+  // progress.
+  if (held == 0 && h.owner_token.compare_exchange_strong(held, token_, std::memory_order_acq_rel)) {
+    held = token_;
   }
   if (held != token_) {
     return common::Status::error("bridge " + region_name_ + ": held by pid " +
@@ -459,8 +476,14 @@ common::Status ClientEndpoint<N>::claim(std::int64_t now_ns) {
 
 template <int N>
 void ClientEndpoint<N>::release() noexcept {
+  if (!is_owner()) {
+    return;
+  }
+  Header& h = region_->h;
+  h.owner_pid.store(0, std::memory_order_release);
+  h.owner_beat_ns.store(0, std::memory_order_release);
   std::uint64_t mine = token_;
-  region_->h.owner_token.compare_exchange_strong(mine, 0, std::memory_order_acq_rel);
+  h.owner_token.compare_exchange_strong(mine, 0, std::memory_order_acq_rel);
 }
 
 template <int N>
@@ -471,7 +494,9 @@ bool ClientEndpoint<N>::is_owner() const noexcept {
 template <int N>
 void ClientEndpoint<N>::beat(std::int64_t now_ns) noexcept {
   if (is_owner()) {
+    // The pid again too: a clear_owner() racing this owner's claim may have zeroed it.
     region_->h.owner_beat_ns.store(static_cast<std::uint64_t>(now_ns), std::memory_order_release);
+    region_->h.owner_pid.store(static_cast<std::uint64_t>(::getpid()), std::memory_order_release);
   }
 }
 
@@ -506,6 +531,10 @@ common::Result<std::uint64_t> ClientEndpoint<N>::send(Command<N> c) {
 
 template <int N>
 bool ClientEndpoint<N>::poll_response(Response& out) noexcept {
+  const std::uint64_t owner = load(region_->h.owner_token);
+  if (owner != 0 && owner != token_) {
+    return false;  // one consumer: the responses belong to the owner
+  }
   const std::uint64_t t = region_->response_tail.load(std::memory_order_relaxed);
   if (load(region_->response_head) == t) {
     return false;
@@ -520,8 +549,10 @@ void ClientEndpoint<N>::write_jog(JogRequest j) noexcept {
   if (!is_owner()) {
     return;  // one writer: only the owner writes the slot
   }
+  // Refresh counts the slot's writes, not this client's: a new owner's first write always differs
+  // from the last one the server saw. One writer (the owner), so the base cannot move meanwhile.
   j.owner_token = token_;
-  j.refresh = ++jog_refresh_;
+  j.refresh = region_->jog.next_base() / 2 + 1;
   region_->jog.write(j);
 }
 

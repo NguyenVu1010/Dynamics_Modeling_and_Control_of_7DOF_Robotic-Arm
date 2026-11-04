@@ -20,13 +20,19 @@ struct SeqSlot {
   std::atomic<std::uint64_t> seq{0};  // even: stable; odd: being written
   T value;
 
-  // Single writer: seq odd, release fence, memcpy, seq even (release).
+  // Single writer: seq odd, release fence, memcpy, seq even (release). The write starts from the
+  // next even base, so a slot left odd by a writer that died mid-write recovers on the next write.
   void write(const T& v) noexcept {
-    const std::uint64_t s = seq.load(std::memory_order_relaxed);
+    const std::uint64_t s = next_base();
     seq.store(s + 1, std::memory_order_relaxed);
     std::atomic_thread_fence(std::memory_order_release);
     std::memcpy(&value, &v, sizeof(T));
     seq.store(s + 2, std::memory_order_release);
+  }
+
+  // Even sequence the next write starts from; that write ends at next_base() + 2.
+  std::uint64_t next_base() const noexcept {
+    return (seq.load(std::memory_order_relaxed) + 1U) & ~std::uint64_t{1};
   }
 
   // False if odd or changed during the copy; never spins.

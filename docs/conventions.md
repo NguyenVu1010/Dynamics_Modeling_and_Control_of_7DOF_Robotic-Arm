@@ -245,7 +245,7 @@ mismatch naming the field and both values (`dof: region 2, client 7`).
 | --- | --- | --- |
 | state ring | 4096 `StateSample<N>` (~4 s at 1 kHz), seqlock per slot | control thread -> studio; overwrites, never waits; lost samples are counted by the reader |
 | command ring | 64 `Command<N>` | studio (owner only) -> bridge thread |
-| response ring | 16 `Response` | bridge thread -> studio; a full ring refuses and counts the response |
+| response ring | 16 `Response` | bridge thread -> studio (owner only); a full ring refuses and counts the response |
 | jog slot | one `JogRequest`, seqlock | studio (owner only) -> control thread |
 | session | one `SessionInfo<N>`, seqlock | server at start and after "apply config" (generation + 1) |
 
@@ -258,6 +258,7 @@ of the pipeline enum (`mode`: `LoopMode`, `hold_reason`: `HoldReason`, `cmd_mode
 fields are 0-terminated (`kTextChars` 256, `kPathChars` 512); longer text ends with `...`.
 
 Authority: one owner at a time. A client claims with its random non-zero token (compare-and-swap
-from 0), writes its pid and beats every 50 ms (`kHeartbeatPeriodNs`); the server sees the owner as
+from 0), then writes its pid and beats every 50 ms (`kHeartbeatPeriodNs`); the server sees the owner as
 lost after 200 ms without a beat (`kHeartbeatTimeoutNs`) or when its pid is gone. Commands carry
-the id given by `send` (1, 2, ...) and the owner's token; a jog write increments `refresh`.
+the id given by `send` (1, 2, ...) and the owner's token; `refresh` of a jog write is the slot's
+write count + 1, so it changes on every write, also when the owner changes.
