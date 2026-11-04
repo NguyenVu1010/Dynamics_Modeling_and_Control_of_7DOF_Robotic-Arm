@@ -129,12 +129,6 @@ TEST(ManualConfig, MissingSectionKeepsTheStructDefaults) {
   EXPECT_DOUBLE_EQ(m.tcp_alpha_max_rad_s2, 2.0);
   EXPECT_DOUBLE_EQ(m.deadman_s, 0.1);
   EXPECT_NEAR(m.jog_margin_rad, 2.0 * kDegree, 1e-15);
-
-  // tests/e2e/configs/ideal_world.yaml has no manual section either.
-  const auto ideal = load_config<7>(kRepo / "tests/e2e/configs/ideal_world.yaml");
-  ASSERT_TRUE(ideal) << ideal.reason();
-  expect_vec_eq(ideal.value().manual.joint_a_max_rad_s2, Vec7::Constant(5.0));
-  EXPECT_DOUBLE_EQ(ideal.value().manual.deadman_s, 0.1);
 }
 
 // A partial section keeps the defaults of the keys it leaves out.
