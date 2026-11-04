@@ -127,11 +127,12 @@ class ControlLoop {
   // deadman count). Rejected: not standby / another command running ("jog_joint: not in
   // standby"), bad joint, direction or speed, joint already at its jog limit in that direction
   // ("jog_joint: joint at its soft limit in that direction"), a different jog running ("jog:
-  // release the running jog first").
+  // release the running jog first"), a refresh of the same jog while it brakes (release, deadman,
+  // soft limit or singularity: "jog_joint: jog is stopping"; jog again from kStandby).
   Status jog_joint(int joint, int direction, double speed);
-  // Same rules. Rejected at start when CLIK's condition number > clik.cond_threshold ("jog_tcp:
-  // near a singularity") or a joint is inside its jog band ("jog_tcp: a joint is at its soft
-  // limit").
+  // Same rules. Rejected at start when the condition number of the Jacobian at the current
+  // reference (as CLIK computes it) > clik.cond_threshold ("jog_tcp: near a singularity") or a
+  // joint is inside its jog band ("jog_tcp: a joint is at its soft limit").
   Status jog_tcp(JogAxis axis, int direction, JogFrame frame, double speed);
   // kStandby only; move.q_start within 1e-3 rad (max norm) of joint_reference(), else
   // "move_joint: plan does not start at the reference". Runs from joint_reference() (re-based).

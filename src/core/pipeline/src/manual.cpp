@@ -54,6 +54,9 @@ double stop_cap(double dist, double a, double dt) {
   if (!(dist > 0.0)) {
     return 0.0;
   }
+  if (!std::isfinite(dist)) {
+    return std::numeric_limits<double>::infinity();  // continuous joint: no limit to brake for
+  }
   const double u = a * dt;
   // Smallest m >= 0 with g((m + 1) u) = dt u (m + 1) (m + 2) / 2 >= dist.
   double m = std::max(std::ceil((-3.0 + std::sqrt(1.0 + 8.0 * dist / (dt * u))) / 2.0), 0.0);

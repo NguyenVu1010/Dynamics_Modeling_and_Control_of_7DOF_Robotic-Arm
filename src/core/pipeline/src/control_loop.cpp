@@ -319,9 +319,7 @@ void ControlLoop<N>::enter_standby(const common::Pose& pose) {
   mode_ = LoopMode::kStandby;
 }
 
-// Time scaling (design 6.3): the trajectory is sampled at tau_, its twist scaled by the rate r
-// and its twist derivative by r^2 plus the twist times dr/dt; tau_ then advances by r dt.
-// Without a stop r = 1. The trajectory ends at tau_ >= T or when the stop ramp reaches r = 0.
+// Smoothstep stop rate r and dr/dt of this step (ADR-018 stop over stop_time_s); true at rest.
 template <int N>
 bool ControlLoop<N>::stop_rate(double dt, double& r, double& r_dot) {
   const double x = static_cast<double>(stop_steps_) * dt / config_.stop_time_s;
@@ -331,6 +329,9 @@ bool ControlLoop<N>::stop_rate(double dt, double& r, double& r_dot) {
   return x >= 1.0 - kStopEndTolerance;
 }
 
+// Time scaling (design 6.3): the trajectory is sampled at tau_, its twist scaled by the rate r
+// and its twist derivative by r^2 plus the twist times dr/dt; tau_ then advances by r dt.
+// Without a stop r = 1. The trajectory ends at tau_ >= T or when the stop ramp reaches r = 0.
 template <int N>
 void ControlLoop<N>::advance_external(double dt) {
   const planning::WaypointTrajectory& w = *waypoints_;
@@ -507,11 +508,16 @@ Status ControlLoop<N>::jog_tcp(JogAxis axis, int direction, JogFrame frame, doub
   if (!st.is_ok() || refreshed) {
     return st;
   }
-  // NaN (CLIK not stepped since start()) is refused too.
-  if (!(clik_.condition_number() <= config_.clik.cond_threshold)) {
+  // Computed here at the current reference: clik_.condition_number() is stale after a joint mode
+  // (CLIK not stepped) or a reset(). A NaN (non-finite Jacobian) is refused too.
+  const VecN<N>& q = clik_.reference().q;
+  kinematics::FkState<N> fk;
+  kinematics::forward_kinematics(model_, q, fk);
+  common::Mat6N<N> J;
+  kinematics::geometric_jacobian(fk, J);
+  if (!(planning::jacobian_condition_number<N>(J) <= config_.clik.cond_threshold)) {
     return Status::error("jog_tcp: near a singularity");
   }
-  const VecN<N>& q = clik_.reference().q;
   for (int j = 0; j < N; ++j) {
     if (q(j) - jog_lo_(j) <= kAtJogLimitRad || jog_hi_(j) - q(j) <= kAtJogLimitRad) {
       return Status::error("jog_tcp: a joint is at its soft limit");
