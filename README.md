@@ -206,7 +206,7 @@ tab (bench runs and sweeps on a worker thread, overlaid charts, an error table t
 tolerance edits, Run CSV and Summary CSV export). It is off by default:
 
 ```bash
-sudo apt install qtbase5-dev libqt5charts5-dev
+sudo apt install qtbase5-dev libqt5charts5-dev qt3d5-dev
 cmake -S . -B build -DCOBOT_BUILD_STUDIO=ON && cmake --build build   # or: tools/wsl/build.sh --studio
 build/src/studio/app/cobot_studio [--config-dir config] [--work-dir ~/.cache/cobot_studio/runs]
 ```
@@ -214,6 +214,15 @@ build/src/studio/app/cobot_studio [--config-dir config] [--work-dir ~/.cache/cob
 Under WSL the window opens through WSLg (Windows 11, no X server needed). Each run materialises
 its inputs under the work dir, never in the repository. The source stays MIT; the `cobot_studio`
 binary links Qt Charts (GPLv3), so the binary as distributed is under GPLv3.
+
+The Tracking tab also has a 3D view (Qt3D) that replays the checked runs at the chart's time
+cursor: the selected run solid, up to three other checked runs as ghosts in their colours, the
+plant's true joint angles when the run has them (else the logged `q`). The selected run shows
+its tip trace, the dashed desired path, the goal points, a sphere of the goal tolerance and a
+red cross at the hold time. Play (0.25x, 1x, 4x) and the time slider move the same cursor as the
+chart; the magnify box (x1 to x1000) scales the tip's deviation from the desired path and the
+sphere together. The meshes of `src/sim/meshes` are read once, off the GUI thread. The 3D test
+runs under `xvfb-run` when it is installed (`xvfb libgl1-mesa-dri`) and skips without OpenGL.
 
 ## Environment configuration
 

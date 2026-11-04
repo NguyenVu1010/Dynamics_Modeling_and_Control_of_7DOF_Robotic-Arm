@@ -258,4 +258,18 @@ common::Result<pipeline::KeyOverride> base_value(const BasePair& base, const std
   return Out::error("unknown parameter " + key);
 }
 
+std::map<std::string, pipeline::KeyOverride> base_values(const BasePair& base) {
+  const common::Result<Cfg> c = pipeline::load_config<kN>(base.config_yaml);
+  const common::Result<Imp> i = pipeline::load_imperfections<kN>(base.imperfections_yaml);
+  const Cfg config = c ? c.value() : Cfg{};
+  const Imp imperfections = i ? i.value() : Imp{};
+  std::map<std::string, pipeline::KeyOverride> out;
+  for (const Entry& e : entries()) {
+    if (e.info.key.rfind("config.", 0) == 0 ? c.is_ok() : i.is_ok()) {
+      out[e.info.key] = pipeline::KeyOverride{e.info.key, e.get(config, imperfections)};
+    }
+  }
+  return out;
+}
+
 }  // namespace cobot::studio
