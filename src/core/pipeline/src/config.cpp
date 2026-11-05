@@ -49,6 +49,7 @@ const Rule kPositive{[](double v) { return v > 0.0; }, "must be > 0"};
 const Rule kNonNegative{[](double v) { return v >= 0.0; }, "must be >= 0"};
 const Rule kAboveOne{[](double v) { return v > 1.0; }, "must be > 1"};
 const Rule kFraction{[](double v) { return v >= 0.0 && v < 1.0; }, "must be in [0, 1)"};
+const Rule kUnitInterval{[](double v) { return v > 0.0 && v <= 1.0; }, "must be in (0, 1]"};
 const Rule kProbability{[](double v) { return v >= 0.0 && v <= 1.0; }, "must be in [0, 1]"};
 const Rule kEncoderBits{
     [](double v) {
@@ -394,6 +395,7 @@ void read_manual(Reader& m, ManualConfig<N>& c) {
     x.number("jog_margin_deg", kNonNegative, deg);
     c.jog_margin_rad = deg >= 0.0 ? deg * kDegToRad : c.jog_margin_rad;
   }
+  optional_number(x, "joint_speed_fraction", kUnitInterval, c.joint_speed_fraction);
   x.finish();
 }
 

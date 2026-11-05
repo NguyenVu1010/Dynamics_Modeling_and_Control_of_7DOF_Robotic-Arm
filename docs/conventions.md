@@ -62,9 +62,12 @@ Optional section `cobot.manual` (studio jog and move commands, ADR-022; a missin
 keeps the default): `joint_a_max_rad_s2` (7 values or one scalar broadcast, rad/s², default 5),
 `tcp_v_max_m_s` (0.25), `tcp_w_max_rad_s` (1.0), `tcp_a_max_m_s2` (0.5), `tcp_alpha_max_rad_s2`
 (2.0), all at 100 % speed and > 0 (each command's speed fraction in (0, 1] scales them; the joint
-velocity limit is the URDF qd_max); `deadman_ms` (100, > 0: a jog not refreshed for this long
-ramps to rest); `jog_margin_deg` (2, >= 0: jogs and `move_joint` stop this far inside
-`safety.soft_margin_deg`). Errors name the full key, such as `cobot.manual.deadman_ms`.
+velocity limit is `joint_speed_fraction` times the URDF qd_max); `deadman_ms` (100, > 0: a jog not
+refreshed for this long ramps to rest); `jog_margin_deg` (2, >= 0: jogs and `move_joint` stop
+this far inside `safety.soft_margin_deg`); `joint_speed_fraction` (0.9, in (0, 1]: a joint jog or
+`move_joint` at 100 % targets at most this fraction of qd_max, so the tracked |qd|, which
+overshoots its target slightly, stays below the `overspeed` hold at qd_max). Errors name the full
+key, such as `cobot.manual.deadman_ms`.
 
 ## Model and fixed-joint merge
 

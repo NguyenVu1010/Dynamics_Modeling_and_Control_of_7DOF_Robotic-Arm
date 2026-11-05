@@ -482,7 +482,8 @@ Status ControlLoop<N>::jog_joint(int joint, int direction, double speed) {
   if (dist <= kAtJogLimitRad) {
     return Status::error("jog_joint: joint at its soft limit in that direction");
   }
-  jog.v_max = speed * model_.joints[static_cast<std::size_t>(joint)].qd_max;
+  jog.v_max = speed * config_.manual.joint_speed_fraction *
+              model_.joints[static_cast<std::size_t>(joint)].qd_max;
   jog.a_max = speed * config_.manual.joint_a_max_rad_s2(joint);
   joint_ref_ = clik_.reference();
   joint_ref_.qd.setZero();
