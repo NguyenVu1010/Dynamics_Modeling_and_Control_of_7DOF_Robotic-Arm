@@ -8,3 +8,10 @@ cobot_add_test(test_bridge_service test_bridge_service.cpp LIBS cobot_bridge cob
 # Replaces the global operator new: its own binary.
 cobot_add_test(test_bridge_service_no_alloc test_bridge_service_no_alloc.cpp
   LIBS cobot_bridge cobot::pipeline)
+# The replacement operator new/delete (allocation counter) makes GCC report
+# -Wmismatched-new-delete once the replacement free() is inlined into the cleanup path of a
+# new-expression (std::make_unique of a type whose constructor may throw): a false positive.
+# Only this binary is exempt; every other target keeps the warning.
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  target_compile_options(test_bridge_service_no_alloc PRIVATE -Wno-mismatched-new-delete)
+endif()

@@ -59,8 +59,9 @@ class CommandService {
   bool studio_in_control() const;  // an owner token is registered
 
  private:
-  struct Pending {  // a command posted to the loop, answered on its ack
-    std::uint64_t id = 0;
+  struct Pending {                 // a command posted to the loop, answered on its ack
+    std::uint64_t sequence = 0;    // LoopCommand::id of the post, echoed by the LoopAck
+    std::uint64_t command_id = 0;  // the wire Command id
     CommandType type{};
     double duration_s = 0.0;
   };
@@ -77,6 +78,7 @@ class CommandService {
   void push();
   bool motion_allowed(const Command<N>& c, const LoopStatus<N>& st);
   void post_motion(const Command<N>& c, LoopCommand<N>& lc, double duration_s);
+  void post_pending(const Command<N>& c, LoopCommand<N>& lc, double duration_s);
   void plan_waypoints(const Command<N>& c, const LoopStatus<N>& st);
   void issues_into(const std::vector<pipeline::WaypointIssue>& issues);
   void export_segment(const Command<N>& c);
@@ -99,7 +101,9 @@ class CommandService {
   std::vector<Pending> pending_;
   std::vector<Mark> marks_;  // the last kMarks export marks, oldest first
   std::uint64_t last_owner_ = 0;
-  bool stop_posted_ = false;
+  std::uint64_t sequence_ = 0;  // the last post's sequence number
+  bool stop_wanted_ = false;    // the owner was lost / changed during a studio motion
+  bool stop_posted_ = false;    // ... and the watchdog's kStop is in the command ring
   bool studio_motion_ = false;  // the loop tracks a motion the studio started
 };
 

@@ -705,6 +705,11 @@ class CobotController final : public ci::ControllerInterface {
     if (!built) {
       return R::error(built.reason());
     }
+    // A config-mode loop would plan and run the file's trajectory from start() on the control
+    // thread right after "applied"; the studio's runtime is always external.
+    if (built.value().config.command_source != cobot::pipeline::CommandSource::kExternal) {
+      return R::error("apply config: command_source must be external");
+    }
     auto next = std::make_unique<Runtime>(std::move(built.value()));
     try {
       next->loop = std::make_unique<cobot::pipeline::ControlLoop<kN>>(

@@ -208,6 +208,9 @@ Step parse_step(const std::string& text, double speed) {
         colon + 1 < file.size()) {
       count = std::stoul(file.substr(colon + 1));
       file = file.substr(0, colon);
+      if (count == 0) {
+        throw std::invalid_argument("step " + text + ": count 0, want 1 or more");
+      }
     }
     // TCP poses as written: identity TcpOffset.
     const auto list = cobot::pipeline::load_waypoints(file, "base_link", {});
@@ -278,6 +281,7 @@ class Session {
   ~Session() { release(); }
 
   Outcome run(const Step& s) {
+    keep_latest();  // a step looks only at samples from now on
     if (s.verb == "claim") {
       const cobot::common::Status st = client_.claim(bridge::monotonic_ns());
       if (!st) {
@@ -380,6 +384,10 @@ class Session {
           return ok();
         }
       }
+      if (k > 1) {  // the scanned samples are done with; the latest stays for latest_ns()
+        history_.erase(history_.begin(), history_.begin() + static_cast<std::ptrdiff_t>(k - 1));
+        k = 1;
+      }
       if (!client_.server_alive(bridge::monotonic_ns())) {
         return failed("bridge server gone");
       }
@@ -408,7 +416,15 @@ class Session {
 
   std::int64_t latest_ns() {
     pump();
+    keep_latest();
     return history_.empty() ? 0 : history_.back().t_ns;
+  }
+
+  // Drops every sample but the latest, so a long session keeps a bounded history.
+  void keep_latest() {
+    if (history_.size() > 1) {
+      history_.erase(history_.begin(), history_.end() - 1);
+    }
   }
 
   Outcome jog(const Step& s) {

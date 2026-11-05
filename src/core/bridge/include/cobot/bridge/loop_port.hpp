@@ -24,7 +24,7 @@ namespace cobot::bridge {
 template <int N>
 struct LoopCommand {  // bridge thread -> control thread; copying never allocates
   enum class Kind : std::uint8_t { kLoad, kMoveJoint, kStop, kEstop, kReset };
-  std::uint64_t id = 0;  // the wire Command id (0: posted by the service itself, no response)
+  std::uint64_t id = 0;  // echoed by the LoopAck (CommandService: post sequence; 0: its stop)
   Kind kind = Kind::kStop;
   pipeline::CommandMode cmd = pipeline::CommandMode::kWaypoints;  // kLoad: kWaypoints or kMoveTcp
   std::optional<planning::WaypointTrajectory> trajectory;         // kLoad

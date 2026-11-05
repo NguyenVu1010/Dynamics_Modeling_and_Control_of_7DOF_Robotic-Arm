@@ -116,34 +116,42 @@ bool CommandService<N>::read_status(LoopStatus<N>& out) const {
   return false;
 }
 
-// ADR-022: an owner that is lost, or replaced / released while the loop runs a command the studio
-// started, stops the loop with deceleration (once); a lost owner is cleared once that motion is
-// over. A motion the studio did not start (the config's trajectory, an RViz goal) runs on.
+// ADR-022: an owner that is lost, or replaced / released while the loop runs (or is about to
+// run) a command the studio started, stops the loop with deceleration; a lost owner is cleared
+// once that motion is over. A motion the studio did not start (the config's trajectory, an RViz
+// goal) runs on. A motion posted but not yet applied counts as the studio's whatever the loop's
+// mode (the control thread may lag the bridge thread), and the stop request is latched: kStop is
+// posted on every poll until the post succeeds, then kept until the loop is out of tracking with
+// no studio motion left in the command ring (FIFO: the stop is applied after it).
 template <int N>
 void CommandService<N>::watchdog(std::int64_t now_ns) {
   LoopStatus<N> st{};
   const bool have = read_status(st);
   const bool tracking = have && static_cast<LoopMode>(st.mode) == LoopMode::kTracking;
-  if (!tracking) {
-    stop_posted_ = false;
-  }
   if (have && !tracking) {
     studio_motion_ = false;
   }
   const bool posted = std::any_of(
       pending_.begin(), pending_.end(), [](const Pending& p) { return is_motion(p.type); });
-  const bool studio = tracking && (studio_motion_ || posted || is_manual(st.cmd));
+  const bool studio = posted || (tracking && (studio_motion_ || is_manual(st.cmd)));
   std::uint64_t token = endpoint_.owner_token();
   const OwnerState state = endpoint_.owner_state(now_ns);
   const bool lost =
       token != 0 && (state == OwnerState::kHeartbeatLost || state == OwnerState::kProcessGone);
   const bool changed = last_owner_ != 0 && token != last_owner_;
-  if ((lost || changed) && studio && !stop_posted_) {
+  if ((lost || changed) && studio) {
+    stop_wanted_ = true;
+  }
+  if (stop_wanted_ && !stop_posted_) {
     *post_ = LoopCommand<N>{};
     post_->kind = LoopCommand<N>::Kind::kStop;
     stop_posted_ = port_.post(*post_);
   }
-  if (lost && have && !studio) {
+  if (stop_wanted_ && stop_posted_ && !posted && have && !tracking) {
+    stop_wanted_ = false;  // the stop was applied after the last studio motion: done
+    stop_posted_ = false;
+  }
+  if (lost && have && !studio && !stop_wanted_) {
     endpoint_.clear_owner();
     token = endpoint_.owner_token();
   }
@@ -209,13 +217,20 @@ void CommandService<N>::export_mark() {
 template <int N>
 void CommandService<N>::post_motion(const Command<N>& c, LoopCommand<N>& lc, double duration_s) {
   export_mark();
-  lc.id = c.id;
+  post_pending(c, lc, duration_s);
+}
+
+// Posts lc under a service sequence number (never 0, the watchdog's own stop): the wire ids of
+// two clients may collide after a takeover, the sequence never does.
+template <int N>
+void CommandService<N>::post_pending(const Command<N>& c, LoopCommand<N>& lc, double duration_s) {
+  lc.id = ++sequence_;
   if (!port_.post(lc)) {
     reply(c, std::string(name_of(c.type)) + ": the control loop is busy");
     push();
     return;
   }
-  pending_.push_back(Pending{c.id, c.type, duration_s});
+  pending_.push_back(Pending{lc.id, c.id, c.type, duration_s});
 }
 
 template <int N>
@@ -457,13 +472,7 @@ void CommandService<N>::handle(const Command<N>& c) {
       lc.kind = c.type == CommandType::kStop    ? Kind::kStop
                 : c.type == CommandType::kEstop ? Kind::kEstop
                                                 : Kind::kReset;
-      lc.id = c.id;
-      if (port_.post(lc)) {
-        pending_.push_back(Pending{c.id, c.type, 0.0});
-      } else {
-        reply(c, std::string(name_of(c.type)) + ": the control loop is busy");
-        push();
-      }
+      post_pending(c, lc, 0.0);
       return;
     case CommandType::kApplyConfig:
       apply_config(c, st);
@@ -483,13 +492,13 @@ void CommandService<N>::answer_acks() {
   LoopAck ack;
   while (port_.take_ack(ack)) {
     const auto it = std::find_if(
-        pending_.begin(), pending_.end(), [&](const Pending& p) { return p.id == ack.id; });
+        pending_.begin(), pending_.end(), [&](const Pending& p) { return p.sequence == ack.id; });
     if (ack.id == 0 || it == pending_.end()) {
       continue;  // the service's own stop
     }
     Response& r = *response_;
     r = Response{};
-    r.command_id = it->id;
+    r.command_id = it->command_id;
     r.type = it->type;
     if (ack.status.is_ok()) {
       studio_motion_ = studio_motion_ || is_motion(it->type);

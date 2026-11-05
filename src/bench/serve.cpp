@@ -183,9 +183,9 @@ common::Result<Service::ExportInfo> Host::export_log() {
   pipeline::Recorder<kN>& rec = *recorder_;
   Status written = Status::ok();
   if (control_running_.load()) {
-    if (!rec.request_swap()) {
-      return Out::error("export: a log buffer swap is still pending");
-    }
+    // False while an earlier request is pending or its retired buffer is held (that export timed
+    // out): wait for that swap and export its buffer, as the controller's export_log does.
+    static_cast<void>(rec.request_swap());
     const std::int64_t deadline = bridge::monotonic_ns() + kWaitNs;
     while (!rec.swap_done()) {
       if (!control_running_.load() || bridge::monotonic_ns() > deadline) {
