@@ -71,7 +71,11 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCOBOT_WERROR=ON
           "-DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all"
       - run: cmake --build build --parallel 4
-      - run: ctest --test-dir build --output-on-failure --parallel 4
+      # The tests excluded here re-run whole bench scenarios to compare results and take 33 to 79 min
+      # each under Debug + ASan (3h14 job on #65). They still run in core and coverage.
+      - run: >
+          ctest --test-dir build --output-on-failure --parallel 4 --exclude-regex
+          "OverridesRerun\.WrittenPairGivesTheSameRunCsvBytes/(premium_fr3|budget_xarm7|mid_kr1205)$|StudioRun\.OverrideEqualToTheFileGivesTheSameSummary$|LogChannelsBench\.MidTierMotorEncoderShowsDeflectionAndTheCompensation$|BridgeService\.UnreachableMoveTcpIsRejectedWithTheIssuesOfPlanTcpMove$|ManualPlan\.TcpMoveUnreachableMatchesValidatePath$"
 
   coverage:
     runs-on: ubuntu-24.04
