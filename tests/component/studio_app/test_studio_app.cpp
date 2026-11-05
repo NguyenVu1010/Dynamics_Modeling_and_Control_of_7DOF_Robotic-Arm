@@ -228,13 +228,16 @@ class StudioApp : public ::testing::Test {
   std::unique_ptr<MainWindow> window_;
 };
 
-TEST_F(StudioApp, WindowHasTwoTabsAndTheContractWidgets) {
+TEST_F(StudioApp, WindowHasThreeTabsAndTheContractWidgets) {
+  // Design 5.3 order (feature studio-control): Configuration, Control, Tracking.
   const auto& tabs = get<QTabWidget>("tabs");
-  ASSERT_EQ(tabs.count(), 2);
+  ASSERT_EQ(tabs.count(), 3);
   EXPECT_EQ(tabs.widget(0)->objectName(), QStringLiteral("configTab"));
-  EXPECT_EQ(tabs.widget(1)->objectName(), QStringLiteral("trackingTab"));
+  EXPECT_EQ(tabs.widget(1)->objectName(), QStringLiteral("controlTab"));
+  EXPECT_EQ(tabs.widget(2)->objectName(), QStringLiteral("trackingTab"));
   EXPECT_EQ(tabs.tabText(0), QStringLiteral("Configuration"));
-  EXPECT_EQ(tabs.tabText(1), QStringLiteral("Tracking"));
+  EXPECT_EQ(tabs.tabText(1), QStringLiteral("Control"));
+  EXPECT_EQ(tabs.tabText(2), QStringLiteral("Tracking"));
 
   for (const char* name :
        {"baseCombo",       "paramTree",          "omegaSpin",   "advancedGains", "halTimeoutSpin",
@@ -259,7 +262,7 @@ TEST_F(StudioApp, WindowHasTwoTabsAndTheContractWidgets) {
   const auto& speed = get<QSlider>("speedSlider");
   EXPECT_EQ(speed.minimum(), 1);
   EXPECT_EQ(speed.maximum(), 100);
-  EXPECT_FALSE(speed.isEnabled());  // manual control is phase B (Q8)
+  EXPECT_TRUE(speed.isEnabled());  // the phase B speed of manual control (studio-control)
   EXPECT_FALSE(speed.toolTip().isEmpty());
 
   // Base pairs: discover_base_pairs order, six profiles in config/.
