@@ -26,6 +26,8 @@
 //
 // Numbers used by the tests (URDF of the arm, default.yaml):
 //   qd_max = (2.1, 2.1, 2.1, 2.1, 3.1, 3.1, 3.1) rad/s
+//   manual.joint_speed_fraction = 0.9 (feature jog-headroom): a joint jog or move at 100 % uses at
+//   most 0.9 qd_max = (1.89, 1.89, 1.89, 1.89, 2.79, 2.79, 2.79) rad/s
 //   manual.joint_a_max_rad_s2 = (15, 7.5, 12.5, 12.5, 15, 20, 20) rad/s^2
 //   manual TCP limits at 100 %: 0.25 m/s, 1.0 rad/s, 0.5 m/s^2, 2.0 rad/s^2
 //   deadman 100 ms = 100 steps; jog band = soft_margin 3 deg + jog_margin 2 deg = 0.0872665 rad
@@ -34,8 +36,9 @@ namespace cobot::pipeline::test {
 
 constexpr double kPi = 3.14159265358979323846;
 constexpr double kDegree = kPi / 180.0;
-constexpr int kRefreshEvery = 50;  // steps between two calls of the same jog ("refresh")
-constexpr double kSpeed = 0.1;     // speed fraction of the tests unless stated
+constexpr int kRefreshEvery = 50;            // steps between two calls of the same jog ("refresh")
+constexpr double kSpeed = 0.1;               // speed fraction of the tests unless stated
+constexpr double kJointSpeedFraction = 0.9;  // default.yaml cobot.manual.joint_speed_fraction
 
 // cobot.manual of config/default.yaml (ideal_world.yaml has no manual section).
 inline ManualConfig<kN> default_manual() {
