@@ -89,7 +89,9 @@ def run_e2e(tmp_path, ros2, args, mode="", env_extra=None, timeout=180):
     cmd = [sys.executable, str(REPO / "tools/run_e2e.py"), *map(str, args), "--no-report"]
     cmd += ["--out", str(tmp_path / "out")]
     start = time.monotonic()
-    proc = subprocess.run(cmd, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=timeout)
+    proc = subprocess.run(
+        cmd, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=timeout
+    )
     elapsed = time.monotonic() - start
     entries = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
     return proc.returncode, proc.stdout + proc.stderr, entries, elapsed
@@ -180,7 +182,12 @@ def test_all_tag_gazebo_runs_e2e_07_without_bench(tmp_path, ros2_external):
     code, out, entries, elapsed = run_e2e(
         tmp_path, ros2_external, ["--all", "--tag", "gazebo"], env_extra=env, timeout=420
     )
-    assert any("E2E-07" in line and "PASS" in line for line in out.splitlines()), out
+    # Summary rows are "<id> <kind> PASS|FAIL ...": every gazebo scenario passes but E2E-13.
+    verdicts = {f[0]: f[2] for f in (line.split() for line in out.splitlines()) if len(f) >= 3}
+    for sid in ("E2E-07", "E2E-09", "E2E-11", "E2E-11b"):
+        assert verdicts.get(sid) == "PASS", out
+    assert verdicts.get("E2E-13") == "FAIL", out
+    assert code == 1, out
     # E2E-07 (ideal), E2E-09 (realistic), E2E-11 and E2E-11b (waypoints through the action,
     # feature waypoint-ros) and E2E-13 (studio bridge) carry the gazebo tag.
     calls = launches(entries)
