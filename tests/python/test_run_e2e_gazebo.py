@@ -77,7 +77,7 @@ def scenario(tmp_path, thresholds):
     return path
 
 
-def run_e2e(tmp_path, ros2, args, mode="", env_extra=None):
+def run_e2e(tmp_path, ros2, args, mode="", env_extra=None, timeout=180):
     """Run the runner (no --bench) with the fake ros2 first on PATH.
 
     Returns (exit code, output, call-log entries, wall time in s).
@@ -89,7 +89,7 @@ def run_e2e(tmp_path, ros2, args, mode="", env_extra=None):
     cmd = [sys.executable, str(REPO / "tools/run_e2e.py"), *map(str, args), "--no-report"]
     cmd += ["--out", str(tmp_path / "out")]
     start = time.monotonic()
-    proc = subprocess.run(cmd, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=180)
+    proc = subprocess.run(cmd, cwd=tmp_path, env=env, capture_output=True, text=True, timeout=timeout)
     elapsed = time.monotonic() - start
     entries = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
     return proc.returncode, proc.stdout + proc.stderr, entries, elapsed
@@ -173,16 +173,17 @@ def test_gazebo_verdict_uses_scenario_thresholds(tmp_path, ros2, mode, limit_m, 
 def test_all_tag_gazebo_runs_e2e_07_without_bench(tmp_path, ros2_external):
     # Real scenario: ideal_world.yaml has duration_s 10 + hold_s 2, so the fake writes rows up to
     # 12 s and the runner waits at least 10 + 2 + 5 = 17 s. Bench scenarios are not tagged
-    # gazebo, so no --bench is needed.
+    # gazebo, so no --bench is needed. E2E-13 (feature controller-bridge) also carries the gazebo
+    # tag; this fake has no bridge, so E2E-13 fails here and the exit code is not checked. Its
+    # 20 s pause makes the run longer, hence the 420 s limit (about 240 s on WSL).
     env = {"FAKE_ROS2_T_END_S": "12.0"}
     code, out, entries, elapsed = run_e2e(
-        tmp_path, ros2_external, ["--all", "--tag", "gazebo"], env_extra=env
+        tmp_path, ros2_external, ["--all", "--tag", "gazebo"], env_extra=env, timeout=420
     )
-    assert code == 0, out
-    assert "E2E-07" in out and "PASS" in out
+    assert any("E2E-07" in line and "PASS" in line for line in out.splitlines()), out
     # E2E-07 (ideal), E2E-09 (realistic), E2E-11 and E2E-11b (waypoints through the action,
-    # feature waypoint-ros) carry the gazebo tag.
+    # feature waypoint-ros) and E2E-13 (studio bridge) carry the gazebo tag.
     calls = launches(entries)
-    assert len(calls) == 4
+    assert len(calls) == 5
     assert all("controller:=cobot_controller" in c["argv"] for c in calls)
     assert elapsed >= 17.0
