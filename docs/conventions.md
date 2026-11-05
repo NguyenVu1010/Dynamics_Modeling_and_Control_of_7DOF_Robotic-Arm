@@ -273,3 +273,51 @@ from 0), then writes its pid and beats every 50 ms (`kHeartbeatPeriodNs`); the s
 lost after 200 ms without a beat (`kHeartbeatTimeoutNs`) or when its pid is gone. Commands carry
 the id given by `send` (1, 2, ...) and the owner's token; `refresh` of a jog write is the slot's
 write count + 1, so it changes on every write, also when the owner changes.
+
+Hosts (feature controller-bridge): `cobot_controller` with `log.mode: recorder_live` (region
+`/cobot_<node name>`, launch argument `studio:=true`) and `cobot_bench serve` (region
+`/cobot_<--name>`, default `cobot_bench`). The control thread applies at most one command per step
+(`bridge::LoopPort`); the bridge thread (`bridge::CommandService::poll`, every 5 ms) checks and
+answers. Every command gets exactly one `Response` (`command_id` = its id, `type` = its type):
+
+| Command | Needs | Response |
+| --- | --- | --- |
+| any | token = current owner, else "not the owner" | |
+| `kMoveJoint`, `kMoveTcp`, `kRunWaypoints`, `kApplyConfig` | `command_source: external` ("command_source is config"), loop in standby ("not in standby (mode tracking)") | |
+| `kMoveJoint` | `plan_joint_move` from the loop's joint reference | on the step that applied it: `accepted`, `t_start_ns` (that step's stamp), `duration_s` |
+| `kMoveTcp` | goal tip `T_b_tcp · inverse(T_tip_tcp)`, `plan_tcp_move` from the standby q and reference | rejected with `issues`, or as `kMoveJoint` |
+| `kRunWaypoints` | TCP -> tip, `validate_path` from the standby q and reference (the panel's call) | rejected with `issues`, or as `kMoveJoint` |
+| `kPreviewWaypoints` | the same call, nothing runs | `accepted` = ok, `issues`, `segment_durations_s`, `path` (desired TCP positions, evenly decimated to <= 512, last kept), `duration_s` |
+| `kStop`, `kEstop`, `kReset` | any mode (the loop decides) | `accepted` or the loop's reason |
+| `kApplyConfig` | `path_a` config, `path_b` imperfections; same `control_rate_hz` | "applied" and a new session (generation + 1), or the host's error verbatim |
+| `kExportSegment` | `t0_ns`, `t1_ns` (stamps of the Run CSV) | `out_path`, `rows`, `truncated` |
+| (jog slot) | refresh changed, token = owner | only a rejection: `type` `kJog`, `command_id` = the refresh, the loop's text |
+
+Watchdog: an owner that is lost (heartbeat, pid), or replaced or released while the loop tracks,
+gets one stop with deceleration; a lost owner is cleared once the loop is out of tracking.
+Segment export: the host first exports the Recorder to its Run CSV as usual, then the rows of the
+Run CSV with `t_ns` in `[t0, t1]` and its header line are copied byte for byte to
+`<segment dir>/segment-<id>.csv` (controller: `<tmp>/cobot_<node name>`; bench: `<out>/segments`);
+`truncated` = the first copied row is later than `t0 + period` (older rows were overwritten before
+any export). Times in commands and responses (`t_start_ns`, `t0_ns`, `t1_ns`) are the loop's row
+stamps, not `monotonic_ns`.
+
+`cobot_bridge_cli <name> [--speed <pct 1..100, default 10>] [--timeout-s <s, default 60>] <step>...`
+(`ros2 run cobot_ros2 cobot_bridge_cli cobot_controller ...` in Gazebo) is the headless client:
+
+| Step | Effect |
+| --- | --- |
+| `claim`, `release` | take / give back authority; a thread beats every 50 ms from `claim` on |
+| `pause:<s>`, `wait-standby` | sleep; wait for a standby sample |
+| `stop`, `estop`, `reset` | the command, its response |
+| `jog-joint:<1..7>:<+\|->:<s>` | jog for s seconds (refresh every 20 ms), release, wait for standby |
+| `jog-tcp:<x\|y\|z\|rx\|ry\|rz>:<+\|->:<base\|tool>:<s>` | the same for the TCP |
+| `move-joint:<q1_deg,...,q7_deg>` | `kMoveJoint`, then standby |
+| `move-tcp:<x,y,z,roll_deg,pitch_deg,yaw_deg>` | `kMoveTcp` to that TCP pose in base_link, R = Rz(yaw) Ry(pitch) Rx(roll), then standby |
+| `waypoints:<file>[:<count>]`, `preview:<file>` | the first count points of a waypoint file (TCP poses as written) |
+| `export:<csv>` | segment `[t_start, standby + 1 s]` of the last motion step, copied to csv |
+
+It prints one line per step, `<k> <step>: ok [detail]`, `<k> <step>: rejected: <reason>` or
+`<k> <step>: failed: <reason>` (a motion step that ends in holding fails with `held: <reason>`),
+and exits 0 when every step is ok, 1 when one is not (later steps skipped), 2 on bad arguments, no
+bridge or a layout mismatch. Authority is released on every exit path.

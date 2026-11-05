@@ -38,6 +38,20 @@
 // ~/follow_waypoints, ~/preview_waypoints, ~/reset and the latched ~/reference_path; update()
 // hands its commands to the loop, accumulates the goal metrics from each step's record and
 // publishes them in a LoopSnapshot (waypoint_server.hpp).
+//
+// Studio bridge (feature controller-bridge, ADR-022): the ROS parameter `log_mode` ("" = the
+// config file's cobot.log.mode, else off, recorder or recorder_live) is applied like
+// command_source. With recorder_live, on_activate serves the shared-memory region
+// "/cobot_<node name>" (ServerEndpoint, kept until cleanup): update() calls
+// LoopPort::before_step / after_step around the step (commands, jogs, state samples) and a
+// bridge thread runs CommandService::poll every 5 ms (authority, heartbeat watchdog, validation,
+// segment export into <tmp>/cobot_<node name>, apply config). Apply config builds a new runtime
+// (build_runtime + a ControlLoop over the same Recorder) on the bridge thread and hands it to
+// update() through an atomic pointer; update() swaps it in at the next step only in standby and
+// starts it on that step's state; the old runtime goes back through a second atomic and is
+// destroyed on the bridge thread. While the studio holds authority the RViz panel's goals and
+// ~/reset are refused ("studio is in control"). on_deactivate stops the bridge thread and clears
+// the owner; cleanup and the destructor remove the region.
 #include <algorithm>
 #include <array>
 #include <atomic>
@@ -58,11 +72,15 @@
 #include <string_view>
 #include <system_error>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include <ament_index_cpp/get_package_share_directory.hpp>
 #include <rclcpp/logging.hpp>
 
+#include "cobot/bridge/command_service.hpp"
+#include "cobot/bridge/endpoint.hpp"
+#include "cobot/bridge/loop_port.hpp"
 #include "cobot/common/logger.hpp"
 #include "cobot/common/types.hpp"
 #include "cobot/imperfect/imperfect_joint_interface.hpp"
@@ -91,6 +109,9 @@ using hardware_interface::LoanedStateInterface;
 constexpr double kStatusRateHz = 10.0;                  // ~/status messages per second
 constexpr std::chrono::milliseconds kSwapTimeout{200};  // longer: the export fails
 constexpr std::chrono::milliseconds kSwapPoll{1};
+constexpr std::chrono::milliseconds kBridgePoll{5};       // CommandService::poll period
+constexpr std::chrono::milliseconds kApplyTimeout{1000};  // update() takes a new runtime
+enum SwapResult : int { kSwapPending, kSwapped, kSwapRefused };
 
 // Core logger -> rcutils, the sink behind rclcpp logging.
 class RosLogger final : public cobot::common::Logger {
@@ -222,11 +243,24 @@ std::string run_id() {
   return buf;
 }
 
+// What on_configure builds and "apply config" replaces (loop: apply config only).
+struct Runtime {
+  cobot::pipeline::Config<kN> config;
+  std::unique_ptr<cobot::model::Arm7> model;  // the controller's (perturbed) model
+  std::unique_ptr<cobot::imperfect::ImperfectJointInterface<kN>> io;
+  cobot::common::VecN<kN> tau_max = cobot::common::VecN<kN>::Ones();
+  std::uint64_t seed = 0;
+  std::unique_ptr<cobot::pipeline::ControlLoop<kN>> loop;
+};
+
 }  // namespace
 
 class CobotController final : public ci::ControllerInterface {
  public:
-  ~CobotController() override { close_log(); }
+  ~CobotController() override {
+    remove_bridge();
+    close_log();
+  }
 
   ci::InterfaceConfiguration command_interface_configuration() const override {
     return individual(joints_, {"effort"});
@@ -246,6 +280,7 @@ class CobotController final : public ci::ControllerInterface {
       auto_declare<std::vector<std::string>>("joints", {});
       auto_declare<std::string>("log_path", "");        // empty: <cwd>/results/<run-id>/run.csv
       auto_declare<std::string>("command_source", "");  // empty: cobot.command_source
+      auto_declare<std::string>("log_mode", "");        // empty: cobot.log.mode
       auto_declare<std::int64_t>("log_stream_ms", 0);   // > 0: export every log_stream_ms
     } catch (const std::exception& e) {
       RCLCPP_ERROR(rclcpp::get_logger("cobot"), "on_init: %s", e.what());
@@ -266,84 +301,13 @@ class CobotController final : public ci::ControllerInterface {
       RCLCPP_ERROR(log, "joints: expected %d names, got %zu", kN, joints_.size());
       return CallbackReturn::ERROR;
     }
-    const cobot::common::Result<cobot::pipeline::Config<kN>> config =
-        cobot::pipeline::load_config<kN>(config_path);
-    const cobot::common::Result<cobot::imperfect::ImperfectionConfig<kN>> imp =
-        cobot::pipeline::load_imperfections<kN>(imp_path);
-    if (!config || !imp) {
-      RCLCPP_ERROR(log, "%s", (config ? imp.reason() : config.reason()).c_str());
+    cobot::common::Result<Runtime> built = build_runtime(config_path, imp_path, seed);
+    if (!built) {
+      RCLCPP_ERROR(log, "%s", built.reason().c_str());
       return CallbackReturn::ERROR;
     }
-    cobot::pipeline::Config<kN> c = config.value();
-    const std::string source = get_node()->get_parameter("command_source").as_string();
-    if (source == "config" || source == "external") {
-      c.command_source = source == "external" ? cobot::pipeline::CommandSource::kExternal
-                                              : cobot::pipeline::CommandSource::kConfig;
-    } else if (!source.empty()) {
-      RCLCPP_ERROR(
-          log, "command_source: expected \"\", config or external, got %s", source.c_str());
-      return CallbackReturn::ERROR;
-    }
-    cobot::imperfect::ImperfectionConfig<kN> profile = imp.value();
-    if (seed >= 0) {
-      profile.seed = static_cast<std::uint64_t>(seed);
-    }
-    if (profile.model.payload_kg != 0.0) {
-      const cobot::common::Vec3& offset = profile.model.payload_offset_m;
-      std::string extra;
-      std::array<char, 160> text{};
-      if (!offset.isZero(0.0)) {
-        std::snprintf(text.data(),
-                      text.size(),
-                      " (with imperfections.model.payload_offset_m = [%g, %g, %g])",
-                      offset.x(),
-                      offset.y(),
-                      offset.z());
-        extra += text.data();
-      }
-      if (profile.model.payload_radius_m != 0.0) {
-        std::snprintf(text.data(),
-                      text.size(),
-                      " (with imperfections.model.payload_radius_m = %g)",
-                      profile.model.payload_radius_m);
-        extra += text.data();
-      }
-      RCLCPP_ERROR(log,
-                   "%s: imperfections.model.payload_kg = %g%s is not supported on the Gazebo "
-                   "path (model perturbation cannot emulate a payload); set it to 0",
-                   imp_path.c_str(),
-                   profile.model.payload_kg,
-                   extra.c_str());
-      return CallbackReturn::ERROR;
-    }
-    if (profile.timing.period_jitter_std_us != 0.0) {
-      RCLCPP_WARN(log,
-                  "%s: imperfections.timing.period_jitter_std_us = %g ignored on the Gazebo path "
-                  "(the sim clock has no jitter)",
-                  imp_path.c_str(),
-                  profile.timing.period_jitter_std_us);
-    }
-    if (profile.sensor.position_source == cobot::imperfect::PositionSource::kMotor) {
-      RCLCPP_WARN(log,
-                  "%s: imperfections.sensor.position_source = motor has no motor encoder on the "
-                  "Gazebo path (rigid joints); the link position is used",
-                  imp_path.c_str());
-    }
-    if (profile.transmission.stiffness_k3_nm_rad.maxCoeff() > 0.0) {
-      RCLCPP_WARN(log,
-                  "%s: imperfections.transmission ignored on the Gazebo path (bench only)",
-                  imp_path.c_str());
-    }
-    profile.friction = cobot::imperfect::FrictionConfig<kN>{};  // in the physics (<dynamics>)
-    const cobot::common::Result<cobot::model::UrdfChain> chain =
-        cobot::model::parse_urdf_chain(c.urdf_path, c.base_link, c.tip_link);
-    const cobot::common::Result<cobot::model::Arm7> arm =
-        chain ? cobot::model::make_model<kN>(chain.value(), c.gravity_b)
-              : cobot::common::Result<cobot::model::Arm7>::error(chain.reason());
-    if (!arm) {
-      RCLCPP_ERROR(log, "%s: %s", c.urdf_path.c_str(), arm.reason().c_str());
-      return CallbackReturn::ERROR;
-    }
+    Runtime rt = std::move(built.value());
+    const cobot::pipeline::Config<kN>& c = rt.config;
     server_.reset();
     link_.reset();
     close_log();
@@ -361,22 +325,16 @@ class CobotController final : public ci::ControllerInterface {
               response->message = dumped ? describe(dumped.value()) : dumped.reason();
             });
       }
-      // Model mismatch: the controller's model is perturbed instead of the plant. Its tau_max
-      // is the peak torque P of cobot.limits; Gazebo enforces the URDF effort M.
-      model_ = std::make_unique<cobot::model::Arm7>(cobot::imperfect::perturb_model(
-          cobot::pipeline::controller_model<kN>(arm.value(), c), profile.model, profile.seed));
+      model_ = std::move(rt.model);
       const cobot::model::Arm7& model = *model_;
       config_ = c;
-      for (int i = 0; i < kN; ++i) {
-        tau_max_(i) = model.joints[static_cast<std::size_t>(i)].tau_max;
-      }
+      tau_max_ = rt.tau_max;
       runs_ = RunAccumulator(tau_max_);
       if (c.command_source == cobot::pipeline::CommandSource::kExternal) {
         link_ = std::make_unique<LoopLink>();
         server_ = std::make_unique<WaypointServer>(get_node(), *link_, model, c);
       }
-      io_ = std::make_unique<cobot::imperfect::ImperfectJointInterface<kN>>(
-          ros_io_, profile, 1.0 / c.control_rate_hz, true, c.limits.peak_torque_nm);
+      io_ = std::move(rt.io);
       status_pub_ = get_node()->create_publisher<std_msgs::msg::String>(
           "~/status", rclcpp::SystemDefaultsQoS());
       status_rt_ = std::make_unique<StatusPublisher>(status_pub_);
@@ -384,21 +342,16 @@ class CobotController final : public ci::ControllerInterface {
       RCLCPP_ERROR(log, "%s: %s", imp_path.c_str(), e.what());
       return CallbackReturn::ERROR;
     }
-    if (std::llround(c.control_rate_hz) != static_cast<long long>(get_update_rate())) {
-      RCLCPP_ERROR(log,
-                   "%s: cobot.control_rate_hz %g differs from the update rate %u Hz",
-                   config_path.c_str(),
-                   c.control_rate_hz,
-                   get_update_rate());
-      return CallbackReturn::ERROR;
-    }
+    config_path_ = config_path;
+    imp_path_ = imp_path;
+    seed_ = rt.seed;
     period_ns_ = std::llround(1e9 / c.control_rate_hz);
     status_every_ = std::max<std::int64_t>(1, std::llround(c.control_rate_hz / kStatusRateHz));
     RCLCPP_INFO(log,
                 "configured: config %s, imperfections %s, seed %llu",
                 config_path.c_str(),
                 imp_path.c_str(),
-                static_cast<unsigned long long>(profile.seed));
+                static_cast<unsigned long long>(rt.seed));
     return CallbackReturn::SUCCESS;
   }
 
@@ -449,6 +402,12 @@ class CobotController final : public ci::ControllerInterface {
         exporter_ = std::thread([this] { stream_log(); });
       }
     }
+    if (config_.log_mode == cobot::pipeline::LogMode::kRecorderLive) {
+      if (const std::string why = start_bridge(); !why.empty()) {
+        RCLCPP_ERROR(log, "studio bridge: %s", why.c_str());
+        return CallbackReturn::ERROR;
+      }
+    }
     if (link_) {
       // A command or reset left in the link while inactive belongs to an aborted goal or a
       // failed request: skip it instead of running it on the new start.
@@ -474,11 +433,13 @@ class CobotController final : public ci::ControllerInterface {
       const std::lock_guard<std::mutex> lock(link_->mutex);
       link_->snapshot.mode = cobot::pipeline::LoopMode::kIdle;
     }
+    stop_bridge();
     stop_exporter();
     return CallbackReturn::SUCCESS;
   }
 
   CallbackReturn on_cleanup(const rclcpp_lifecycle::State& /*previous_state*/) override {
+    remove_bridge();
     close_log();
     return CallbackReturn::SUCCESS;
   }
@@ -486,13 +447,23 @@ class CobotController final : public ci::ControllerInterface {
   ci::return_type update(const rclcpp::Time& /*time*/,
                          const rclcpp::Duration& /*period*/) override {
     ros_io_.set_stamp(cobot::common::Timestamp{t0_ns_ + cycle_ * period_ns_});
+    const bool swapped = take_runtime();
     // A failed read keeps the previous state and stamp: the loop's freshness check holds.
     static_cast<void>(io_->read(state_));
+    if (swapped) {
+      static_cast<void>(loop_->start(state_));
+    }
     if (link_) {
       take_commands();
     }
+    if (port_) {
+      port_->before_step(*loop_, state_);
+    }
     static_cast<void>(loop_->step(state_, cmd_, ros_io_.truth()));
     static_cast<void>(io_->write(cmd_));
+    if (port_) {
+      port_->after_step(*loop_);
+    }
     if (link_) {
       publish_snapshot();
     }
@@ -505,6 +476,295 @@ class CobotController final : public ci::ControllerInterface {
 
  private:
   using StatusPublisher = realtime_tools::RealtimePublisher<std_msgs::msg::String>;
+  using Service = cobot::bridge::CommandService<kN>;
+
+  // on_configure and "apply config": config (command_source and log_mode parameters applied),
+  // the controller's model, the I/O decorator over ros_io_ and tau_max; errors as text, warnings
+  // logged.
+  cobot::common::Result<Runtime> build_runtime(const std::string& config_path,
+                                               const std::string& imp_path,
+                                               std::int64_t seed) {
+    using R = cobot::common::Result<Runtime>;
+    const rclcpp::Logger log = get_node()->get_logger();
+    const cobot::common::Result<cobot::pipeline::Config<kN>> config =
+        cobot::pipeline::load_config<kN>(config_path);
+    const cobot::common::Result<cobot::imperfect::ImperfectionConfig<kN>> imp =
+        cobot::pipeline::load_imperfections<kN>(imp_path);
+    if (!config || !imp) {
+      return R::error(config ? imp.reason() : config.reason());
+    }
+    cobot::pipeline::Config<kN> c = config.value();
+    const std::string source = get_node()->get_parameter("command_source").as_string();
+    if (source == "config" || source == "external") {
+      c.command_source = source == "external" ? cobot::pipeline::CommandSource::kExternal
+                                              : cobot::pipeline::CommandSource::kConfig;
+    } else if (!source.empty()) {
+      return R::error("command_source: expected \"\", config or external, got " + source);
+    }
+    const std::string log_mode = get_node()->get_parameter("log_mode").as_string();
+    if (log_mode == "off") {
+      c.log_mode = cobot::pipeline::LogMode::kOff;
+    } else if (log_mode == "recorder") {
+      c.log_mode = cobot::pipeline::LogMode::kRecorder;
+    } else if (log_mode == "recorder_live") {
+      c.log_mode = cobot::pipeline::LogMode::kRecorderLive;
+    } else if (!log_mode.empty()) {
+      return R::error("log_mode: expected \"\", off, recorder or recorder_live, got " + log_mode);
+    }
+    cobot::imperfect::ImperfectionConfig<kN> profile = imp.value();
+    if (seed >= 0) {
+      profile.seed = static_cast<std::uint64_t>(seed);
+    }
+    if (profile.model.payload_kg != 0.0) {
+      const cobot::common::Vec3& offset = profile.model.payload_offset_m;
+      std::string extra;
+      std::array<char, 160> text{};
+      if (!offset.isZero(0.0)) {
+        std::snprintf(text.data(),
+                      text.size(),
+                      " (with imperfections.model.payload_offset_m = [%g, %g, %g])",
+                      offset.x(),
+                      offset.y(),
+                      offset.z());
+        extra += text.data();
+      }
+      if (profile.model.payload_radius_m != 0.0) {
+        std::snprintf(text.data(),
+                      text.size(),
+                      " (with imperfections.model.payload_radius_m = %g)",
+                      profile.model.payload_radius_m);
+        extra += text.data();
+      }
+      std::snprintf(text.data(), text.size(), "%g", profile.model.payload_kg);
+      return R::error(imp_path + ": imperfections.model.payload_kg = " + text.data() + extra +
+                      " is not supported on the Gazebo path (model perturbation cannot emulate a "
+                      "payload); set it to 0");
+    }
+    if (profile.timing.period_jitter_std_us != 0.0) {
+      RCLCPP_WARN(log,
+                  "%s: imperfections.timing.period_jitter_std_us = %g ignored on the Gazebo path "
+                  "(the sim clock has no jitter)",
+                  imp_path.c_str(),
+                  profile.timing.period_jitter_std_us);
+    }
+    if (profile.sensor.position_source == cobot::imperfect::PositionSource::kMotor) {
+      RCLCPP_WARN(log,
+                  "%s: imperfections.sensor.position_source = motor has no motor encoder on the "
+                  "Gazebo path (rigid joints); the link position is used",
+                  imp_path.c_str());
+    }
+    if (profile.transmission.stiffness_k3_nm_rad.maxCoeff() > 0.0) {
+      RCLCPP_WARN(log,
+                  "%s: imperfections.transmission ignored on the Gazebo path (bench only)",
+                  imp_path.c_str());
+    }
+    profile.friction = cobot::imperfect::FrictionConfig<kN>{};  // in the physics (<dynamics>)
+    const cobot::common::Result<cobot::model::UrdfChain> chain =
+        cobot::model::parse_urdf_chain(c.urdf_path, c.base_link, c.tip_link);
+    const cobot::common::Result<cobot::model::Arm7> arm =
+        chain ? cobot::model::make_model<kN>(chain.value(), c.gravity_b)
+              : cobot::common::Result<cobot::model::Arm7>::error(chain.reason());
+    if (!arm) {
+      return R::error(c.urdf_path.string() + ": " + arm.reason());
+    }
+    if (std::llround(c.control_rate_hz) != static_cast<long long>(get_update_rate())) {
+      std::array<char, 64> rates{};
+      std::snprintf(rates.data(),
+                    rates.size(),
+                    "%g differs from the update rate %u Hz",
+                    c.control_rate_hz,
+                    get_update_rate());
+      return R::error(config_path + ": cobot.control_rate_hz " + rates.data());
+    }
+    Runtime rt;
+    try {
+      // Model mismatch: the controller's model is perturbed instead of the plant. Its tau_max
+      // is the peak torque P of cobot.limits; Gazebo enforces the URDF effort M.
+      rt.model = std::make_unique<cobot::model::Arm7>(cobot::imperfect::perturb_model(
+          cobot::pipeline::controller_model<kN>(arm.value(), c), profile.model, profile.seed));
+      for (int i = 0; i < kN; ++i) {
+        rt.tau_max(i) = rt.model->joints[static_cast<std::size_t>(i)].tau_max;
+      }
+      rt.io = std::make_unique<cobot::imperfect::ImperfectJointInterface<kN>>(
+          ros_io_, profile, 1.0 / c.control_rate_hz, true, c.limits.peak_torque_nm);
+    } catch (const std::exception& e) {
+      return R::error(imp_path + ": " + e.what());
+    }
+    rt.config = c;
+    rt.seed = profile.seed;
+    return R::ok(std::move(rt));
+  }
+
+  // update(), before reading: a runtime offered by "apply config" replaces the current one when
+  // the loop is in standby (pointer swaps only); the old one goes back to the bridge thread.
+  bool take_runtime() {
+    Runtime* next = offered_.load(std::memory_order_acquire);
+    if (next == nullptr || !offered_.compare_exchange_strong(next, nullptr)) {
+      return false;
+    }
+    const bool swap = loop_->mode() == cobot::pipeline::LoopMode::kStandby;
+    if (swap) {
+      std::swap(config_, next->config);
+      std::swap(model_, next->model);
+      std::swap(io_, next->io);
+      std::swap(tau_max_, next->tau_max);
+      std::swap(loop_, next->loop);
+      runs_ = RunAccumulator(tau_max_);
+      retired_.store(next, std::memory_order_release);
+    }
+    swap_result_.store(swap ? kSwapped : kSwapRefused, std::memory_order_release);
+    return swap;
+  }
+
+  cobot::bridge::SessionInfo<kN> session_info() const {
+    cobot::bridge::SessionInfo<kN> s{};
+    cobot::bridge::copy_text(s.config_path, cobot::bridge::kPathChars, config_path_);
+    cobot::bridge::copy_text(s.imperfections_path, cobot::bridge::kPathChars, imp_path_);
+    s.seed = seed_;
+    s.command_source_external =
+        config_.command_source == cobot::pipeline::CommandSource::kExternal ? 1U : 0U;
+    s.control_rate_hz = config_.control_rate_hz;
+    s.soft_margin_rad = config_.safety.soft_margin_rad;
+    s.jog_margin_rad = config_.manual.jog_margin_rad;
+    for (std::size_t i = 0; i < static_cast<std::size_t>(kN); ++i) {
+      const auto& joint = model_->joints[i];
+      s.q_min[i] = joint.q_min;
+      s.q_max[i] = joint.q_max;
+      s.qd_max[i] = joint.qd_max;
+      s.tau_max[i] = joint.tau_max;
+      s.rated[i] = config_.limits.rated_torque_nm(static_cast<Eigen::Index>(i));
+    }
+    s.T_tip_tcp = cobot::bridge::to_wire(config_.tcp_offset.T_tip_tcp);
+    return s;
+  }
+
+  // on_activate with log.mode recorder_live: the region (created once, kept until cleanup), the
+  // LoopPort, the CommandService and the bridge thread. The reason of a failure, empty on success.
+  std::string start_bridge() {
+    const std::string name = get_node()->get_name();  // region /cobot_<node name>
+    const cobot::bridge::SessionInfo<kN> session = session_info();
+    if (!endpoint_) {
+      auto created = cobot::bridge::ServerEndpoint<kN>::create(name, session);
+      if (!created) {
+        return created.reason();
+      }
+      endpoint_.emplace(std::move(created.value()));
+      endpoint_name_ = name;
+    } else {
+      endpoint_->set_session(session);
+    }
+    port_ = std::make_unique<cobot::bridge::LoopPort<kN>>(&*endpoint_);
+    Service::Hooks hooks;
+    hooks.export_log = [this]() -> cobot::common::Result<Service::ExportInfo> {
+      using R = cobot::common::Result<Service::ExportInfo>;
+      const cobot::common::Result<cobot::pipeline::DumpResult> dumped = export_log();
+      if (!dumped) {
+        return R::error(dumped.reason());
+      }
+      std::error_code ec;
+      const std::uintmax_t size = std::filesystem::file_size(csv_path_, ec);
+      if (ec) {
+        return R::error(csv_path_.string() + ": " + ec.message());
+      }
+      return R::ok(Service::ExportInfo{csv_path_, static_cast<std::uint64_t>(size)});
+    };
+    hooks.apply_config = [this](const std::filesystem::path& config,
+                                const std::filesystem::path& imperfections) {
+      return apply_runtime(config, imperfections);
+    };
+    std::error_code ec;
+    service_ =
+        std::make_unique<Service>(*endpoint_,
+                                  *port_,
+                                  *model_,
+                                  config_,
+                                  session,
+                                  std::filesystem::temp_directory_path(ec) / ("cobot_" + name),
+                                  std::move(hooks));
+    bridge_stop_.store(false);
+    bridge_thread_ = std::thread([this] {
+      while (!bridge_stop_.load()) {
+        service_->poll(cobot::bridge::monotonic_ns());
+        if (link_) {
+          link_->studio_in_control.store(service_->studio_in_control(), std::memory_order_release);
+        }
+        std::this_thread::sleep_for(kBridgePoll);
+      }
+    });
+    return {};
+  }
+
+  // Bridge thread ("apply config"): a new runtime over the same Recorder, swapped in by update().
+  cobot::common::Result<std::pair<cobot::model::Arm7, cobot::pipeline::Config<kN>>> apply_runtime(
+      const std::filesystem::path& config, const std::filesystem::path& imperfections) {
+    using R = cobot::common::Result<std::pair<cobot::model::Arm7, cobot::pipeline::Config<kN>>>;
+    const std::int64_t seed = get_node()->get_parameter("seed").as_int();
+    cobot::common::Result<Runtime> built =
+        build_runtime(config.string(), imperfections.string(), seed);
+    if (!built) {
+      return R::error(built.reason());
+    }
+    auto next = std::make_unique<Runtime>(std::move(built.value()));
+    try {
+      next->loop = std::make_unique<cobot::pipeline::ControlLoop<kN>>(
+          *next->model, next->config, recorder_.get());
+    } catch (const std::exception& e) {
+      return R::error(e.what());
+    }
+    std::pair<cobot::model::Arm7, cobot::pipeline::Config<kN>> applied{*next->model, next->config};
+    // Owned by update() once it swapped it in, else taken back here.
+    Runtime* const offered = next.release();
+    swap_result_.store(kSwapPending, std::memory_order_release);
+    offered_.store(offered, std::memory_order_release);
+    const auto deadline = std::chrono::steady_clock::now() + kApplyTimeout;
+    while (swap_result_.load(std::memory_order_acquire) == kSwapPending) {
+      if (std::chrono::steady_clock::now() > deadline) {
+        Runtime* mine = offered;
+        if (offered_.compare_exchange_strong(mine, nullptr)) {
+          const std::unique_ptr<Runtime> back(offered);
+          return R::error("apply config: update() did not take the new runtime (inactive?)");
+        }
+      }
+      std::this_thread::sleep_for(kSwapPoll);
+    }
+    if (swap_result_.load(std::memory_order_acquire) == kSwapRefused) {
+      const std::unique_ptr<Runtime> back(offered);
+      return R::error("apply config: not in standby");
+    }
+    const std::unique_ptr<Runtime> old(retired_.exchange(nullptr));  // destroyed here
+    config_path_ = config.string();
+    imp_path_ = imperfections.string();
+    if (server_) {
+      server_->set_model(applied.first, applied.second);
+    }
+    return R::ok(std::move(applied));
+  }
+
+  // on_deactivate: the bridge thread stops and the owner is cleared (the region stays).
+  void stop_bridge() {
+    bridge_stop_.store(true);
+    if (bridge_thread_.joinable()) {
+      bridge_thread_.join();
+    }
+    if (endpoint_) {
+      endpoint_->clear_owner();
+    }
+    if (link_) {
+      link_->studio_in_control.store(false, std::memory_order_release);
+    }
+  }
+
+  // on_cleanup and the destructor: the bridge goes and its region is removed.
+  void remove_bridge() {
+    stop_bridge();
+    service_.reset();
+    port_.reset();
+    const std::unique_ptr<Runtime> old(retired_.exchange(nullptr));
+    if (endpoint_) {
+      endpoint_.reset();
+      static_cast<void>(cobot::bridge::ServerEndpoint<kN>::remove(endpoint_name_));
+    }
+  }
 
   // External mode, before step(): the latest goal trajectory (once per id), reset and stop
   // requests. Nothing here allocates unless load() or reset() rejects (they build the message).
@@ -722,6 +982,18 @@ class CobotController final : public ci::ControllerInterface {
   cobot::pipeline::LoopMode last_mode_ = cobot::pipeline::LoopMode::kIdle;
   cobot::common::VecN<kN> standby_q_ = cobot::common::VecN<kN>::Zero();
   cobot::common::Pose standby_reference_;
+  // Studio bridge (log.mode recorder_live). The thread goes before what it uses.
+  std::string config_path_, imp_path_;  // of the running runtime (session info)
+  std::uint64_t seed_ = 0;
+  std::optional<cobot::bridge::ServerEndpoint<kN>> endpoint_;
+  std::string endpoint_name_;
+  std::unique_ptr<cobot::bridge::LoopPort<kN>> port_;
+  std::unique_ptr<Service> service_;
+  std::atomic<Runtime*> offered_{nullptr};  // bridge thread -> update()
+  std::atomic<Runtime*> retired_{nullptr};  // update() -> bridge thread
+  std::atomic<int> swap_result_{kSwapPending};
+  std::atomic<bool> bridge_stop_{false};
+  std::thread bridge_thread_;
 };
 
 }  // namespace cobot_ros2
