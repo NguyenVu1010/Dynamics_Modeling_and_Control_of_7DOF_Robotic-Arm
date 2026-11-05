@@ -9,6 +9,7 @@
 #include <fstream>
 #include <optional>
 #include <set>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -415,6 +416,133 @@ TEST(BridgeService, ReleaseWhileMovingStopsAtTheNextPoll) {
   EXPECT_FALSE(c.h.service().studio_in_control());
 }
 
+// The watchdog stops only a motion the studio started (43d6117, conventions "Studio bridge").
+// Rows [from, end) of `h` (config mode) are those of the same config run with no client at all:
+// the config's trajectory ran on, tracking, never stopped or held.
+void expect_config_run_unchanged(const Harness& h, std::size_t from) {
+  HarnessOptions options;
+  options.source = pipeline::CommandSource::kConfig;
+  Harness ref(options);
+  ASSERT_TRUE(ref.ok());
+  ref.steps(static_cast<int>(h.rows().size()));
+  ASSERT_EQ(ref.rows().size(), h.rows().size());
+  ASSERT_LT(from, h.rows().size());
+  for (std::size_t i = from; i < h.rows().size(); ++i) {
+    const Record& got = h.rows()[i];
+    ASSERT_EQ(got.mode, LoopMode::kTracking) << "row " << i;
+    ASSERT_EQ(got.cmd_mode, CommandMode::kConfig) << "row " << i;
+    ASSERT_EQ(got.q_ref, ref.rows()[i].q_ref) << "row " << i;
+  }
+}
+
+TEST(BridgeService, ReleaseDuringTheConfigTrajectoryLetsItRunOn) {
+  HarnessOptions options;
+  options.source = pipeline::CommandSource::kConfig;
+  Claimed c(options);
+  ASSERT_TRUE(c.ok());
+  c.h.steps(500);
+  const Status st = c.h.status();
+  ASSERT_EQ(mode_of(st), LoopMode::kTracking);
+  ASSERT_EQ(static_cast<CommandMode>(st.cmd), CommandMode::kConfig);
+  c.client->release();
+  c.h.stop_beating();
+  const std::size_t released = c.h.rows().size();
+  c.h.steps(2000);  // to 2.53 s of the 10 s trajectory: far past a 0.5 s stop ramp
+  EXPECT_FALSE(c.h.service().studio_in_control());
+  expect_config_run_unchanged(c.h, released);
+}
+
+TEST(BridgeService, HeartbeatLossDuringTheConfigTrajectoryClearsTheOwnerAtOnce) {
+  HarnessOptions options;
+  options.source = pipeline::CommandSource::kConfig;
+  Claimed c(options);
+  ASSERT_TRUE(c.ok());
+  ASSERT_GE(
+      c.h.run_until(
+          [&] { return c.h.now_ns() >= 500'000'000 && c.h.now_ns() % kHeartbeatPeriodNs == 0; },
+          1000),
+      0);
+  const std::int64_t t_b = c.h.now_ns();  // the harness beat at this time
+  const std::size_t lost_from = c.h.rows().size();
+  c.h.stop_beating();
+  std::int64_t t_cleared = -1;
+  for (int k = 0; k < 1000 && t_cleared < 0; ++k) {
+    c.h.step();
+    if (c.h.server().owner_token() == 0) {
+      t_cleared = c.h.now_ns();
+    }
+  }
+  // Lost at the poll t_b + 205 ms and cleared at that poll: the config's trajectory still tracks
+  // (until 12 s), so waiting for the loop to leave tracking would keep a lost owner for seconds.
+  ASSERT_GE(t_cleared, 0) << "owner never cleared while the config trajectory tracks";
+  EXPECT_GE(t_cleared, t_b + 200'000'000);
+  EXPECT_LE(t_cleared, t_b + 210'000'000);
+  EXPECT_EQ(mode_of(c.h.status()), LoopMode::kTracking);
+  EXPECT_FALSE(c.client->is_owner());
+  EXPECT_FALSE(c.h.service().studio_in_control());
+  c.h.steps(1500);
+  expect_config_run_unchanged(c.h, lost_from);
+}
+
+TEST(BridgeService, ReleaseDuringAGoalTheStudioDidNotStartLetsItRunOn) {
+  // An RViz goal accepted before the claim: a trajectory load that reaches the loop through the
+  // LoopPort with id 0, not through a studio command, so the service has no record of it.
+  Harness h;
+  ASSERT_TRUE(h.ok());
+  h.steps(20);
+  const Status st = h.status();
+  ASSERT_EQ(mode_of(st), LoopMode::kStandby);
+  const Arm& arm = h.arm();
+  std::vector<planning::Waypoint> tip = e2e_13_waypoints();
+  ASSERT_EQ(tip.size(), 2U);
+  for (planning::Waypoint& w : tip) {
+    w.T_b_goal = common::compose(w.T_b_goal, common::inverse(arm.config.tcp_offset.T_tip_tcp));
+  }
+  const auto direct = pipeline::validate_path<kN>(arm.controller,
+                                                  arm.config.clik,
+                                                  arm.config.friction_compensation,
+                                                  vec_of(st.standby_q),
+                                                  from_wire(st.standby_reference_tip),
+                                                  tip,
+                                                  arm.config.cartesian_limits,
+                                                  arm.config.path_validation);
+  ASSERT_TRUE(direct.is_ok()) << direct.reason();
+  ASSERT_TRUE(direct.value().ok);
+  ASSERT_TRUE(direct.value().trajectory.has_value());
+  const double duration_s = direct.value().trajectory->duration_s();
+  ASSERT_GT(duration_s, 1.0) << "the release must come > 0.5 s (a stop ramp) before the end";
+  LoopCommand<kN> goal;
+  goal.kind = LoopCommand<kN>::Kind::kLoad;
+  goal.cmd = CommandMode::kWaypoints;
+  goal.trajectory = direct.value().trajectory;
+  ASSERT_TRUE(h.port().post(goal));
+  h.steps(5);
+  ASSERT_EQ(mode_of(h.status()), LoopMode::kTracking);
+  const std::ptrdiff_t first = h.first_row(-1, [](const Record& rec) {
+    return rec.cmd_mode == CommandMode::kWaypoints && rec.mode == LoopMode::kTracking;
+  });
+  ASSERT_GE(first, 0);
+  const std::int64_t t_start = h.rows()[static_cast<std::size_t>(first)].t.ns;
+
+  auto client = open_client(h.name());
+  ASSERT_TRUE(client);
+  ASSERT_TRUE(client->claim(h.now_ns()).is_ok());
+  h.beat_with(&*client);
+  h.steps(10);
+  ASSERT_TRUE(h.service().studio_in_control());
+  ASSERT_EQ(mode_of(h.status()), LoopMode::kTracking);
+  client->release();
+  h.stop_beating();
+  const int limit = static_cast<int>(std::ceil(duration_s * 1000.0)) + 500;
+  ASSERT_GE(h.run_until([&] { return in_standby(h); }, limit), 0);
+  // The goal ran to its end: standby at t_start + duration (2 steps), not a stop ramp.
+  const std::int64_t t_standby = standby_after(h, t_start);
+  ASSERT_GE(t_standby, 0);
+  EXPECT_NEAR(static_cast<double>(t_standby - t_start) * 1e-9, duration_s, 2e-3);
+  EXPECT_NE(h.status().manual_stop, manual_stop_value(ManualStop::kStopped));
+  EXPECT_FALSE(h.service().studio_in_control());
+}
+
 TEST(BridgeService, ACommandWithAStaleTokenIsRejectedNotTheOwner) {
   // The first owner's command is in the ring when a second client takes over: the service sees a
   // token that is not the current owner's (the stale-owner case of plan risk "SPSC command ring").
@@ -581,6 +709,68 @@ TEST(BridgeService, ExportOfRowsOverwrittenBeforeAnyExportIsTruncated) {
   EXPECT_EQ(e->truncated, 1U);
   EXPECT_LT(e->rows, static_cast<std::uint64_t>((t1 - t0) / kStepNs + 1));
   EXPECT_GT(e->rows, 0U);
+}
+
+TEST(BridgeService, ExportMarkStampBoundsTheExportedRowsSoALaterSegmentSkipsNone) {
+  // The control part runs 20 steps inside each export (a host's loop keeps stepping while its
+  // bridge thread exports): the mark of an export must carry the stamp read after it returned
+  // (43d6117), else a segment from just after the stamp read before it starts past its rows.
+  HarnessOptions options;
+  options.export_steps = 20;
+  Claimed c(options);
+  ASSERT_TRUE(c.ok());
+  c.h.steps(200);
+  const auto first = send_and_await(c.h, *c.client, export_command(0, c.h.now_ns()));
+  ASSERT_TRUE(first);
+  ASSERT_EQ(first->accepted, 1U) << text_of(*first);
+  ASSERT_EQ(c.h.export_calls().size(), 1U);
+  const ExportCall m = c.h.export_calls().front();
+  ASSERT_EQ(m.t_return_ns, m.t_entry_ns + 20 * kStepNs);
+
+  // Every row before the mark's offset is at or before the stamp read after the export, and the
+  // last of them is past the stamp read before it.
+  const std::string run_text = read_file(c.h.run_csv());
+  ASSERT_GE(run_text.size(), m.size_after);
+  std::istringstream marked(run_text.substr(0, m.size_after));
+  std::string line;
+  ASSERT_TRUE(static_cast<bool>(std::getline(marked, line)));  // header
+  std::int64_t last = -1;
+  while (std::getline(marked, line)) {
+    const std::int64_t t = t_of_line(line);
+    ASSERT_LE(t, m.t_return_ns) << line;
+    last = t;
+  }
+  EXPECT_EQ(last, m.t_return_ns);
+  EXPECT_GT(last, m.t_entry_ns);
+
+  // A later segment from just after the entry stamp: every Run CSV row of [t0, t1], none skipped.
+  c.h.steps(100);
+  const std::int64_t t0 = m.t_entry_ns + kStepNs;
+  const std::int64_t t1 = m.t_return_ns + 50'000'000;
+  ASSERT_LT(t1, c.h.now_ns());
+  const auto e = send_and_await(c.h, *c.client, export_command(t0, t1));
+  ASSERT_TRUE(e);
+  ASSERT_EQ(e->accepted, 1U) << text_of(*e);
+  EXPECT_EQ(e->truncated, 0U);
+  const std::int64_t steps = (t1 - t0) / kStepNs + 1;  // 70
+  EXPECT_EQ(e->rows, static_cast<std::uint64_t>(steps));
+  const std::vector<std::string> run = read_lines(c.h.run_csv());
+  const std::vector<std::string> seg = read_lines(text_of(e->out_path, kPathChars));
+  ASSERT_FALSE(run.empty());
+  ASSERT_FALSE(seg.empty());
+  EXPECT_EQ(seg.front(), run.front()) << "header";
+  std::vector<std::string> want;
+  for (std::size_t i = 1; i < run.size(); ++i) {
+    const std::int64_t t = t_of_line(run[i]);
+    if (t >= t0 && t <= t1) {
+      want.push_back(run[i]);
+    }
+  }
+  ASSERT_EQ(want.size(), static_cast<std::size_t>(steps));
+  ASSERT_EQ(seg.size(), want.size() + 1);
+  for (std::size_t i = 0; i < want.size(); ++i) {
+    ASSERT_EQ(seg[i + 1], want[i]) << "row " << i;
+  }
 }
 
 // --------------------------------------------------------------------------------- apply config

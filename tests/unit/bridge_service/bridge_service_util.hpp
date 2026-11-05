@@ -46,6 +46,9 @@
 //     beat_with() every 50 steps (kHeartbeatPeriodNs) with the fake clock;
 //   hooks: export_log appends the Recorder's rows to <out>/run.csv (one buffer, nothing records
 //     while the hook runs, so active() + clear() is the exactly-once export of this thread);
+//     with HarnessOptions::export_steps > 0 the control part first runs that many steps inside
+//     the hook (no poll), as the control thread of a host keeps stepping while its bridge thread
+//     exports; each call is kept as an ExportCall;
 //     apply_config loads the files, checks control_rate_hz against the host's rate and builds a
 //     new ControlLoop over the same Recorder that the next step start()s on its state and swaps
 //     in (the plant keeps the start profile, like Gazebo physics).
@@ -187,11 +190,21 @@ struct HarnessOptions {
   fs::path config = default_config();
   pipeline::CommandSource source = pipeline::CommandSource::kExternal;
   std::size_t log_rows = 20000;  // Recorder capacity (20 s at 1 kHz), one buffer, overwrite oldest
+  int export_steps = 0;          // control steps run inside each export_log call, before the export
+};
+
+// One export_log call: the loop's status stamp when the hook was entered and when it returned,
+// and the Run CSV size it returned.
+struct ExportCall {
+  std::int64_t t_entry_ns = 0;
+  std::int64_t t_return_ns = 0;
+  std::uint64_t size_after = 0;
 };
 
 class Harness {
  public:
-  explicit Harness(const HarnessOptions& options = HarnessOptions{}) : name_(next_name()) {
+  explicit Harness(const HarnessOptions& options = HarnessOptions{})
+      : name_(next_name()), export_steps_(options.export_steps) {
     const auto arm = load_arm(options.config, options.source);
     if (!arm) {
       ADD_FAILURE() << "load_arm: " << arm.reason();
@@ -256,6 +269,25 @@ class Harness {
   // part); the no-allocation test wraps it in its counters.
   template <typename Guard>
   void step(Guard&& guard) {
+    control_step(guard);
+    if (steps_ % kPollEverySteps == 0) {
+      service_->poll(now_ns());
+    }
+  }
+
+  void step() {
+    step([](const auto& control) { control(); });
+  }
+
+  void steps(int n) {
+    for (int k = 0; k < n; ++k) {
+      step();
+    }
+  }
+
+  // The control part of a step and the clients' beats, without the poll.
+  template <typename Guard>
+  void control_step(Guard&& guard) {
     State s;
     JointCmd cmd;
     EXPECT_TRUE(io_->read(s).is_ok());
@@ -276,19 +308,6 @@ class Harness {
       for (Client* c : beaters_) {
         c->beat(now_ns());
       }
-    }
-    if (steps_ % kPollEverySteps == 0) {
-      service_->poll(now_ns());
-    }
-  }
-
-  void step() {
-    step([](const auto& control) { control(); });
-  }
-
-  void steps(int n) {
-    for (int k = 0; k < n; ++k) {
-      step();
     }
   }
 
@@ -362,6 +381,7 @@ class Harness {
   // Row index of the first step of each swapped-in loop.
   const std::vector<std::size_t>& swap_rows() const { return swap_rows_; }
   int exports() const { return exports_; }
+  const std::vector<ExportCall>& export_calls() const { return export_calls_; }
   int applies() const { return applies_; }
 
  private:
@@ -373,6 +393,12 @@ class Harness {
   common::Result<Service::ExportInfo> export_log() {
     using Out = common::Result<Service::ExportInfo>;
     ++exports_;
+    ExportCall call;
+    call.t_entry_ns = status().t_ns;
+    for (int k = 0; k < export_steps_; ++k) {
+      control_step([](const auto& control) { control(); });
+    }
+    call.t_return_ns = status().t_ns;
     const common::Status st = pipeline::export_csv<kN>(run_csv_, recorder_->active(), true);
     if (!st) {
       return Out::error(st.reason());
@@ -383,6 +409,8 @@ class Harness {
     if (ec) {
       return Out::error(run_csv_.string() + ": " + ec.message());
     }
+    call.size_after = static_cast<std::uint64_t>(size);
+    export_calls_.push_back(call);
     return Out::ok(Service::ExportInfo{run_csv_, static_cast<std::uint64_t>(size)});
   }
 
@@ -419,6 +447,7 @@ class Harness {
   }
 
   std::string name_;
+  int export_steps_ = 0;
   bool ok_ = false;
   std::optional<Arm> arm_;
   std::optional<Arm> applied_arm_;
@@ -442,6 +471,7 @@ class Harness {
   std::int64_t steps_ = 0;
   int exports_ = 0;
   int applies_ = 0;
+  std::vector<ExportCall> export_calls_;
 };
 
 inline std::optional<Client> open_client(const std::string& name) {
