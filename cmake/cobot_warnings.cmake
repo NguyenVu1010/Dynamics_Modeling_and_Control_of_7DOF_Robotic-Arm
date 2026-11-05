@@ -15,6 +15,12 @@ function(cobot_set_target_defaults target)
   if(COBOT_WERROR)
     target_compile_options(${target} PRIVATE -Werror)
   endif()
+  # Test binaries that replace the global operator new/delete (allocation counters) get GCC's
+  # -Wmismatched-new-delete once the replacement free() is inlined into the cleanup path of a
+  # new-expression (std::make_unique of a type whose constructor may throw): a false positive.
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND target MATCHES "^test_")
+    target_compile_options(${target} PRIVATE -Wno-mismatched-new-delete)
+  endif()
   if(COBOT_ARCH_FLAGS)
     separate_arguments(arch_flags UNIX_COMMAND "${COBOT_ARCH_FLAGS}")
     target_compile_options(${target} PRIVATE ${arch_flags})
