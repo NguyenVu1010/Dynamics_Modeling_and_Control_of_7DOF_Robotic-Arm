@@ -1,8 +1,5 @@
 #include "cobot/bridge/loop_port.hpp"
 
-#include <cstddef>
-#include <string>
-
 #include "cobot/common/dof.hpp"
 
 namespace cobot::bridge {
@@ -11,37 +8,11 @@ namespace {
 using pipeline::CommandMode;
 using pipeline::LoopMode;
 
-// The literals ControlLoop::jog_joint / jog_tcp reject with (control_loop.cpp), so a JogAck
-// carries a pointer with static storage; anything else maps to the last entry.
-constexpr const char* kJogRejections[] = {
-    "jog: release the running jog first",
-    "jog_joint: command_source is config",
-    "jog_joint: direction must be -1 or +1",
-    "jog_joint: speed outside (0, 1]",
-    "jog_joint: jog is stopping",
-    "jog_joint: not in standby",
-    "jog_joint: joint out of range",
-    "jog_joint: joint at its soft limit in that direction",
-    "jog_tcp: command_source is config",
-    "jog_tcp: direction must be -1 or +1",
-    "jog_tcp: speed outside (0, 1]",
-    "jog_tcp: jog is stopping",
-    "jog_tcp: not in standby",
-    "jog_tcp: bad axis or frame",
-    "jog_tcp: near a singularity",
-    "jog_tcp: a joint is at its soft limit",
-    "jog: rejected",
-};
-
-// Rejection path only (reason() builds the text).
-const char* jog_literal(const common::Status& st) {
-  const std::string why = st.reason();
-  for (const char* literal : kJogRejections) {
-    if (why == literal) {
-      return literal;
-    }
-  }
-  return kJogRejections[sizeof(kJogRejections) / sizeof(kJogRejections[0]) - 1];
+// ControlLoop::jog_joint / jog_tcp reject with literals (static storage), so a JogAck carries the
+// pointer itself and no text is built on the control thread; built text maps to a fixed literal.
+const char* jog_literal(const common::Status& st) noexcept {
+  const char* literal = st.literal();
+  return literal != nullptr ? literal : "jog: rejected";
 }
 
 }  // namespace

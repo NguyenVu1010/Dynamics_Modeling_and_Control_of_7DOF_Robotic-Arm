@@ -11,11 +11,13 @@
 // (segment of the last motion step, [t_start, standby + 1 s]). One line per step: "<k> <step>: ok
 // <detail>", "<k> <step>: rejected: <reason>" or "<k> <step>: failed: <reason>". Exit 0 all ok;
 // 1 a step rejected, failed or timed out (later steps skipped); 2 bad arguments, no bridge or a
-// layout mismatch. Authority is released on every exit path; a thread beats every 50 ms from
-// `claim` on.
+// layout mismatch. Authority is released on every exit path (SIGINT / SIGTERM stop the running
+// step: "failed: interrupted", exit 1); a thread beats every 50 ms from `claim` on.
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <csignal>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -63,6 +65,27 @@ const char* const kUsage =
 
 using Client = bridge::ClientEndpoint<kN>;
 using Command = bridge::Command<kN>;
+
+// Set by SIGINT / SIGTERM: the running step and the later ones end through the normal path, so
+// the session's destructor releases authority.
+std::atomic<bool> g_interrupted{false};
+static_assert(std::atomic<bool>::is_always_lock_free, "signal-safe flag");
+
+extern "C" void on_signal(int /*signal*/) {
+  g_interrupted.store(true);
+}
+
+void install_signal_handlers() {
+  struct sigaction sa {};
+  sa.sa_handler = on_signal;
+  sigemptyset(&sa.sa_mask);
+  static_cast<void>(sigaction(SIGINT, &sa, nullptr));
+  static_cast<void>(sigaction(SIGTERM, &sa, nullptr));
+}
+
+bool interrupted() {
+  return g_interrupted.load();
+}
 
 std::vector<std::string> split(const std::string& text, char sep) {
   std::vector<std::string> parts;
@@ -268,7 +291,14 @@ class Session {
       return ok();
     }
     if (s.verb == "pause") {
-      std::this_thread::sleep_for(std::chrono::duration<double>(s.seconds));
+      const Clock::time_point end = Clock::now() + std::chrono::duration_cast<Clock::duration>(
+                                                       std::chrono::duration<double>(s.seconds));
+      while (Clock::now() < end) {
+        if (interrupted()) {
+          return failed("interrupted");
+        }
+        std::this_thread::sleep_for(std::min<Clock::duration>(kPoll, end - Clock::now()));
+      }
       return ok();
     }
     if (s.verb == "wait-standby") {
@@ -328,6 +358,9 @@ class Session {
     const Clock::time_point end = deadline();
     std::size_t k = 0;
     while (Clock::now() < end) {
+      if (interrupted()) {
+        return failed("interrupted");
+      }
       pump();
       if (after_ns < 0 && !history_.empty()) {
         k = history_.size() - 1;  // the current state only
@@ -359,7 +392,7 @@ class Session {
   std::optional<bridge::Response> await(std::uint64_t id) {
     const Clock::time_point end = deadline();
     bridge::Response r{};
-    while (Clock::now() < end) {
+    while (Clock::now() < end && !interrupted()) {
       while (client_.poll_response(r)) {
         if (r.type == bridge::CommandType::kJog) {
           jog_rejection_ = text_of(r.text, bridge::kTextChars);
@@ -385,7 +418,7 @@ class Session {
     jog_rejection_.clear();
     const Clock::time_point end = Clock::now() + std::chrono::duration_cast<Clock::duration>(
                                                      std::chrono::duration<double>(s.seconds));
-    while (Clock::now() < end && jog_rejection_.empty()) {
+    while (Clock::now() < end && jog_rejection_.empty() && !interrupted()) {
       client_.write_jog(s.jog);
       std::this_thread::sleep_for(kJogRefresh);
       bridge::Response r{};
@@ -402,6 +435,9 @@ class Session {
     if (!jog_rejection_.empty()) {
       return rejected(jog_rejection_);
     }
+    if (interrupted()) {
+      return failed("interrupted");
+    }
     return wait_standby(released_ns);
   }
 
@@ -412,7 +448,7 @@ class Session {
     }
     const std::optional<bridge::Response> r = await(id.value());
     if (!r) {
-      return failed("no response within the timeout");
+      return failed(interrupted() ? "interrupted" : "no response within the timeout");
     }
     std::string text = text_of(r->text, bridge::kTextChars);
     for (std::uint32_t i = 0; i < r->issue_count; ++i) {
@@ -450,6 +486,9 @@ class Session {
     const std::int64_t t1 = motion_->second + kExportTailNs;
     const Clock::time_point end = deadline();
     while (latest_ns() < t1 && Clock::now() < end) {  // the rows up to t1 exist
+      if (interrupted()) {
+        return failed("interrupted");
+      }
       std::this_thread::sleep_for(kPoll);
     }
     Step e = s;
@@ -461,7 +500,7 @@ class Session {
     }
     const std::optional<bridge::Response> r = await(id.value());
     if (!r) {
-      return failed("no response within the timeout");
+      return failed(interrupted() ? "interrupted" : "no response within the timeout");
     }
     if (r->accepted == 0) {
       return rejected(text_of(r->text, bridge::kTextChars));
@@ -532,7 +571,7 @@ int main_impl(int argc, char** argv) {
   }
   Session session(std::move(opened.value()), timeout_s);
   for (std::size_t k = 0; k < steps.size(); ++k) {
-    const Outcome o = session.run(steps[k]);
+    const Outcome o = interrupted() ? failed("interrupted") : session.run(steps[k]);
     const std::string head = std::to_string(k + 1) + " " + steps[k].text + ": ";
     if (o.kind == Outcome::kOk) {
       std::printf("%sok%s%s\n", head.c_str(), o.text.empty() ? "" : " ", o.text.c_str());
@@ -552,6 +591,7 @@ int main_impl(int argc, char** argv) {
 }  // namespace
 
 int main(int argc, char** argv) {
+  install_signal_handlers();
   try {
     return main_impl(argc, argv);
   } catch (const std::exception& e) {

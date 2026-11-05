@@ -14,6 +14,7 @@
 namespace cobot::bridge {
 namespace {
 
+using pipeline::CommandMode;
 using pipeline::LoopMode;
 
 constexpr std::size_t kMarks = 64;  // export marks kept
@@ -44,6 +45,19 @@ const char* name_of(CommandType t) {
       return "jog";
   }
   return "command";
+}
+
+bool is_motion(CommandType t) {
+  return t == CommandType::kMoveJoint || t == CommandType::kMoveTcp ||
+         t == CommandType::kRunWaypoints;
+}
+
+// Command modes only the bridge starts (manual commands); waypoints may also come from the
+// config or from the RViz panel.
+bool is_manual(std::uint8_t cmd) {
+  const auto m = static_cast<CommandMode>(cmd);
+  return m == CommandMode::kJogJoint || m == CommandMode::kJogTcp || m == CommandMode::kMoveJoint ||
+         m == CommandMode::kMoveTcp;
 }
 
 template <int N>
@@ -102,27 +116,34 @@ bool CommandService<N>::read_status(LoopStatus<N>& out) const {
   return false;
 }
 
-// ADR-022: an owner that is lost, or replaced / released while the loop runs a command, stops the
-// loop with deceleration (once); a lost owner is cleared once the loop is out of tracking.
+// ADR-022: an owner that is lost, or replaced / released while the loop runs a command the studio
+// started, stops the loop with deceleration (once); a lost owner is cleared once that motion is
+// over. A motion the studio did not start (the config's trajectory, an RViz goal) runs on.
 template <int N>
 void CommandService<N>::watchdog(std::int64_t now_ns) {
   LoopStatus<N> st{};
   const bool have = read_status(st);
   const bool tracking = have && static_cast<LoopMode>(st.mode) == LoopMode::kTracking;
+  if (!tracking) {
+    stop_posted_ = false;
+  }
+  if (have && !tracking) {
+    studio_motion_ = false;
+  }
+  const bool posted = std::any_of(
+      pending_.begin(), pending_.end(), [](const Pending& p) { return is_motion(p.type); });
+  const bool studio = tracking && (studio_motion_ || posted || is_manual(st.cmd));
   std::uint64_t token = endpoint_.owner_token();
   const OwnerState state = endpoint_.owner_state(now_ns);
   const bool lost =
       token != 0 && (state == OwnerState::kHeartbeatLost || state == OwnerState::kProcessGone);
   const bool changed = last_owner_ != 0 && token != last_owner_;
-  if (!tracking) {
-    stop_posted_ = false;
-  }
-  if ((lost || changed) && tracking && !stop_posted_) {
+  if ((lost || changed) && studio && !stop_posted_) {
     *post_ = LoopCommand<N>{};
     post_->kind = LoopCommand<N>::Kind::kStop;
     stop_posted_ = port_.post(*post_);
   }
-  if (lost && have && !tracking) {
+  if (lost && have && !studio) {
     endpoint_.clear_owner();
     token = endpoint_.owner_token();
   }
@@ -160,27 +181,34 @@ bool CommandService<N>::motion_allowed(const Command<N>& c, const LoopStatus<N>&
   return false;
 }
 
+// The loop's stamp is read after the export returned: it bounds every exported row from above,
+// so the rows before the mark's offset are all at or before its stamp.
 template <int N>
-void CommandService<N>::export_mark(std::int64_t t_ns) {
-  if (!hooks_.export_log) {
-    return;
-  }
-  const common::Result<ExportInfo> info = hooks_.export_log();
-  if (!info) {
-    return;  // the segment copy then scans from an older mark
+void CommandService<N>::add_mark(std::uint64_t size_after) {
+  LoopStatus<N> st{};
+  if (!read_status(st)) {
+    return;  // a later segment copy then scans from an older mark
   }
   if (marks_.size() == kMarks) {
     marks_.erase(marks_.begin());
   }
-  marks_.push_back(Mark{t_ns, info.value().size_after});
+  marks_.push_back(Mark{st.t_ns, size_after});
 }
 
 template <int N>
-void CommandService<N>::post_motion(const Command<N>& c,
-                                    const LoopStatus<N>& st,
-                                    LoopCommand<N>& lc,
-                                    double duration_s) {
-  export_mark(st.t_ns);
+void CommandService<N>::export_mark() {
+  if (!hooks_.export_log) {
+    return;
+  }
+  const common::Result<ExportInfo> info = hooks_.export_log();
+  if (info) {
+    add_mark(info.value().size_after);
+  }  // else a later segment copy scans from an older mark
+}
+
+template <int N>
+void CommandService<N>::post_motion(const Command<N>& c, LoopCommand<N>& lc, double duration_s) {
+  export_mark();
   lc.id = c.id;
   if (!port_.post(lc)) {
     reply(c, std::string(name_of(c.type)) + ": the control loop is busy");
@@ -242,7 +270,7 @@ void CommandService<N>::plan_waypoints(const Command<N>& c, const LoopStatus<N>&
     lc.kind = LoopCommand<N>::Kind::kLoad;
     lc.cmd = pipeline::CommandMode::kWaypoints;
     lc.trajectory = v.trajectory;
-    post_motion(c, st, lc, v.trajectory->duration_s());
+    post_motion(c, lc, v.trajectory->duration_s());
     return;
   }
   Response& r = reply(c, name + (ok ? ": ok" : ": path validation failed"));
@@ -276,8 +304,6 @@ void CommandService<N>::export_segment(const Command<N>& c) {
     push();
     return;
   }
-  LoopStatus<N> st{};
-  static_cast<void>(read_status(st));
   const common::Result<ExportInfo> info = hooks_.export_log();
   if (!info) {
     reply(c, info.reason());
@@ -285,16 +311,14 @@ void CommandService<N>::export_segment(const Command<N>& c) {
     return;
   }
   // Rows after the latest mark before t0 start at that mark's size: only the tail is scanned.
+  // Every row before m.size is at or before m.t_ns < t0 (the stamp is read after the export).
   std::uint64_t offset = 0;
   for (const Mark& m : marks_) {
     if (m.t_ns < c.t0_ns) {
       offset = m.size;
     }
   }
-  if (marks_.size() == kMarks) {
-    marks_.erase(marks_.begin());
-  }
-  marks_.push_back(Mark{st.t_ns, info.value().size_after});
+  add_mark(info.value().size_after);
   std::error_code ec;
   std::filesystem::create_directories(segment_dir_, ec);
   const std::filesystem::path out = segment_dir_ / ("segment-" + std::to_string(c.id) + ".csv");
@@ -335,6 +359,9 @@ void CommandService<N>::apply_config(const Command<N>& c, const LoopStatus<N>& s
   config_ = std::move(applied.value().second);
   period_ns_ = std::llround(kNsPerS / config_.control_rate_hz);
   SessionInfo<N>& s = session_;
+  if (hooks_.seed) {
+    s.seed = hooks_.seed();
+  }
   copy_text(s.config_path, kPathChars, config.string());
   copy_text(s.imperfections_path, kPathChars, imperfections.string());
   s.command_source_external =
@@ -383,7 +410,7 @@ void CommandService<N>::handle(const Command<N>& c) {
       }
       lc.kind = Kind::kMoveJoint;
       lc.move = plan.value();
-      post_motion(c, st, lc, plan.value().duration_s);
+      post_motion(c, lc, plan.value().duration_s);
       return;
     }
     case CommandType::kMoveTcp: {
@@ -413,7 +440,7 @@ void CommandService<N>::handle(const Command<N>& c) {
       lc.kind = Kind::kLoad;
       lc.cmd = pipeline::CommandMode::kMoveTcp;
       lc.trajectory = plan.value().trajectory;
-      post_motion(c, st, lc, lc.trajectory->duration_s());
+      post_motion(c, lc, lc.trajectory->duration_s());
       return;
     }
     case CommandType::kRunWaypoints:
@@ -465,6 +492,7 @@ void CommandService<N>::answer_acks() {
     r.command_id = it->id;
     r.type = it->type;
     if (ack.status.is_ok()) {
+      studio_motion_ = studio_motion_ || is_motion(it->type);
       r.accepted = 1;
       r.t_start_ns = ack.t_ns;
       r.duration_s = it->duration_s;

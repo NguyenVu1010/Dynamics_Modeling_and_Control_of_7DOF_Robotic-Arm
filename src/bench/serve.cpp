@@ -157,6 +157,7 @@ class Host {
   ServeOptions options_;
   imperfect::ImperfectionConfig<kN> imp_;
   Arm arm_;
+  std::uint64_t seed_ = 0;  // the decorator's seed in use (bridge thread after start)
   double period_s_ = 0.0;
   fs::path run_csv_;
   std::unique_ptr<dynamics::SimPlant<kN>> plant_;
@@ -221,6 +222,7 @@ common::Result<Applied> Host::apply(const fs::path& config, const fs::path& impe
   if (!imp) {
     return Out::error(imp.reason());
   }
+  imp.value().seed = options_.seed.value_or(imp.value().seed);  // --seed wins, as at start
   const common::Result<Arm> arm = load_arm(config);
   if (!arm) {
     return Out::error(arm.reason());
@@ -255,6 +257,7 @@ common::Result<Applied> Host::apply(const fs::path& config, const fs::path& impe
     return Out::error("apply config: not in standby");
   }
   const std::unique_ptr<Runtime> old(retired_.exchange(nullptr));  // destroyed here
+  seed_ = imp.value().seed;
   return Out::ok(Applied{arm.value().controller, arm.value().config});
 }
 
@@ -339,7 +342,8 @@ Status Host::run(const std::atomic<bool>& stop,
 
   const fs::path config_path = fs::absolute(options_.config_yaml, ec);
   const fs::path imp_path = fs::absolute(options_.imperfections_yaml, ec);
-  const bridge::SessionInfo<kN> session = session_of(arm_, config_path, imp_path, imp_.seed);
+  seed_ = imp_.seed;
+  const bridge::SessionInfo<kN> session = session_of(arm_, config_path, imp_path, seed_);
   common::Result<Server> created = Server::create(options_.name, session);
   if (!created) {
     return Status::error(created.reason());
@@ -349,6 +353,7 @@ Status Host::run(const std::atomic<bool>& stop,
   Service::Hooks hooks;
   hooks.export_log = [this] { return export_log(); };
   hooks.apply_config = [this](const fs::path& c, const fs::path& i) { return apply(c, i); };
+  hooks.seed = [this] { return seed_; };
   service_ = std::make_unique<Service>(*server_,
                                        *port_,
                                        arm_.controller,

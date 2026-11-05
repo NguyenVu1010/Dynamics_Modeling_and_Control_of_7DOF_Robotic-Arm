@@ -128,7 +128,9 @@ Chốt cả hai mặc định trên:
   để `cobot_controller` và `cobot_bench serve` dùng cùng một mã.
 - Quyền điều khiển = token ngẫu nhiên của chủ + pid; mất nhịp 200 ms hoặc pid không còn thì dừng có
   giảm tốc một lần, trả quyền khi vòng đã ra khỏi `tracking`. Chủ đổi hoặc trả quyền khi vòng đang
-  chạy lệnh cũng dừng một lần.
+  chạy lệnh do studio khởi động (jog, `move_joint`, `move_tcp`, `run_waypoints`) cũng dừng một lần.
+  Chuyển động không do studio khởi động (quỹ đạo của config, goal RViz nhận trước khi studio giành
+  quyền) chạy tiếp; chủ mất nhịp khi đó được xoá ngay.
 - Cầu nối chỉ có khi `log.mode: recorder_live`; lệnh chuyển động (`move_joint`, `move_tcp`,
   `run_waypoints`, `apply_config`) cần thêm `command_source: external`.
 - Xuất đoạn = xuất Recorder vào Run CSV như thường lệ, rồi chép các dòng `[t0, t1]` của Run CSV;

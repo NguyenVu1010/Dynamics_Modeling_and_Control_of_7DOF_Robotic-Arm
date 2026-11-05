@@ -40,6 +40,9 @@ class CommandService {
     std::function<common::Result<std::pair<model::Model<N>, pipeline::Config<N>>>(
         const std::filesystem::path& config, const std::filesystem::path& imperfections)>
         apply_config;
+    // Optional: the imperfection seed the host uses after a successful apply_config (its
+    // override, else the new file's seed), written to the session. Empty: the seed is kept.
+    std::function<std::uint64_t()> seed;
   };
 
   CommandService(ServerEndpoint<N>& endpoint,
@@ -61,7 +64,7 @@ class CommandService {
     CommandType type{};
     double duration_s = 0.0;
   };
-  struct Mark {  // Run CSV size after an export, and the loop's stamp just before it
+  struct Mark {  // Run CSV size after an export, and the loop's stamp read after it
     std::int64_t t_ns = 0;
     std::uint64_t size = 0;
   };
@@ -73,12 +76,13 @@ class CommandService {
   Response& reply(const Command<N>& c, const std::string& text);
   void push();
   bool motion_allowed(const Command<N>& c, const LoopStatus<N>& st);
-  void post_motion(const Command<N>& c, const LoopStatus<N>& st, LoopCommand<N>& lc, double d);
+  void post_motion(const Command<N>& c, LoopCommand<N>& lc, double duration_s);
   void plan_waypoints(const Command<N>& c, const LoopStatus<N>& st);
   void issues_into(const std::vector<pipeline::WaypointIssue>& issues);
   void export_segment(const Command<N>& c);
   void apply_config(const Command<N>& c, const LoopStatus<N>& st);
-  void export_mark(std::int64_t t_ns);
+  void export_mark();
+  void add_mark(std::uint64_t size_after);
   bool read_status(LoopStatus<N>& out) const;
 
   ServerEndpoint<N>& endpoint_;
@@ -96,6 +100,7 @@ class CommandService {
   std::vector<Mark> marks_;  // the last kMarks export marks, oldest first
   std::uint64_t last_owner_ = 0;
   bool stop_posted_ = false;
+  bool studio_motion_ = false;  // the loop tracks a motion the studio started
 };
 
 }  // namespace cobot::bridge

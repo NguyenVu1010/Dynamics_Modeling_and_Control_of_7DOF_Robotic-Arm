@@ -293,8 +293,11 @@ answers. Every command gets exactly one `Response` (`command_id` = its id, `type
 | `kExportSegment` | `t0_ns`, `t1_ns` (stamps of the Run CSV) | `out_path`, `rows`, `truncated` |
 | (jog slot) | refresh changed, token = owner | only a rejection: `type` `kJog`, `command_id` = the refresh, the loop's text |
 
-Watchdog: an owner that is lost (heartbeat, pid), or replaced or released while the loop tracks,
-gets one stop with deceleration; a lost owner is cleared once the loop is out of tracking.
+Watchdog: an owner that is lost (heartbeat, pid), or replaced or released while the loop tracks a
+motion the studio started (jog, `move_joint`, `move_tcp`, `run_waypoints`), gets one stop with
+deceleration; a lost owner is cleared once that motion is over. A motion the studio did not start
+(the config's trajectory, an RViz goal accepted before the claim) runs on, and a lost owner is then
+cleared at once.
 Segment export: the host first exports the Recorder to its Run CSV as usual, then the rows of the
 Run CSV with `t_ns` in `[t0, t1]` and its header line are copied byte for byte to
 `<segment dir>/segment-<id>.csv` (controller: `<tmp>/cobot_<node name>`; bench: `<out>/segments`);
@@ -320,4 +323,5 @@ stamps, not `monotonic_ns`.
 It prints one line per step, `<k> <step>: ok [detail]`, `<k> <step>: rejected: <reason>` or
 `<k> <step>: failed: <reason>` (a motion step that ends in holding fails with `held: <reason>`),
 and exits 0 when every step is ok, 1 when one is not (later steps skipped), 2 on bad arguments, no
-bridge or a layout mismatch. Authority is released on every exit path.
+bridge or a layout mismatch. Authority is released on every exit path: SIGINT or SIGTERM ends the
+running step with `failed: interrupted` (exit 1).

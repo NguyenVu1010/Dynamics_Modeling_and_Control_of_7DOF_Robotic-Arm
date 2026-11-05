@@ -672,6 +672,7 @@ class CobotController final : public ci::ControllerInterface {
                                 const std::filesystem::path& imperfections) {
       return apply_runtime(config, imperfections);
     };
+    hooks.seed = [this] { return seed_; };
     std::error_code ec;
     service_ =
         std::make_unique<Service>(*endpoint_,
@@ -712,6 +713,7 @@ class CobotController final : public ci::ControllerInterface {
       return R::error(e.what());
     }
     std::pair<cobot::model::Arm7, cobot::pipeline::Config<kN>> applied{*next->model, next->config};
+    const std::uint64_t seed_used = next->seed;
     // Owned by update() once it swapped it in, else taken back here.
     Runtime* const offered = next.release();
     swap_result_.store(kSwapPending, std::memory_order_release);
@@ -734,6 +736,7 @@ class CobotController final : public ci::ControllerInterface {
     const std::unique_ptr<Runtime> old(retired_.exchange(nullptr));  // destroyed here
     config_path_ = config.string();
     imp_path_ = imperfections.string();
+    seed_ = seed_used;
     if (server_) {
       server_->set_model(applied.first, applied.second);
     }

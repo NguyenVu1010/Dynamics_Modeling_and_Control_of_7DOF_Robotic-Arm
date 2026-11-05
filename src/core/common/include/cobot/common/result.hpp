@@ -39,6 +39,8 @@ class Status {
   /// The reason text, empty for ok(). Returned by value (built from whichever overload set
   /// it); may allocate.
   std::string reason() const { return literal_ != nullptr ? std::string(literal_) : owned_; }
+  /// The literal set by error(const char*), else nullptr (ok, or built text). Never allocates.
+  const char* literal() const { return literal_; }
 
  private:
   Status() = default;

@@ -15,10 +15,11 @@ function(cobot_set_target_defaults target)
   if(COBOT_WERROR)
     target_compile_options(${target} PRIVATE -Werror)
   endif()
-  # Test binaries that replace the global operator new/delete (allocation counters) get GCC's
-  # -Wmismatched-new-delete once the replacement free() is inlined into the cleanup path of a
-  # new-expression (std::make_unique of a type whose constructor may throw): a false positive.
-  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND target MATCHES "^test_")
+  # test_bridge_service_no_alloc replaces the global operator new/delete (allocation counter);
+  # GCC then reports -Wmismatched-new-delete once the replacement free() is inlined into the
+  # cleanup path of a new-expression (std::make_unique of a type whose constructor may throw): a
+  # false positive. Only that binary is exempt; every other target keeps the warning.
+  if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" AND target STREQUAL "test_bridge_service_no_alloc")
     target_compile_options(${target} PRIVATE -Wno-mismatched-new-delete)
   endif()
   if(COBOT_ARCH_FLAGS)
