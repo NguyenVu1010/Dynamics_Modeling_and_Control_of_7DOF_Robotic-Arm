@@ -1,6 +1,6 @@
 # ADR-022: Cầu nối bộ nhớ chia sẻ giữa controller và studio, quyền điều khiển và lệnh tay
 
-- Trạng thái: đề xuất, chờ bàn
+- Trạng thái: đề xuất; hai mục "Chờ bàn" đã chốt theo mặc định ở PR manual-commands (2026-11-05)
 - Ngày: 2026-11-03
 - Liên quan: thiết kế `docs/design/2026-11-02-cobot-studio-design.md` mục 2 (G6–G9), 4 (quyết
   định 12, 13, 14, 17), 5.4, 6.4, 6.5, 6.8, 7, 8 (PR 7–11); ADR-008, ADR-012, ADR-018, ADR-020, ADR-021
@@ -86,12 +86,38 @@ khi standby. Luồng cầu nối dựng **toàn bộ** phần `on_configure` đa
 tại tư thế đo hiện tại. `Recorder` và các vùng nhớ chia sẻ thuộc controller, sống qua lần đổi.
 `control_rate_hz` không đổi được.
 
-**Chờ bàn** (người xây dựng dùng mặc định tới khi chốt ở PR `manual-commands`):
+**Đã chốt ở PR manual-commands** (trước đây là "Chờ bàn"; người xây dựng dùng mặc định tới khi chốt
+ở PR `manual-commands`):
 
 - Hồ sơ vận tốc của `move_joint`: mặc định **hình thang đồng bộ** (phương án khác: bậc 5).
 - Ngưỡng gần kỳ dị: thiết kế nói "chỉ số manipulability dưới ngưỡng"; mặc định dùng **số điều kiện
   của Jacobian CLIK vượt `clik.cond_threshold`** (hiện 100, cùng ngưỡng CLIK bắt đầu giảm chấn), để
   không thêm khoá mới.
+
+Chốt cả hai mặc định trên:
+
+- `move_joint` dùng **hình thang đồng bộ**: một hồ sơ chuẩn hoá s(t) ∈ [0, 1] chung cho mọi khớp,
+  q(t) = q_start + s(t) (q_goal − q_start), đường thẳng trong không gian khớp, mọi khớp tới đích cùng
+  lúc. Với d_j = |q_goal_j − q_start_j| (bỏ khớp có d_j = 0): s_v_max = min_j speed·qd_max_j / d_j,
+  s_a_max = min_j speed·a_max_j / d_j; hình thang khi s_v_max² / s_a_max < 1, thời lượng
+  1 / s_v_max + s_v_max / s_a_max; ngược lại hình tam giác, thời lượng 2·sqrt(1 / s_a_max), đỉnh
+  s' = sqrt(s_a_max) (`pipeline::JointMove`, `plan_joint_move`).
+- Gần kỳ dị = **số điều kiện của Jacobian CLIK > `clik.cond_threshold`** (100). Jog TCP vượt ngưỡng
+  thì giảm tốc về 0 với lý do `singularity`; jog TCP bắt đầu khi đã trên ngưỡng thì bị từ chối.
+
+**Bổ sung 2026-11-05** (PR manual-commands):
+
+- Dải jog = `safety.soft_margin_deg` + `manual.jog_margin_deg` (mặc định 3° + 2° = 5° tính từ giới
+  hạn URDF), vì 2° tính từ giới hạn URDF nằm trong dải giữ 3° của ADR-008: jog và `move_joint` dừng
+  ở mép dải jog, không bao giờ chạm dải giữ.
+- Mục cấu hình mới, tuỳ chọn, `cobot.manual`: `joint_a_max_rad_s2`, `tcp_v_max_m_s`,
+  `tcp_w_max_rad_s`, `tcp_a_max_m_s2`, `tcp_alpha_max_rad_s2` (ở 100 % tốc độ), `deadman_ms`,
+  `jog_margin_deg` (`docs/conventions.md`).
+- `HoldReason::kEstop` (chuỗi `estop`): `estop()` đưa bước kế tiếp vào `kHolding`, cần `reset`;
+  phiên bản bố cục log hộp đen `kShmLogLayoutVersion` lên 3.
+- Nút người chết đếm theo bước điều khiển: `deadman_s · control_rate_hz` bước không làm mới thì jog
+  giảm tốc về 0 với lý do `deadman`.
+- `move_tcp` dùng dải jog làm `joint_margin_rad` của `validate_path`.
 
 **PF-02**: `cobot_bench timing --paced` (chạy theo nhịp 1 kHz bằng `clock_nanosleep`) đo thời gian
 bước (p50, p99, max) với `log.mode` = `off`, `recorder`, `recorder_live` có người đọc ở lõi khác. Trên

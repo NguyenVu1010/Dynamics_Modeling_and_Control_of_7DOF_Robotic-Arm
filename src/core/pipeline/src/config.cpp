@@ -370,6 +370,33 @@ void read_external(Reader& m, Config<N>& c) {
   }
 }
 
+// `manual` (feature manual-commands, ADR-022): optional section, every sub-key optional.
+template <int N>
+void read_manual(Reader& m, ManualConfig<N>& c) {
+  if (!m.has("manual")) {
+    return;
+  }
+  Reader x = m.map("manual");
+  if (x.has("joint_a_max_rad_s2")) {
+    x.vector<N>("joint_a_max_rad_s2", kPositive, true, c.joint_a_max_rad_s2);
+  }
+  optional_number(x, "tcp_v_max_m_s", kPositive, c.tcp_v_max_m_s);
+  optional_number(x, "tcp_w_max_rad_s", kPositive, c.tcp_w_max_rad_s);
+  optional_number(x, "tcp_a_max_m_s2", kPositive, c.tcp_a_max_m_s2);
+  optional_number(x, "tcp_alpha_max_rad_s2", kPositive, c.tcp_alpha_max_rad_s2);
+  if (x.has("deadman_ms")) {
+    double ms = 0.0;
+    x.number("deadman_ms", kPositive, ms);
+    c.deadman_s = ms > 0.0 ? ms * kSecondsPerMillisecond : c.deadman_s;
+  }
+  if (x.has("jog_margin_deg")) {
+    double deg = -1.0;
+    x.number("jog_margin_deg", kNonNegative, deg);
+    c.jog_margin_rad = deg >= 0.0 ? deg * kDegToRad : c.jog_margin_rad;
+  }
+  x.finish();
+}
+
 // `limits` (feature joint-limits), read after the URDF path and links: the URDF <limit effort>
 // (momentary torque M) is the default of both lists and the upper bound of the peak torque. A
 // URDF that cannot be read leaves the bound out; building the model reports that file later.
@@ -491,6 +518,7 @@ void read_config(Reader& root, const fs::path& dir, Config<N>& c) {
   read_external<N>(m, c);
   read_limits<N>(m, c);
   read_deflection_comp<N>(m, c.deflection_comp);
+  read_manual<N>(m, c.manual);
   for (Reader* r : {&t, &k, &g, &s, &l, &m}) {
     r->finish();
   }

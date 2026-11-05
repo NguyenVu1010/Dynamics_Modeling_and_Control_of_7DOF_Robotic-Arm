@@ -88,6 +88,27 @@ struct DeflectionCompConfig {
   VecN<N> torque_t2_nm = VecN<N>::Zero();         // N m
 };
 
+inline constexpr double kDeg = 3.14159265358979323846 / 180.0;  // rad per degree
+
+// Manual commands of the studio (ADR-022), YAML `manual: {joint_a_max_rad_s2 (N values or a
+// scalar), tcp_v_max_m_s, tcp_w_max_rad_s, tcp_a_max_m_s2, tcp_alpha_max_rad_s2, deadman_ms,
+// jog_margin_deg}`. Optional section, every sub-key optional: a missing one keeps these defaults.
+// "At 100 %": every command passes a speed fraction in (0, 1] that scales velocities and
+// accelerations.
+template <int N>
+struct ManualConfig {
+  VecN<N> joint_a_max_rad_s2 =
+      VecN<N>::Constant(5.0);         // > 0; joint velocity limit is the URDF qd_max
+  double tcp_v_max_m_s = 0.25;        // > 0
+  double tcp_w_max_rad_s = 1.0;       // > 0
+  double tcp_a_max_m_s2 = 0.5;        // > 0
+  double tcp_alpha_max_rad_s2 = 2.0;  // > 0
+  double deadman_s = 0.1;             // YAML deadman_ms, > 0: jog without refresh ramps to rest
+  // YAML jog_margin_deg, >= 0: jog/move stop this far INSIDE the safety band, i.e. at
+  // soft_margin_rad + jog_margin_rad from a URDF limit (plan ambiguity 1).
+  double jog_margin_rad = 2.0 * kDeg;
+};
+
 template <int N>
 struct Config {
   std::filesystem::path urdf_path;  // resolved relative to the YAML file's directory
@@ -119,6 +140,7 @@ struct Config {
   // "limits.peak_torque_nm[j]" (0-based j). Missing section: URDF effort for both.
   JointLimitsConfig<N> limits;
   DeflectionCompConfig<N> deflection_comp;  // optional section: disabled
+  ManualConfig<N> manual;                   // optional section (feature manual-commands)
 };
 
 template <int N>

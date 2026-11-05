@@ -27,6 +27,10 @@ constexpr double kLoadPosTolM = 1e-4;
 constexpr double kLoadRotTolRad = 1.745e-4;
 constexpr double kStopEndTolerance = 1e-9;  // on the stop ramp's x = t / stop_time_s
 constexpr std::size_t kMessageChars = 160;
+// Manual commands: a joint this close to its jog limit is at it; a joint move plan must start
+// this close (max norm) to joint_reference().
+constexpr double kAtJogLimitRad = 1e-3;
+constexpr double kMoveStartTolRad = 1e-3;
 
 const char* not_in_standby(LoopMode mode) {
   switch (mode) {
@@ -101,7 +105,14 @@ ControlLoop<N>::ControlLoop(const model::Model<N>& model,
       computed_torque_(model, config.computed_torque),
       friction_(config.friction_compensation),
       hold_(model, config.computed_torque),
-      recorder_(recorder) {}
+      recorder_(recorder) {
+  const double band = config.safety.soft_margin_rad + config.manual.jog_margin_rad;
+  for (int j = 0; j < N; ++j) {
+    jog_lo_(j) = model.joints[static_cast<std::size_t>(j)].q_min + band;
+    jog_hi_(j) = model.joints[static_cast<std::size_t>(j)].q_max - band;
+  }
+  cmd_ = external() ? CommandMode::kWaypoints : CommandMode::kConfig;
+}
 
 template <int N>
 const JointState<N>& ControlLoop<N>::compensated(const JointState<N>& measured) {
@@ -136,6 +147,9 @@ Status ControlLoop<N>::start(const JointState<N>& measured) {
   stale_steps_ = 0;
   q_last_finite_ = initial.q;
   hold_reason_ = HoldReason::kNone;
+  cmd_ = external() ? CommandMode::kWaypoints : CommandMode::kConfig;
+  manual_stop_ = ManualStop::kNone;
+  estop_requested_ = false;
   if (external()) {
     waypoints_.reset();
     tau_ = 0.0;
@@ -193,6 +207,10 @@ Status ControlLoop<N>::step(const JointState<N>& measured,
   } else {
     reason = outside_safe_set(model_, state, config_.safety.soft_margin_rad);
   }
+  if (reason == HoldReason::kNone && estop_requested_) {
+    reason = HoldReason::kEstop;
+  }
+  estop_requested_ = false;
 
   // 1. Safety: leave tracking (or standby) for the hold at the q of this moment.
   if (mode_ == LoopMode::kTracking || mode_ == LoopMode::kFinished || mode_ == LoopMode::kStandby) {
@@ -209,15 +227,33 @@ Status ControlLoop<N>::step(const JointState<N>& measured,
   // 2.-3. Tracking reference and torque (standby: the same path on a fixed reference), or the
   // hold. External mode keeps the last reference while holding.
   const double dt = 1.0 / config_.control_rate_hz;
+  bool joint_row = false;  // joint modes: the reference comes from the profile, not CLIK
   if (!external()) {
     reference_ = trajectory_->sample(t);
+  } else if (joint_mode()) {
+    joint_row = true;
+    advance_joint(dt);
+  } else if (mode_ == LoopMode::kTracking && cmd_ == CommandMode::kJogTcp) {
+    if (tcp_jog_step(jog_, dt, reference_)) {
+      manual_stop_ = jog_.braking;
+      enter_standby(reference_.T_b_d);
+    }
   } else if (mode_ == LoopMode::kTracking) {
     advance_external(dt);
   }
   const planning::CartesianSample& x_d = reference_;
   LogRecord<N> record;
   if (mode_ == LoopMode::kTracking || mode_ == LoopMode::kFinished || mode_ == LoopMode::kStandby) {
-    const planning::JointReference<N>& ref = clik_.step(x_d, dt);
+    const planning::JointReference<N>& ref = joint_row ? joint_ref_ : clik_.step(x_d, dt);
+    if (mode_ == LoopMode::kTracking && cmd_ == CommandMode::kJogTcp &&
+        jog_.braking == ManualStop::kNone) {
+      if (clik_.condition_number() > config_.clik.cond_threshold) {
+        jog_.braking = ManualStop::kSingularity;
+      } else if (tcp_jog_near_limit<N>(
+                     ref, jog_lo_, jog_hi_, config_.manual.joint_a_max_rad_s2, jog_.speed)) {
+        jog_.braking = ManualStop::kSoftLimit;
+      }
+    }
     out = computed_torque_.compute(state, ref);
     add_clamped(model_, friction_.torque(ref.qd), out.tau);
     record.q_ref = ref.q;
@@ -249,7 +285,8 @@ Status ControlLoop<N>::step(const JointState<N>& measured,
   record.T_b_d = x_d.T_b_d;
   // CLIK is not stepped while holding, so its error says nothing about the hold target.
   if (mode_ != LoopMode::kHolding) {
-    record.task_error = clik_.reference().task_error;
+    record.task_error =
+        joint_row ? common::pose_error(x_d.T_b_d, fk.T_b_e) : clik_.reference().task_error;
   }
   if (timed) {
     const std::chrono::duration<double, std::micro> elapsed = std::chrono::steady_clock::now() - t0;
@@ -263,7 +300,7 @@ Status ControlLoop<N>::step(const JointState<N>& measured,
   record.q_motor_true = truth.q_motor;
   record.tau_motor = truth.tau_motor;
   record.tau_friction = truth.tau_friction;
-  record.cmd_mode = external() ? CommandMode::kWaypoints : CommandMode::kConfig;
+  record.cmd_mode = cmd_;
   last_record_ = record;
   if (recorder_ != nullptr) {
     recorder_->record(record);
@@ -282,6 +319,16 @@ void ControlLoop<N>::enter_standby(const common::Pose& pose) {
   mode_ = LoopMode::kStandby;
 }
 
+// Smoothstep stop rate r and dr/dt of this step (ADR-018 stop over stop_time_s); true at rest.
+template <int N>
+bool ControlLoop<N>::stop_rate(double dt, double& r, double& r_dot) {
+  const double x = static_cast<double>(stop_steps_) * dt / config_.stop_time_s;
+  r = 1.0 - x * x * (3.0 - 2.0 * x);
+  r_dot = -6.0 * x * (1.0 - x) / config_.stop_time_s;
+  ++stop_steps_;
+  return x >= 1.0 - kStopEndTolerance;
+}
+
 // Time scaling (design 6.3): the trajectory is sampled at tau_, its twist scaled by the rate r
 // and its twist derivative by r^2 plus the twist times dr/dt; tau_ then advances by r dt.
 // Without a stop r = 1. The trajectory ends at tau_ >= T or when the stop ramp reaches r = 0.
@@ -292,14 +339,12 @@ void ControlLoop<N>::advance_external(double dt) {
   double r_dot = 0.0;
   bool done = tau_ >= w.duration_s();
   if (stopping_) {
-    const double x = static_cast<double>(stop_steps_) * dt / config_.stop_time_s;
-    done = done || x >= 1.0 - kStopEndTolerance;
-    r = 1.0 - x * x * (3.0 - 2.0 * x);
-    r_dot = -6.0 * x * (1.0 - x) / config_.stop_time_s;
-    ++stop_steps_;
+    const bool rest = stop_rate(dt, r, r_dot);
+    done = done || rest;
   }
   const planning::CartesianSample s = w.sample(tau_);
   if (done) {
+    manual_stop_ = stopping_ ? ManualStop::kStopped : ManualStop::kFinished;
     enter_standby(s.T_b_d);
     return;
   }
@@ -310,9 +355,234 @@ void ControlLoop<N>::advance_external(double dt) {
 }
 
 template <int N>
-Status ControlLoop<N>::load(const planning::WaypointTrajectory& trajectory) {
+bool ControlLoop<N>::joint_mode() const {
+  return mode_ == LoopMode::kTracking &&
+         (cmd_ == CommandMode::kJogJoint || cmd_ == CommandMode::kMoveJoint);
+}
+
+template <int N>
+const VecN<N>& ControlLoop<N>::joint_reference() const {
+  if (joint_mode()) {
+    return joint_ref_.q;
+  }
+  return mode_ == LoopMode::kHolding ? hold_.q_hold() : clik_.reference().q;
+}
+
+// One step of a joint mode; at rest CLIK restarts at q_ref and the loop stands by at FK(q_ref).
+template <int N>
+void ControlLoop<N>::advance_joint(double dt) {
+  const bool jog = cmd_ == CommandMode::kJogJoint;
+  const int j = jog_.joint;
+  const bool rest = jog ? joint_jog_step<N>(jog_, jog_lo_(j), jog_hi_(j), dt, joint_ref_)
+                        : advance_joint_move(dt);
+  kinematics::FkState<N> fk;
+  kinematics::forward_kinematics(model_, joint_ref_.q, fk);
+  if (!rest) {
+    reference_.T_b_d = fk.T_b_e;
+    return;
+  }
+  if (jog) {
+    manual_stop_ = jog_.braking;
+  } else {
+    manual_stop_ = stopping_ ? ManualStop::kStopped : ManualStop::kFinished;
+  }
+  clik_.reset(joint_ref_.q);
+  enter_standby(fk.T_b_e);
+}
+
+// s(t) of the plan at the trajectory time tau_, with the request_stop() time scaling.
+template <int N>
+bool ControlLoop<N>::advance_joint_move(double dt) {
+  double r = 1.0;
+  double r_dot = 0.0;
+  bool done = tau_ >= move_.duration_s;
+  if (stopping_) {
+    const bool rest = stop_rate(dt, r, r_dot);
+    done = done || rest;
+  }
+  double s = 0.0;
+  double s_d = 0.0;
+  double s_dd = 0.0;
+  move_.sample(tau_, s, s_d, s_dd);
+  const VecN<N> delta = move_.q_goal - move_q0_;
+  if (done) {
+    joint_ref_.q = stopping_ ? VecN<N>(move_q0_ + s * delta) : move_.q_goal;
+    joint_ref_.qd.setZero();
+    joint_ref_.qdd.setZero();
+    return true;
+  }
+  joint_ref_.q = move_q0_ + s * delta;
+  joint_ref_.qd = (r * s_d) * delta;
+  joint_ref_.qdd = (r * r * s_dd + r_dot * s_d) * delta;
+  tau_ += r * dt;
+  return false;
+}
+
+template <int N>
+Status ControlLoop<N>::check_jog(const ManualJog& jog, bool& refreshed) {
+  refreshed = false;
+  const bool tcp = jog.joint < 0;
+  if (!external()) {
+    return Status::error(tcp ? "jog_tcp: command_source is config"
+                             : "jog_joint: command_source is config");
+  }
+  if (jog.direction != 1 && jog.direction != -1) {
+    return Status::error(tcp ? "jog_tcp: direction must be -1 or +1"
+                             : "jog_joint: direction must be -1 or +1");
+  }
+  if (!(jog.speed > 0.0 && jog.speed <= 1.0)) {
+    return Status::error(tcp ? "jog_tcp: speed outside (0, 1]" : "jog_joint: speed outside (0, 1]");
+  }
+  if (mode_ == LoopMode::kTracking &&
+      (cmd_ == CommandMode::kJogJoint || cmd_ == CommandMode::kJogTcp)) {
+    const bool same = jog_.joint == jog.joint && jog_.axis == jog.axis && jog_.frame == jog.frame &&
+                      jog_.direction == jog.direction && jog_.speed == jog.speed;
+    if (!same) {
+      return Status::error("jog: release the running jog first");
+    }
+    if (jog_.braking != ManualStop::kNone) {
+      return Status::error(tcp ? "jog_tcp: jog is stopping" : "jog_joint: jog is stopping");
+    }
+    jog_.idle_steps = 0;
+    refreshed = true;
+    return Status::ok();
+  }
+  if (mode_ != LoopMode::kStandby) {
+    return Status::error(tcp ? "jog_tcp: not in standby" : "jog_joint: not in standby");
+  }
+  return Status::ok();
+}
+
+template <int N>
+void ControlLoop<N>::start_jog(const ManualJog& jog, CommandMode cmd) {
+  jog_ = jog;
+  jog_.deadman_steps = std::llround(config_.manual.deadman_s * config_.control_rate_hz);
+  cmd_ = cmd;
+  manual_stop_ = ManualStop::kNone;
+  stopping_ = false;
+  mode_ = LoopMode::kTracking;
+}
+
+template <int N>
+Status ControlLoop<N>::jog_joint(int joint, int direction, double speed) {
+  if (joint < 0 || joint >= N) {
+    return Status::error("jog_joint: joint out of range");
+  }
+  ManualJog jog;
+  jog.joint = joint;
+  jog.direction = direction;
+  jog.speed = speed;
+  bool refreshed = false;
+  Status st = check_jog(jog, refreshed);
+  if (!st.is_ok() || refreshed) {
+    return st;
+  }
+  const double q = clik_.reference().q(joint);
+  const double dist = direction > 0 ? jog_hi_(joint) - q : q - jog_lo_(joint);
+  if (dist <= kAtJogLimitRad) {
+    return Status::error("jog_joint: joint at its soft limit in that direction");
+  }
+  jog.v_max = speed * model_.joints[static_cast<std::size_t>(joint)].qd_max;
+  jog.a_max = speed * config_.manual.joint_a_max_rad_s2(joint);
+  joint_ref_ = clik_.reference();
+  joint_ref_.qd.setZero();
+  joint_ref_.qdd.setZero();
+  start_jog(jog, CommandMode::kJogJoint);
+  return Status::ok();
+}
+
+template <int N>
+Status ControlLoop<N>::jog_tcp(JogAxis axis, int direction, JogFrame frame, double speed) {
+  const int a = static_cast<int>(axis);
+  if (a < 0 || a > static_cast<int>(JogAxis::kRz) ||
+      (frame != JogFrame::kBase && frame != JogFrame::kTool)) {
+    return Status::error("jog_tcp: bad axis or frame");
+  }
+  ManualJog jog;
+  jog.axis = axis;
+  jog.frame = frame;
+  jog.direction = direction;
+  jog.speed = speed;
+  bool refreshed = false;
+  Status st = check_jog(jog, refreshed);
+  if (!st.is_ok() || refreshed) {
+    return st;
+  }
+  // Computed here at the current reference: clik_.condition_number() is stale after a joint mode
+  // (CLIK not stepped) or a reset(). A NaN (non-finite Jacobian) is refused too.
+  const VecN<N>& q = clik_.reference().q;
+  kinematics::FkState<N> fk;
+  kinematics::forward_kinematics(model_, q, fk);
+  common::Mat6N<N> J;
+  kinematics::geometric_jacobian(fk, J);
+  if (!(planning::jacobian_condition_number<N>(J) <= config_.clik.cond_threshold)) {
+    return Status::error("jog_tcp: near a singularity");
+  }
+  for (int j = 0; j < N; ++j) {
+    if (q(j) - jog_lo_(j) <= kAtJogLimitRad || jog_hi_(j) - q(j) <= kAtJogLimitRad) {
+      return Status::error("jog_tcp: a joint is at its soft limit");
+    }
+  }
+  const ManualConfig<N>& m = config_.manual;
+  const bool rotation = axis >= JogAxis::kRx;
+  jog.v_max = speed * (rotation ? m.tcp_w_max_rad_s : m.tcp_v_max_m_s);
+  jog.a_max = speed * (rotation ? m.tcp_alpha_max_rad_s2 : m.tcp_a_max_m_s2);
+  const common::Pose& T_tip_tcp = config_.tcp_offset.T_tip_tcp;
+  jog.T_b_tcp = common::compose(reference_.T_b_d, T_tip_tcp);
+  jog.T_tcp_tip = common::inverse(T_tip_tcp);
+  const int k = a % 3;
+  jog.e = frame == JogFrame::kTool ? Vec3(jog.T_b_tcp.R.col(k)) : Vec3(Vec3::Unit(k));
+  start_jog(jog, CommandMode::kJogTcp);
+  return Status::ok();
+}
+
+template <int N>
+Status ControlLoop<N>::move_joint(const JointMove<N>& move) {
+  if (!external()) {
+    return Status::error("move_joint: command_source is config");
+  }
+  if (mode_ != LoopMode::kStandby) {
+    return Status::error("move_joint: not in standby");
+  }
+  const VecN<N>& q0 = clik_.reference().q;
+  if (!((move.q_start - q0).cwiseAbs().maxCoeff() <= kMoveStartTolRad)) {
+    return Status::error("move_joint: plan does not start at the reference");
+  }
+  if (!move.q_goal.allFinite() || !(move.duration_s > 0.0) || !std::isfinite(move.duration_s)) {
+    return Status::error("move_joint: invalid plan");
+  }
+  move_ = move;
+  move_q0_ = q0;
+  joint_ref_.q = q0;
+  joint_ref_.qd.setZero();
+  joint_ref_.qdd.setZero();
+  joint_ref_.task_error.setZero();
+  tau_ = 0.0;
+  stopping_ = false;
+  cmd_ = CommandMode::kMoveJoint;
+  manual_stop_ = ManualStop::kNone;
+  mode_ = LoopMode::kTracking;
+  return Status::ok();
+}
+
+template <int N>
+Status ControlLoop<N>::estop() {
+  if (!external()) {
+    return Status::error("estop: command_source is config");
+  }
+  if (mode_ == LoopMode::kStandby || mode_ == LoopMode::kTracking) {
+    estop_requested_ = true;
+  }
+  return Status::ok();
+}
+
+template <int N>
+Status ControlLoop<N>::load(const planning::WaypointTrajectory& trajectory, CommandMode cmd) {
   if (!external()) {
     return Status::error("load: command_source is config");
+  }
+  if (cmd != CommandMode::kWaypoints && cmd != CommandMode::kMoveTcp) {
+    return Status::error("load: command mode must be waypoints or move_tcp");
   }
   if (mode_ != LoopMode::kStandby) {
     return Status::error(not_in_standby(mode_));
@@ -336,13 +606,18 @@ Status ControlLoop<N>::load(const planning::WaypointTrajectory& trajectory) {
   waypoints_.emplace(trajectory);
   tau_ = 0.0;
   stopping_ = false;
+  cmd_ = cmd;
+  manual_stop_ = ManualStop::kNone;
   mode_ = LoopMode::kTracking;
   return Status::ok();
 }
 
 template <int N>
 void ControlLoop<N>::request_stop() {
-  if (mode_ == LoopMode::kTracking && external() && !stopping_) {
+  const bool jog = cmd_ == CommandMode::kJogJoint || cmd_ == CommandMode::kJogTcp;
+  if (mode_ == LoopMode::kTracking && jog && jog_.braking == ManualStop::kNone) {
+    jog_.braking = ManualStop::kStopped;
+  } else if (mode_ == LoopMode::kTracking && external() && !jog && !stopping_) {
     stopping_ = true;
     stop_steps_ = 0;
   }
@@ -390,6 +665,7 @@ Status ControlLoop<N>::reset(const JointState<N>& measured) {
   t_last_ = state.t;
   stale_steps_ = 0;
   hold_reason_ = HoldReason::kNone;
+  estop_requested_ = false;
   enter_standby(fk.T_b_e);
   return Status::ok();
 }
