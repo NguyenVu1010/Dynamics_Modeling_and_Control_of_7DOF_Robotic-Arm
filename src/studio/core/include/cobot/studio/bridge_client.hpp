@@ -52,14 +52,18 @@ class BridgeClient {
   // Every 50 ms from a GUI timer (on purpose: a frozen GUI stops beating and the controller stops
   // the robot): reconnect at most once per second while absent, beat while owner, drain new
   // samples into the live buffer (last 10 s of sample time), poll responses, run the live-run
-  // tracker and send kExportSegment once a run's settle window has passed.
+  // tracker and send kExportSegment once a run's settle window has passed. Exports need
+  // authority: a closed run waits while not the owner (and is sent on the next claim) and is
+  // retried while the command ring is full; a disconnect drops it, and clears the responses
+  // (command ids restart with every connection). The connection ends when the region is gone,
+  // replaced by another server, or its server process no longer exists.
   void tick(std::int64_t now_ns);
   LiveState state() const;
   std::string reason() const;  // why not connected, last error
   const std::deque<bridge::StateSample<bench::kN>>& live() const { return live_; }
   std::optional<bridge::SessionInfo<bench::kN>> session() const { return session_; }
   common::Status claim();
-  void release();
+  void release();  // first exports the closed runs whose settle window has passed
   // Commands: the command id, or "not connected" / "not the owner" / "command ring full".
   common::Result<std::uint64_t> move_joint(const common::VecN<bench::kN>& q_rad, double speed);
   common::Result<std::uint64_t> move_tcp(const common::Pose& T_b_tcp, double speed);

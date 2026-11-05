@@ -1,9 +1,12 @@
 #include "cobot/studio/bridge_client.hpp"
 
+#include <cerrno>
 #include <cmath>
+#include <csignal>
 #include <cstddef>
 #include <cstring>
 #include <memory>
+#include <sys/types.h>
 #include <utility>
 
 namespace cobot::studio {
@@ -26,6 +29,12 @@ bool is(const Sample& s, LoopMode m) {
 
 std::string text_of(const char* field, std::size_t size) {
   return {field, strnlen(field, size)};
+}
+
+// False only when the process is known to be gone: a server killed without unlinking its region
+// leaves the region openable, with its pid.
+bool pid_alive(std::int64_t pid) {
+  return pid <= 0 || ::kill(static_cast<pid_t>(pid), 0) == 0 || errno != ESRCH;
 }
 
 }  // namespace
@@ -56,12 +65,14 @@ void BridgeClient::tick(std::int64_t now_ns) {
   if (ep_->server_alive(now_ns)) {
     last_alive_ns_ = now_ns;
   } else if (now_ns - last_alive_ns_ > kServerGoneNs && now_ns - last_attempt_ns_ >= kReconnectNs) {
-    // A busy host (a long export) also misses beats: only a region that is gone (or replaced
-    // by a new server) ends the connection; the probe runs at most once per second.
+    // A busy host (a long export) also misses beats: only a region that is gone, replaced by a
+    // new server, or left behind by a dead one ends the connection; the probe runs at most once
+    // per second.
     last_attempt_ns_ = now_ns;
     const common::Result<bridge::ClientEndpoint<bench::kN>> probe =
         bridge::ClientEndpoint<bench::kN>::open(name_);
-    if (!probe || probe.value().server_pid() != ep_->server_pid()) {
+    if (!probe || probe.value().server_pid() != ep_->server_pid() ||
+        !pid_alive(ep_->server_pid())) {
       disconnect("bridge /cobot_" + name_ + ": the controller stopped");
       return;
     }
@@ -105,6 +116,10 @@ void BridgeClient::disconnect(const std::string& why) {
   reason_ = why;
   session_.reset();
   live_.clear();
+  // Command ids restart at 1 on every endpoint: answers of this connection must not answer the
+  // next one's commands.
+  responses_.clear();
+  jog_rejections_.clear();
   pending_.clear();
   run_.reset();
   to_export_.clear();
@@ -151,7 +166,8 @@ common::Status BridgeClient::claim() {
 }
 
 void BridgeClient::release() {
-  if (ep_) {
+  if (ep_ && ep_->is_owner()) {
+    track();  // runs whose settle window has passed are exported while still the owner
     ep_->release();
   }
   last_beat_ns_ = 0;
@@ -430,6 +446,10 @@ void BridgeClient::track() {
       }
     }
   }
+  // Exporting needs authority: without it the closed runs wait for the next claim.
+  if (!ep_->is_owner()) {
+    return;
+  }
   const std::int64_t t_last = live_.back().t_ns;
   for (auto it = to_export_.begin(); it != to_export_.end();) {
     const std::int64_t t1 = it->t_end_ns + std::llround(it->settle_window_s * 1e9);
@@ -442,10 +462,13 @@ void BridgeClient::track() {
     c.t0_ns = it->t_start_ns;
     c.t1_ns = t1;
     const common::Result<std::uint64_t> id = send(c, "export segment");
-    if (id) {
-      exports_[id.value()] = *it;
-    } else {
+    if (!id) {
       reason_ = id.reason();
+      if (id.reason().find("ring full") != std::string::npos) {
+        break;  // retried on the next tick
+      }
+    } else {
+      exports_[id.value()] = *it;
     }
     it = to_export_.erase(it);
   }

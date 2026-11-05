@@ -433,6 +433,12 @@ void ControlTab::show_message(const QString& text) {
 void ControlTab::refresh() {
   const LiveState st = client_.state();
   const bool live = st.connected && !client_.live().empty();
+  if (!st.connected) {
+    // Command ids restart with the next connection: nothing sent on this one is answered.
+    watched_.clear();
+    preview_id_ = 0;
+    generation_.reset();
+  }
   connection_->setText(
       st.connected
           ? tr("Connected to %1, controller pid %2, mode %3")

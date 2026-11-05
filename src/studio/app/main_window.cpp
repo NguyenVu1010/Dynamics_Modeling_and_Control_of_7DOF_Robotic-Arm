@@ -1254,6 +1254,9 @@ void MainWindow::bridge_tick() {
           w, [w, s, session = *session] { w->load_live(s, session); }, Qt::QueuedConnection);
     }
   }
+  if (!st.connected) {
+    apply_id_ = 0;  // its answer cannot come any more
+  }
   if (apply_id_ != 0) {
     if (const std::optional<bridge::Response> r = client_->response(apply_id_)) {
       if (r->accepted != 0) {
