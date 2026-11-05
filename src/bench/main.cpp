@@ -1,9 +1,13 @@
 // cobot_bench: the control loop against SimPlant without ROS (design 11.2).
 // Exit 0 on a completed run (tools/run_e2e.py judges it), 2 on bad arguments or configuration
 // (a bad waypoint file included) with the reason on stderr, 1 when `run --waypoints` rejects the
-// list (one line per issue on stderr, no Run CSV written).
+// list (one line per issue on stderr, no Run CSV written). `serve` (feature controller-bridge)
+// prints "serving /cobot_<name>" and runs until SIGINT / SIGTERM or --duration-s.
+#include <atomic>
+#include <csignal>
 #include <cstdint>
 #include <cstdio>
+#include <ctime>
 #include <exception>
 #include <filesystem>
 #include <map>
@@ -17,6 +21,7 @@
 #include "engine.hpp"
 #include "run.hpp"
 #include "run_data.hpp"
+#include "serve.hpp"
 
 namespace {
 
@@ -30,7 +35,9 @@ const char* const kUsage =
     "--seed0 <u64> --out <dir> [--keep-runs] [--duration-s <s>]\n"
     "       cobot_bench sweep --config <yaml> --sweep <yaml> --out <dir> [--duration-s <s>]\n"
     "       cobot_bench timing --config <yaml> --steps <n> [--paced] "
-    "[--log-mode off|recorder|recorder_live]\n";
+    "[--log-mode off|recorder|recorder_live]\n"
+    "       cobot_bench serve --config <yaml> --imperfections <yaml> [--seed <u64>] "
+    "[--name <name>] [--out <dir>] [--duration-s <s>]\n";
 
 const char* const kKeepRuns = "--keep-runs";
 const char* const kPaced = "--paced";
@@ -121,6 +128,51 @@ int report(const char* mode, const cobot::common::Status& status) {
   return 0;
 }
 
+// cobot_bench serve: SIGINT / SIGTERM end the run (a final export follows).
+std::atomic<bool> g_stop{false};
+
+extern "C" void on_stop_signal(int /*signal*/) {
+  g_stop.store(true);
+}
+
+// ./results/serve-<YYYYmmdd-HHMMSS>
+std::filesystem::path default_serve_dir() {
+  const std::time_t now = std::time(nullptr);
+  std::tm local{};
+  localtime_r(&now, &local);
+  char stamp[32] = {};
+  std::strftime(stamp, sizeof(stamp), "%Y%m%d-%H%M%S", &local);
+  return std::filesystem::path("results") / (std::string("serve-") + stamp);
+}
+
+int serve_main(int argc, char** argv) {
+  const auto f =
+      parse_flags(argc,
+                  argv,
+                  {"--config", "--imperfections", "--seed", "--name", "--out", "--duration-s"},
+                  {"--config", "--imperfections"});
+  cobot::bench::ServeOptions options;
+  options.config_yaml = f.at("--config");
+  options.imperfections_yaml = f.at("--imperfections");
+  if (f.count("--seed") > 0) {
+    options.seed = parse_u64(f.at("--seed"));
+  }
+  if (f.count("--name") > 0) {
+    options.name = f.at("--name");
+  }
+  options.out_dir =
+      f.count("--out") > 0 ? std::filesystem::path(f.at("--out")) : default_serve_dir();
+  options.duration_s = parse_duration(f);
+  std::signal(SIGINT, on_stop_signal);
+  std::signal(SIGTERM, on_stop_signal);
+  const cobot::common::Status st =
+      cobot::bench::serve(options, g_stop, [](const std::string& region) {
+        std::printf("serving %s\n", region.c_str());
+        std::fflush(stdout);
+      });
+  return report("serve", st);
+}
+
 int main_impl(int argc, char** argv) {
   const std::string mode = argc > 1 ? argv[1] : "";
   if (mode == "run") {
@@ -147,6 +199,9 @@ int main_impl(int argc, char** argv) {
                                                       waypoints,
                                                       path_invalid));
     return path_invalid ? kExitPathInvalid : code;
+  }
+  if (mode == "serve") {
+    return serve_main(argc, argv);
   }
   if (mode == "montecarlo") {
     const auto f = parse_flags(

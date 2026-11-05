@@ -7,7 +7,7 @@ execute_process(COMMAND git describe --always --dirty --tags
                 WORKING_DIRECTORY ${PROJECT_SOURCE_DIR}
                 OUTPUT_VARIABLE COBOT_GIT_DESCRIBE OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
 
-add_library(cobot_bench_run STATIC run.cpp sweep.cpp metrics.cpp)
+add_library(cobot_bench_run STATIC run.cpp sweep.cpp metrics.cpp serve.cpp)
 cobot_set_target_defaults(cobot_bench_run)
 target_include_directories(cobot_bench_run PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(cobot_bench_run PUBLIC cobot::pipeline PRIVATE cobot::bridge Threads::Threads)
@@ -24,3 +24,10 @@ add_executable(cobot_logdump logdump_main.cpp)
 cobot_set_target_defaults(cobot_logdump)
 target_link_libraries(cobot_logdump PRIVATE cobot::pipeline)
 install(TARGETS cobot_logdump RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
+
+# cobot_bridge_cli (feature controller-bridge): headless client of the studio bridge. src/ros2_node
+# builds the same source as lib/cobot_ros2/cobot_bridge_cli for `ros2 run`.
+add_executable(cobot_bridge_cli bridge_cli_main.cpp)
+cobot_set_target_defaults(cobot_bridge_cli)
+target_link_libraries(cobot_bridge_cli PRIVATE cobot::bridge Threads::Threads)
+install(TARGETS cobot_bridge_cli RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
