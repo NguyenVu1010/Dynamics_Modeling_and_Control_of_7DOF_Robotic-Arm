@@ -3,6 +3,7 @@
 #include <QAbstractTableModel>
 #include <QApplication>
 #include <QCheckBox>
+#include <QCloseEvent>
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -43,6 +44,7 @@
 #include "cobot/studio/param_catalog.hpp"
 #include "cobot/studio/series.hpp"
 
+#include "control_tab.hpp"
 #include "robot_view.hpp"
 #include <QtCharts/QChart>
 #include <QtCharts/QChartView>
@@ -68,6 +70,8 @@ constexpr double kSame = 1e-9;      // relative, a spin box value equal to the b
 constexpr int kMinPixels = 100;     // decimation columns when the plot is not laid out yet
 constexpr int kRedrawDelayMs = 30;  // coalesces chart redraws
 constexpr double kWheelPx = 0.25;   // pan pixels per wheel delta unit
+constexpr int kBridgeTickMs = 50;   // BridgeClient::tick: heartbeat, samples, responses
+const char* const kDefaultBridge = "cobot_controller";
 const std::array<QColor, 8> kPalette = {QColor(31, 119, 180),
                                         QColor(255, 127, 14),
                                         QColor(44, 160, 44),
@@ -281,10 +285,18 @@ bool parse_list(const QString& text, std::vector<T>& out, Parse parse) {
 MainWindow::MainWindow(std::filesystem::path config_dir,
                        std::filesystem::path work_dir,
                        QWidget* parent)
+    : MainWindow(std::move(config_dir), std::move(work_dir), kDefaultBridge, parent) {}
+
+// NOLINTNEXTLINE(performance-unnecessary-value-param)
+MainWindow::MainWindow(std::filesystem::path config_dir,
+                       std::filesystem::path work_dir,
+                       const std::string& bridge_name,
+                       QWidget* parent)
     : QMainWindow(parent),
       work_dir_(std::move(work_dir)),
       pairs_(discover_base_pairs(config_dir)),
-      worker_(std::make_unique<StudioWorker>(work_dir_)) {
+      worker_(std::make_unique<StudioWorker>(work_dir_)),
+      client_(std::make_unique<BridgeClient>(bridge_name)) {
   setWindowTitle(tr("cobot_studio"));
   cursor_ = new TimeCursor(this);
   model_ = new ErrorModel(this);
@@ -295,13 +307,33 @@ MainWindow::MainWindow(std::filesystem::path config_dir,
 
   auto* tabs = new QTabWidget;
   tabs->setObjectName(QStringLiteral("tabs"));
-  tabs->addTab(build_config_tab(), tr("Configuration"));
+  QWidget* config_tab = build_config_tab();
+  tabs->addTab(config_tab, tr("Configuration"));
+  control_ = new ControlTab(
+      *client_, bridge_name, pairs_.empty() ? std::filesystem::path() : pairs_.front().config_yaml);
+  tabs->addTab(control_, tr("Control"));
   tabs->addTab(build_tracking_tab(), tr("Tracking"));
+  // QStackedLayout lowers added pages and raises the current one, which reorders the pages among
+  // their siblings. The Configuration tab is kept first, so a window-wide lookup of a name both
+  // tabs use (resetButton) finds the Configuration tab's; only the stacking order changes, and
+  // one page is visible at a time.
+  config_tab->lower();
+  connect(tabs, &QTabWidget::currentChanged, config_tab, [config_tab] { config_tab->lower(); });
+  // The two speed sliders are one setting, StudioConfig::speed_pct.
+  for (QSlider* s : {speed_, control_->speed_slider()}) {
+    connect(s, &QSlider::valueChanged, this, [this](int v) {
+      config_.speed_pct = v;
+      speed_->setValue(v);
+      control_->speed_slider()->setValue(v);
+    });
+  }
   setCentralWidget(tabs);
   statusBar()->addWidget(
       new QLabel(tr("Work dir: %1").arg(QString::fromStdString(work_dir_.string()))));
   memory_label_ = new QLabel;
   statusBar()->addPermanentWidget(memory_label_);
+  bridge_label_ = new QLabel;
+  statusBar()->addPermanentWidget(bridge_label_);
 
   worker_->moveToThread(&thread_);
   connect(worker_.get(), &StudioWorker::result, this, &MainWindow::add_result);
@@ -310,11 +342,21 @@ MainWindow::MainWindow(std::filesystem::path config_dir,
     progress_->setValue(done);
   });
   connect(worker_.get(), &StudioWorker::finished, this, &MainWindow::job_finished);
+  connect(worker_.get(), &StudioWorker::live_failed, this, [this](const QString& error) {
+    statusBar()->showMessage(error);
+  });
   thread_.start();
 
   select_base(0);
   set_busy(false);
   refresh_runs();
+  // On the GUI thread on purpose (ADR-022): a frozen GUI stops beating and the robot stops.
+  bridge_timer_ = new QTimer(this);
+  bridge_timer_->setObjectName(QStringLiteral("bridgeTimer"));
+  bridge_timer_->setInterval(kBridgeTickMs);
+  connect(bridge_timer_, &QTimer::timeout, this, &MainWindow::bridge_tick);
+  bridge_timer_->start();
+  bridge_tick();
 }
 
 // Cancels the job in progress and joins the worker: at most the current run finishes.
@@ -394,12 +436,12 @@ QWidget* MainWindow::build_config_tab() {
     form->addRow(tol_labels.at(k), tol_.at(k));
   }
 
-  auto* speed = new QSlider(Qt::Horizontal);
-  speed->setObjectName(QStringLiteral("speedSlider"));
-  speed->setRange(1, 100);
-  speed->setEnabled(false);
-  speed->setToolTip(tr("manual control, phase B"));
-  form->addRow(tr("Speed (%)"), speed);
+  speed_ = new QSlider(Qt::Horizontal);
+  speed_->setObjectName(QStringLiteral("speedSlider"));
+  speed_->setRange(1, 100);
+  speed_->setValue(static_cast<int>(std::lround(config_.speed_pct)));
+  speed_->setToolTip(tr("Speed of jogs and moves in the Control tab (%)"));
+  form->addRow(tr("Speed (%)"), speed_);
   waypoints_ = new QLineEdit;
   waypoints_->setObjectName(QStringLiteral("waypointsEdit"));
   connect(waypoints_, &QLineEdit::textChanged, this, [this](const QString& text) {
@@ -472,6 +514,12 @@ QWidget* MainWindow::build_config_tab() {
     refresh_fields();
     refresh_validity();
   });
+  apply_gazebo_ = new QPushButton(tr("Apply to Gazebo"));
+  apply_gazebo_->setObjectName(QStringLiteral("applyGazeboButton"));
+  apply_gazebo_->setToolTip(
+      tr("Materialise this configuration and apply it to the connected controller"));
+  connect(apply_gazebo_, &QPushButton::clicked, this, &MainWindow::apply_gazebo);
+  buttons->addWidget(apply_gazebo_);
 
   tree_ = new QTreeWidget;
   tree_->setObjectName(QStringLiteral("paramTree"));
@@ -804,6 +852,7 @@ void MainWindow::refresh_fields() {
                    : QString());
   }
   set_double(duration_, config_.duration_s.value_or(0.0));
+  speed_->setValue(static_cast<int>(std::lround(config_.speed_pct)));
 
   QFont bold = tree_->font();
   bold.setBold(true);
@@ -818,7 +867,8 @@ void MainWindow::refresh_fields() {
       QWidget* w = row.cells.at(c);
       const QSignalBlocker block(w);
       w->setFont(changed ? bold : tree_->font());
-      w->setEnabled(!gain || advanced_->isChecked());
+      w->setEnabled((!gain || advanced_->isChecked()) &&
+                    !(greyed_ && !find_param(row.key)->gazebo_supported));
       if (auto* box = qobject_cast<QCheckBox*>(w)) {
         box->setChecked(std::holds_alternative<bool>(v) && std::get<bool>(v));
       } else if (auto* combo = qobject_cast<QComboBox*>(w)) {
@@ -1181,6 +1231,69 @@ bool MainWindow::export_summary(const QString& csv_path) {
     }
   }
   return static_cast<bool>(out);
+}
+
+void MainWindow::closeEvent(QCloseEvent* event) {
+  client_->release();
+  bridge_timer_->stop();
+  QMainWindow::closeEvent(event);
+}
+
+void MainWindow::bridge_tick() {
+  client_->tick(bridge::monotonic_ns());
+  control_->refresh();
+  const LiveState st = client_->state();
+  const std::optional<bridge::SessionInfo<bench::kN>> session = client_->session();
+  for (SegmentReady& s : client_->take_segments()) {
+    if (applied_) {
+      s.info.config = *applied_;
+    }
+    if (session) {
+      StudioWorker* w = worker_.get();
+      QMetaObject::invokeMethod(
+          w, [w, s, session = *session] { w->load_live(s, session); }, Qt::QueuedConnection);
+    }
+  }
+  if (apply_id_ != 0) {
+    if (const std::optional<bridge::Response> r = client_->response(apply_id_)) {
+      if (r->accepted != 0) {
+        applied_ = applying_;
+      }
+      apply_id_ = 0;
+    }
+  }
+  apply_gazebo_->setEnabled(st.connected && st.mine && st.mode == pipeline::LoopMode::kStandby &&
+                            valid_ && apply_id_ == 0);
+  bridge_label_->setText(st.connected ? tr("Bridge: connected") : tr("Bridge: not connected"));
+  // Rows the Gazebo path cannot honour are greyed while connected (design 6.5, 6.7).
+  if (st.connected != greyed_) {
+    greyed_ = st.connected;
+    for (const ParamRow& row : rows_) {
+      if (!find_param(row.key)->gazebo_supported) {
+        row.item->setDisabled(greyed_);
+        row.item->setToolTip(0, greyed_ ? tr("not supported on Gazebo") : QString());
+      }
+    }
+    refresh_fields();
+  }
+}
+
+void MainWindow::apply_gazebo() {
+  const std::filesystem::path dir =
+      std::filesystem::absolute(work_dir_ / ("gazebo_" + std::to_string(++applies_)));
+  const common::Result<Materialized> m = materialize(config_, dir);
+  if (!m) {
+    control_->show_message(QString::fromStdString(m.reason()));
+    return;
+  }
+  const common::Result<std::uint64_t> id = client_->apply_config(m.value());
+  if (!id) {
+    control_->show_message(QString::fromStdString(id.reason()));
+    return;
+  }
+  apply_id_ = id.value();
+  applying_ = config_;
+  control_->watch(apply_id_, tr("apply config"));
 }
 
 }  // namespace cobot::studio

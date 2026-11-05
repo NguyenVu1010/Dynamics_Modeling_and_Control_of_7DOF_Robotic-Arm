@@ -3,6 +3,7 @@
 #include <QColor>
 #include <QElapsedTimer>
 #include <QWidget>
+#include <array>
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
@@ -13,6 +14,7 @@
 #include <vector>
 
 #include "cobot/common/types.hpp"
+#include "cobot/model/model.hpp"
 #include "cobot/studio/playback.hpp"
 #include "cobot/studio/robot_scene.hpp"
 
@@ -63,6 +65,14 @@ class RobotView : public QWidget {
 
   // The checked runs in list order; `selected` is drawn solid (the first run when absent).
   void set_runs(std::vector<DrawnRun> runs, std::uint64_t selected, double goal_tol_m);
+  // Live use (feature studio-control, the Control tab): hides the playback controls and clears
+  // their object names, so the Tracking tab's controls are the only ones carrying them.
+  void set_live_mode();
+  // One solid robot at q (entity "live", one child per visual link as for the runs), the tip
+  // trace and the preview path (lines, base_link).
+  void set_live(const common::VecN<model::kArmDof>& q,
+                const std::vector<common::Vec3>& tip_trace,
+                const std::vector<common::Vec3>& preview_path);
 
  protected:
   void showEvent(QShowEvent* event) override;
@@ -83,6 +93,7 @@ class RobotView : public QWidget {
   void rebuild();         // run entities, materials and the ghost limit
   void build_overlays();  // traces of the selected run
   void update_poses();    // every drawn run at the cursor
+  void update_live();     // the live robot and its lines
   void tick();            // playback
   double end_s() const;   // last row time over the drawn runs
 
@@ -118,6 +129,13 @@ class RobotView : public QWidget {
   QLabel* ghost_label_ = nullptr;
   QLabel* status_ = nullptr;
   QLabel* placeholder_ = nullptr;  // until the Qt3D window exists
+  std::optional<common::VecN<model::kArmDof>> live_q_;
+  std::vector<common::Vec3> live_trace_, live_path_;
+  Qt3DCore::QEntity* live_ = nullptr;
+  std::array<Qt3DRender::QGeometryRenderer*, 2> live_lines_{};  // tip trace, preview path
+  bool live_lines_dirty_ = false;
+  QElapsedTimer live_clock_;  // line updates at most every kLiveLinesMs
+  std::vector<Qt3DCore::QTransform*> live_transforms_;
 };
 
 }  // namespace cobot::studio

@@ -7,6 +7,8 @@
 #include <filesystem>
 #include <memory>
 
+#include "cobot/bridge/wire.hpp"
+#include "cobot/studio/bridge_client.hpp"
 #include "cobot/studio/run_store.hpp"
 #include "cobot/studio/runner.hpp"
 #include "cobot/studio/studio_config.hpp"
@@ -29,6 +31,9 @@ class StudioWorker : public QObject {
   // Called on the worker thread (QMetaObject::invokeMethod with a functor).
   void run(const StudioConfig& config);
   void sweep(const SweepRequest& request);
+  // A finished live run (feature studio-control): make_live_entry, then `result`; an error goes
+  // to `live_failed`. Live runs are numbered in arrival order.
+  void load_live(const SegmentReady& s, const bridge::SessionInfo<bench::kN>& session);
   // Any thread: the sweep stops before its next run; arm() before queueing a new job.
   void cancel() { cancel_.store(true); }
   void arm() { cancel_.store(false); }
@@ -37,10 +42,12 @@ class StudioWorker : public QObject {
   void result(cobot::studio::EntryHandle entry);
   void progress(int done, int total);
   void finished(QString error);  // empty on success
+  void live_failed(QString error);
 
  private:
   std::filesystem::path work_dir_;
   std::atomic<bool> cancel_{false};
+  int live_runs_ = 0;  // worker thread
 };
 
 }  // namespace cobot::studio

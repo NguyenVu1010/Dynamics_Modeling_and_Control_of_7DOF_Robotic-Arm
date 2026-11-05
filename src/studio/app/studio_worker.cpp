@@ -30,4 +30,14 @@ void StudioWorker::sweep(const SweepRequest& request) {
   emit finished(s ? QString() : QString::fromStdString(s.reason()));
 }
 
+void StudioWorker::load_live(const SegmentReady& s, const bridge::SessionInfo<bench::kN>& session) {
+  common::Result<RunEntry> e = make_live_entry(s.csv, s.info, session, live_runs_ + 1);
+  if (!e) {
+    emit live_failed(QString::fromStdString(e.reason()));
+    return;
+  }
+  ++live_runs_;
+  emit result(EntryHandle{std::make_shared<RunEntry>(std::move(e.value()))});
+}
+
 }  // namespace cobot::studio

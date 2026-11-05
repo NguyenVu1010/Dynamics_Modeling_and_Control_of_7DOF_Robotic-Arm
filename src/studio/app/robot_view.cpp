@@ -56,6 +56,7 @@ constexpr float kGoalRadiusM = 0.004F;
 constexpr float kCrossHalfM = 0.02F;   // hold mark
 constexpr std::size_t kDashRows = 20;  // desired path: dash and gap length in rows
 constexpr int kMaxMagnify = 1000;
+constexpr qint64 kLiveLinesMs = 250;  // live tip trace and preview path refresh
 
 // Interleaved float32 vertices (position, then normal when `normals`) of one geometry.
 QGeometryRenderer* make_renderer(Qt3DCore::QNode* parent,
@@ -313,6 +314,7 @@ void RobotView::on_loaded(const std::shared_ptr<Loaded>& loaded) {
   }
   status_->clear();
   rebuild();
+  update_live();
 }
 
 void RobotView::set_runs(std::vector<DrawnRun> runs, std::uint64_t selected, double goal_tol_m) {
@@ -509,6 +511,68 @@ double RobotView::end_s() const {
     }
   }
   return end;
+}
+
+void RobotView::set_live(const common::VecN<model::kArmDof>& q,
+                         const std::vector<common::Vec3>& tip_trace,
+                         const std::vector<common::Vec3>& preview_path) {
+  live_q_ = q;
+  live_lines_dirty_ = live_lines_dirty_ || tip_trace != live_trace_ || preview_path != live_path_;
+  live_trace_ = tip_trace;
+  live_path_ = preview_path;
+  update_live();
+}
+
+void RobotView::update_live() {
+  if (!scene_ || !live_q_) {
+    return;
+  }
+  if (live_ == nullptr) {
+    live_ = add_entity(root_, QStringLiteral("live"), {});
+    auto* material = new Qt3DExtras::QPhongMaterial(live_);
+    material->setDiffuse(QColor(200, 200, 210));
+    for (std::size_t i = 0; i < scene_->links().size(); ++i) {
+      auto* t = new Qt3DCore::QTransform;
+      live_transforms_.push_back(t);
+      add_entity(
+          live_, QString::fromStdString(scene_->links()[i].link), {meshes_.at(i), material, t});
+    }
+  }
+  scene_->visual_poses(*live_q_, poses_);
+  for (std::size_t i = 0; i < live_transforms_.size(); ++i) {
+    live_transforms_[i]->setMatrix(to_matrix(poses_[i]));
+  }
+  // The lines keep their entities and buffers (creating Qt3D nodes every tick stalls the GUI
+  // thread) and change at most every kLiveLinesMs.
+  if (!live_lines_dirty_ || (live_clock_.isValid() && live_clock_.elapsed() < kLiveLinesMs)) {
+    return;
+  }
+  live_lines_dirty_ = false;
+  live_clock_.start();
+  const std::array<std::pair<const std::vector<common::Vec3>*, QColor>, 2> lines = {
+      {{&live_trace_, Qt::yellow}, {&live_path_, Qt::white}}};
+  for (std::size_t k = 0; k < lines.size(); ++k) {
+    const auto& [points, colour] = lines.at(k);
+    QGeometryRenderer*& renderer = live_lines_.at(k);
+    const QByteArray bytes = to_bytes(*points);
+    if (renderer == nullptr) {
+      renderer = make_renderer(live_, bytes, false, QGeometryRenderer::LineStrip);
+      add_entity(live_, QString(), {renderer, flat(live_, colour)});
+    } else {
+      QAttribute* a = renderer->geometry()->attributes().constFirst();
+      a->buffer()->setData(bytes);
+      a->setCount(static_cast<unsigned>(points->size()));
+    }
+    renderer->setEnabled(points->size() > 1);
+  }
+}
+
+void RobotView::set_live_mode() {
+  for (QWidget* w : std::initializer_list<QWidget*>{
+           play_, speed_, slider_, magnify_, magnify_label_, ghost_label_}) {
+    w->setObjectName(QString());
+    w->hide();
+  }
 }
 
 }  // namespace cobot::studio
