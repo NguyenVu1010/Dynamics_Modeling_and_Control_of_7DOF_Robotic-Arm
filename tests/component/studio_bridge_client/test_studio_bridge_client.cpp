@@ -53,6 +53,16 @@
 namespace cobot::studio {
 namespace {
 
+// bench::serve paces its loop at 1 kHz only when it can keep up. Without optimisation (Debug,
+// ASan, coverage) it reaches about 160 steps per wall second, so the tests that check motion
+// against wall-clock waits run only in optimised builds (core job); the rest run everywhere.
+#if defined(__OPTIMIZE__)
+constexpr bool kOptimised = true;
+#else
+constexpr bool kOptimised = false;
+#endif
+constexpr const char* kSlowServe = "serve runs at about 16 % of real time without optimisation";
+
 namespace fs = std::filesystem;
 using Sample = bridge::StateSample<bench::kN>;
 
@@ -310,6 +320,9 @@ TEST_F(StudioBridgeClient, CommandsWithoutARegionAreNotConnected) {
 // 1 / 1.083 + 1.083 / 8.59 = 1.05 s; standby + 1 s settle window + the 200 ms export period
 // is ~2.3 s after the response, inside 6 s.
 TEST_F(StudioBridgeClient, MoveJointBecomesOneLiveRun) {
+  if (!kOptimised) {
+    GTEST_SKIP() << kSlowServe;
+  }
   BridgeClient c(name_of_test_region());
   ASSERT_NO_FATAL_FAILURE(start_and_connect(c));
   ASSERT_NO_FATAL_FAILURE(claim_in_standby(c));
@@ -377,6 +390,9 @@ TEST_F(StudioBridgeClient, MoveJointBecomesOneLiveRun) {
 // down 0.0119 rad: 0.0567 rad. The brief's 0.063 (0.0147 + 0.0336 + 0.0147, before the 0.9
 // joint_speed_fraction headroom) +- 0.03 rad of real-time tolerance holds it.
 TEST_F(StudioBridgeClient, JogJointMovesJoint1AndIsALiveRun) {
+  if (!kOptimised) {
+    GTEST_SKIP() << kSlowServe;
+  }
   BridgeClient c(name_of_test_region());
   ASSERT_NO_FATAL_FAILURE(start_and_connect(c));
   ASSERT_NO_FATAL_FAILURE(claim_in_standby(c));
@@ -460,6 +476,9 @@ TEST_F(StudioBridgeClient, FrozenTickStopsTheMoveAndFreesTheRegion) {
 }
 
 TEST_F(StudioBridgeClient, LiveBufferKeepsTheLastTenSeconds) {
+  if (!kOptimised) {
+    GTEST_SKIP() << kSlowServe;
+  }
   BridgeClient c(name_of_test_region());
   ASSERT_NO_FATAL_FAILURE(start_and_connect(c));
   drive({&c}, 11500, [] { return false; });
