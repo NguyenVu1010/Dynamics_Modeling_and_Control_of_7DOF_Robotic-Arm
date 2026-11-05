@@ -1,0 +1,35 @@
+# E2E-13 (feature controller-bridge, cobot_studio design 7 "Gazebo"): headless Gazebo launched with
+# studio:=true (command_source external, log_mode recorder_live), driven through the shared-memory
+# bridge by the headless client cobot_bridge_cli. During the 20 s pause after `claim` the runner
+# sends tests/e2e/waypoints/e2e_13.yaml with the RViz panel client, which must be refused (exit 1,
+# "studio is in control"). Then a 0.5 s jog of joint 1, a joint move back to home, a TCP move to
+# the home TCP + 0.05 m in x, the two waypoints and the segment export of that last run, judged
+# with the E2E-02 thresholds. default.yaml + realistic profile, seed 7. Paths are relative to the
+# repo root; `<out>` is the scenario's output directory.
+#
+# Home TCP (no tool) = FK(home_q_deg [0, 30, 0, -90, 0, 60, 0]): p = (0.110012653, -0.806959296,
+# 0.389122496) m, R ~ [[0, -1, 0], [0, 0, -1], [1, 0, 0]] = rpy (0, -90, 90) deg within 2.4e-5 rad
+# (first T_b_d row of `cobot_bench run` default + ideal). move-tcp target: x + 0.05 = 0.160012653.
+id: E2E-13
+tags: [gazebo]
+runner: gazebo
+kind: run
+config: config/default.yaml
+imperfections: config/imperfections/realistic.yaml
+seed: 7
+panel_waypoints: tests/e2e/waypoints/e2e_13.yaml
+bridge_steps:
+  - claim
+  - pause:20
+  - jog-joint:1:+:0.5
+  - move-joint:0,30,0,-90,0,60,0
+  - move-tcp:0.160012653,-0.806959296,0.389122496,0,-90,90
+  - waypoints:tests/e2e/waypoints/e2e_13.yaml:2
+  - export:<out>/segment.csv
+  - release
+expect:
+  cmd: [jog_joint, move_joint, move_tcp, waypoints]
+thresholds:
+  final_pos_err_m: 0.005
+  final_rot_err_deg: 2.0
+  rms_joint_err_rad: 0.02

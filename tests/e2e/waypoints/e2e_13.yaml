@@ -1,0 +1,13 @@
+# E2E-13 waypoint list (feature controller-bridge): two TCP poses in base_link near the home TCP of
+# config/default.yaml (no tool: TCP = tip). FK(home_q_deg [0, 30, 0, -90, 0, 60, 0]) gives
+# p0 = (0.110013, -0.806959, 0.389122) m and R ~ [[0, -1, 0], [0, 0, -1], [1, 0, 0]], i.e.
+# rpy (0, -90, 90) deg within 2.4e-5 rad. E2E-13 first moves the TCP to p0 + (0.05, 0, 0) with
+# move-tcp; both points lie within 0.08 m of p0 and of that pose, same orientation:
+#   waypoint 0: p0 + (0.020, 0.027, 0.041) -> (0.1300, -0.7800, 0.4300), auto duration, no stop;
+#   waypoint 1: p0 + (-0.010, 0.047, 0.071) -> (0.1000, -0.7600, 0.4600), auto duration, stop.
+# `cobot_bench run --waypoints` accepts the list from home (exit 0); the bridge tests run it from
+# home and from the move-tcp pose.
+frame: base_link
+waypoints:
+  - {position_m: [0.1300, -0.7800, 0.4300], rpy_deg: [0.0, -90.0, 90.0], duration_s: 0, stop: false}
+  - {position_m: [0.1000, -0.7600, 0.4600], rpy_deg: [0.0, -90.0, 90.0], duration_s: 0, stop: true}

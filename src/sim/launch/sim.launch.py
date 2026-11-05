@@ -2,12 +2,14 @@
 
 ros2 launch cobot_sim sim.launch.py [gui:=false] [controller:=effort_passthrough]
     [config_path:=YAML] [imperfections_path:=YAML] [seed:=INT] [log_path:=CSV]
-    [log_stream_ms:=0] [command_source:=config|external] [rviz:=false]
+    [log_stream_ms:=0] [command_source:=config|external]
+    [log_mode:=off|recorder|recorder_live] [studio:=false] [rviz:=false]
 
-config_path, imperfections_path, seed, log_path, log_stream_ms (when > 0) and command_source,
-when given, become parameters of the spawned controller (cobot_controller) through a temporary
-parameter file, removed at shutdown; unset, the controller's defaults apply (command_source: the
-config file's cobot.command_source). log_stream_ms > 0 makes the controller append its black-box
+config_path, imperfections_path, seed, log_path, log_stream_ms (when > 0), command_source and
+log_mode, when given, become parameters of the spawned controller (cobot_controller) through a
+temporary parameter file, removed at shutdown; unset, the controller's defaults apply
+(command_source: the config file's cobot.command_source, log_mode: its cobot.log.mode).
+log_stream_ms > 0 makes the controller append its black-box
 log to log_path every log_stream_ms milliseconds; the default 0 writes it only on ~/dump_log,
 deactivate and cleanup. imperfections_path defaults to the realistic profile
 (config/imperfections/realistic.yaml); seed defaults to the profile's own seed.
@@ -20,6 +22,9 @@ friction out of its plant effects on this path (ADR-011).
 rviz:=true also starts RViz2 with sim/rviz/waypoints.rviz (the cobot_gui/WaypointPanel docked,
 interactive markers, preview and reference paths) and runs the controller with command_source
 external unless command_source is given.
+
+studio:=true serves the studio bridge of the controller (command_source external and log_mode
+recorder_live, each unless given explicitly).
 """
 
 import json
@@ -86,13 +91,16 @@ def _setup(context: object) -> list:
 
     overrides: dict[str, object] = {
         name: value
-        for name in ("config_path", "imperfections_path", "log_path", "command_source")
+        for name in ("config_path", "imperfections_path", "log_path", "command_source", "log_mode")
         if (value := LaunchConfiguration(name).perform(context))
     }
     if seed := LaunchConfiguration("seed").perform(context):
         overrides["seed"] = int(seed)
     if (stream_ms := int(LaunchConfiguration("log_stream_ms").perform(context) or "0")) > 0:
         overrides["log_stream_ms"] = stream_ms
+    if LaunchConfiguration("studio").perform(context) == "true":
+        overrides.setdefault("command_source", "external")  # the studio drives the arm
+        overrides.setdefault("log_mode", "recorder_live")  # the bridge exports the live recorder
     rviz = LaunchConfiguration("rviz").perform(context) == "true"
     if rviz:
         overrides.setdefault("command_source", "external")  # the panel drives the arm
@@ -172,6 +180,8 @@ def generate_launch_description() -> LaunchDescription:
             DeclareLaunchArgument("log_path", default_value=""),
             DeclareLaunchArgument("log_stream_ms", default_value="0"),
             DeclareLaunchArgument("command_source", default_value=""),
+            DeclareLaunchArgument("log_mode", default_value=""),
+            DeclareLaunchArgument("studio", default_value="false"),
             DeclareLaunchArgument("rviz", default_value="false"),
             OpaqueFunction(function=_setup),
         ]

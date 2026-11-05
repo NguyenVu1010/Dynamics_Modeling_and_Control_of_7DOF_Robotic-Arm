@@ -26,6 +26,7 @@ add_library(${PROJECT_NAME} SHARED src/cobot_controller.cpp src/waypoint_server.
 cobot_set_target_defaults(${PROJECT_NAME})
 target_link_libraries(${PROJECT_NAME} PRIVATE
   cobot::pipeline
+  cobot::bridge
   ament_index_cpp::ament_index_cpp
   controller_interface::controller_interface
   hardware_interface::hardware_interface
@@ -48,7 +49,14 @@ cobot_set_target_defaults(cobot_logdump)
 target_link_libraries(cobot_logdump PRIVATE cobot::pipeline)
 
 install(TARGETS ${PROJECT_NAME} LIBRARY DESTINATION lib)
-install(TARGETS cobot_logdump RUNTIME DESTINATION lib/${PROJECT_NAME})
+# cobot_bridge_cli (feature controller-bridge, no ROS): `ros2 run cobot_ros2 cobot_bridge_cli
+# cobot_controller <steps>` drives the studio bridge of a controller started with studio:=true.
+add_executable(cobot_bridge_cli "${COBOT_REPO_ROOT}/src/bench/bridge_cli_main.cpp")
+cobot_set_target_defaults(cobot_bridge_cli)
+find_package(Threads REQUIRED)
+target_link_libraries(cobot_bridge_cli PRIVATE cobot::bridge Threads::Threads)
+
+install(TARGETS cobot_logdump cobot_bridge_cli RUNTIME DESTINATION lib/${PROJECT_NAME})
 # Waypoint client of the external command mode: `ros2 run cobot_ros2 send_waypoints.py FILE`.
 install(PROGRAMS "${COBOT_REPO_ROOT}/tools/send_waypoints.py" DESTINATION lib/cobot_ros2)
 # Default parameters: share/cobot_ros2/config/default.yaml, whose urdf_path

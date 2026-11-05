@@ -79,7 +79,10 @@ struct LoopLink {
   std::atomic<bool> stop_requested{false};
   std::atomic<std::uint64_t> reset_requested{0};
   std::atomic<bool> active{false};  // controller active (set by on_activate / on_deactivate)
-  std::mutex mutex;                 // guards snapshot
+  // An owner token is registered on the studio bridge (written by the bridge thread every poll):
+  // goals and ~/reset are refused (ADR-022, one command source at a time).
+  std::atomic<bool> studio_in_control{false};
+  std::mutex mutex;  // guards snapshot
   LoopSnapshot snapshot;
 };
 
@@ -110,6 +113,9 @@ class WaypointServer {
   WaypointServer(WaypointServer&&) = delete;
   WaypointServer& operator=(WaypointServer&&) = delete;
 
+  // After a studio "apply config": the model and config validate() uses from now on.
+  void set_model(cobot::model::Arm7 model, cobot::pipeline::Config<kN> config);
+
  private:
   using Follow = cobot_interfaces::action::FollowWaypoints;
   using Preview = cobot_interfaces::srv::PreviewWaypoints;
@@ -127,7 +133,8 @@ class WaypointServer {
 
   rclcpp_lifecycle::LifecycleNode::SharedPtr node_;
   LoopLink& link_;
-  cobot::model::Arm7 model_;  // the controller's model, so validation sees what the loop sees
+  mutable std::mutex model_mutex_;  // guards model_, config_ (set_model: bridge thread)
+  cobot::model::Arm7 model_;        // the controller's model, so validation sees what the loop sees
   cobot::pipeline::Config<kN> config_;
   rclcpp_action::Server<Follow>::SharedPtr action_;
   rclcpp::Service<Preview>::SharedPtr preview_;

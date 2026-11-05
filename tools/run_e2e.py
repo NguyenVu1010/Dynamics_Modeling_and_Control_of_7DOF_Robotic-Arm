@@ -29,6 +29,15 @@ rest_qd_max_rad_s (0.01 rad/s) and peak |tau| / tau_max <= peak_tau_ratio (1); t
 thresholds keep the defaults in parentheses (E2E-11b sets rest_qd_max_rad_s to 0.03 rad/s: the
 CSV qd is the measured, quantized and filtered velocity, whose noise at rest in Gazebo has std
 0.0047 rad/s per joint). cancel_after_s without waypoints fails.
+A gazebo scenario with `bridge_steps: [<step>, ...]` (exclusive with `waypoints`) is driven
+through the studio bridge: it launches with studio:=true, waits for standby, runs `ros2 run
+cobot_ros2 cobot_bridge_cli cobot_controller <steps>` (`<out>` in a step = the scenario's output
+directory; output in bridge.log) and stops the launch after it. With `panel_waypoints: FILE` the
+runner runs `send_waypoints.py FILE` once the CLI printed its first line (`claim`, followed by a
+pause step) and requires exit 1 with "studio is in control" in its output or in launch.log (the
+controller logs why it rejected the goal). It passes on CLI exit
+0, that refusal, a Run CSV with a row of every `expect.cmd` value, no holding row and a last row
+in standby, and the CSV of the last `export:` step within the thresholds.
 kind profiles runs `cobot_bench montecarlo` (runs seeds from seed) once per entry of `profiles`
 (name -> config (optional, else the scenario's config), imperfections, hold: fail | report,
 thresholds) into <out>/<id>/<name> and judges each run from the Summary CSV metric columns; with
@@ -81,6 +90,9 @@ GAZEBO_DUMP_S = 10.0  # one ~/dump_log service call
 GAZEBO_LOGDUMP_S = 60.0  # one cobot_logdump run
 DUMP_LOG = ["ros2", "service", "call", "/cobot_controller/dump_log", "std_srvs/srv/Trigger"]
 LOGDUMP = ["ros2", "run", "cobot_ros2", "cobot_logdump", "cobot_controller"]
+BRIDGE_CLI = ["ros2", "run", "cobot_ros2", "cobot_bridge_cli", "cobot_controller"]
+GAZEBO_BRIDGE_S = 900.0  # the whole cobot_bridge_cli run
+PANEL_REFUSAL = "studio is in control"
 STATUS_TOPIC = "/cobot_controller/status"
 STATUS_TYPE = "std_msgs/msg/String"
 # Canceled waypoint run (E2E-11b, design 2026-10-29 section 7): at rest and within the limits.
@@ -355,6 +367,68 @@ def drive_waypoints(s: dict, proc: subprocess.Popen, csv: Path, out: Path, hold_
     return ""
 
 
+def bridge_steps(s: dict, out: Path) -> list[str]:
+    return [str(step).replace("<out>", str(out)) for step in s["bridge_steps"]]
+
+
+def panel_check(s: dict, cli: subprocess.Popen, bridge_log: Path, out: Path) -> str:
+    """Once the CLI printed its first step, the RViz panel client must be refused; error or ''."""
+    while cli.poll() is None and not bridge_log.read_text(encoding="utf-8").strip():
+        time.sleep(GAZEBO_POLL_S)
+    cmd = ["ros2", "run", "cobot_ros2", "send_waypoints.py", str(repo_path(s["panel_waypoints"]))]
+    try:
+        panel = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=GAZEBO_CLIENT_S, check=False
+        )
+    except subprocess.TimeoutExpired:
+        return f"panel client still running after {GAZEBO_CLIENT_S:g} s"
+    (out / "panel.log").write_text(panel.stdout + panel.stderr, encoding="utf-8")
+    # The action protocol carries no rejection reason: the controller logs it (launch.log).
+    launch_log = out / "launch.log"
+    said = panel.stdout + panel.stderr
+    said += launch_log.read_text(encoding="utf-8", errors="replace") if launch_log.is_file() else ""
+    if panel.returncode != 1 or PANEL_REFUSAL not in said:
+        return f"panel client exit {panel.returncode}, expected 1 with '{PANEL_REFUSAL}'"
+    return ""
+
+
+def drive_bridge(s: dict, proc: subprocess.Popen, out: Path) -> str:
+    """Waits for standby, runs cobot_bridge_cli (and the panel check); error text or ''."""
+    if reason := wait_standby(proc):
+        return f"{reason} (see {out / 'launch.log'})"
+    bridge_log = out / "bridge.log"
+    with bridge_log.open("w", encoding="utf-8") as log:
+        # Relative paths in the steps are relative to the repository root.
+        steps = [*BRIDGE_CLI, *bridge_steps(s, out)]
+        cli = subprocess.Popen(steps, stdout=log, stderr=log, cwd=REPO)
+        try:
+            panel = panel_check(s, cli, bridge_log, out) if s.get("panel_waypoints") else ""
+            code = cli.wait(timeout=GAZEBO_BRIDGE_S)
+        except subprocess.TimeoutExpired:
+            cli.kill()
+            cli.wait()
+            return f"cobot_bridge_cli still running after {GAZEBO_BRIDGE_S:g} s"
+    if code != 0:
+        return f"cobot_bridge_cli exit {code} (see {bridge_log})"
+    return panel
+
+
+def judge_bridge(s: dict, csv: Path, out: Path, report: bool) -> tuple[bool, str]:
+    """Run CSV: every expected cmd, no holding row, last row standby; then the last segment."""
+    df = load_run(csv)
+    mode, cmd = df["mode"].astype(str), df["cmd"].astype(str)
+    problems = [f"no {c} row" for c in s.get("expect", {}).get("cmd", []) if not (cmd == c).any()]
+    if (mode == "holding").any():
+        problems.append(f"{int((mode == 'holding').sum())} holding rows")
+    if mode.iloc[-1] != "standby":
+        problems.append(f"last mode {mode.iloc[-1]}, not standby")
+    exports = [st.split(":", 1)[1] for st in bridge_steps(s, out) if st.startswith("export:")]
+    if problems or not exports:
+        return False, "; ".join(problems) or "no export step to judge"
+    ok, detail = judge_run(s, Path(exports[-1]), out, report)
+    return ok, f"segment: {detail}"
+
+
 def dump_log(proc: subprocess.Popen, out: Path) -> None:
     """Asks the running controller to write its black-box log to the CSV; failure only noted."""
     if proc.poll() is not None:
@@ -402,8 +476,11 @@ def run_gazebo(s: dict, out: Path, report: bool) -> tuple[bool, str]:
     if s["kind"] != "run":
         return False, f"gazebo runner supports kind run only, got {s['kind']}"
     waypoints = bool(s.get("waypoints"))
+    studio = bool(s.get("bridge_steps"))
     if s.get("cancel_after_s") is not None and not waypoints:
         return False, "cancel_after_s needs waypoints"
+    if studio and waypoints:
+        return False, "bridge_steps and waypoints are exclusive"
     config = repo_path(s["config"])
     traj = yaml.safe_load(config.read_text(encoding="utf-8"))["cobot"]["trajectory"]
     run_s = float(traj["duration_s"]) + float(traj["hold_s"])
@@ -415,10 +492,13 @@ def run_gazebo(s: dict, out: Path, report: bool) -> tuple[bool, str]:
     cmd += [f"imperfections_path:={repo_path(s['imperfections'])}", f"seed:={int(s['seed'])}"]
     cmd += [f"log_path:={csv}", f"log_stream_ms:={GAZEBO_STREAM_MS}"]
     cmd += ["command_source:=external"] if waypoints else []
+    cmd += ["studio:=true"] if studio else []
     with (out / "launch.log").open("w", encoding="utf-8") as log:
         proc = subprocess.Popen(cmd, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
         try:
-            if waypoints:
+            if studio:
+                failed = drive_bridge(s, proc, out)
+            elif waypoints:
                 failed = drive_waypoints(s, proc, csv, out, float(traj["hold_s"]))
             elif (code := wait_run(proc, csv, wait_s, round(run_s * 1e9))) is not None:
                 failed = f"launch exited with {code} before the run ended (see {log.name})"
@@ -433,6 +513,8 @@ def run_gazebo(s: dict, out: Path, report: bool) -> tuple[bool, str]:
         logdump(csv, out)
     if not csv.is_file():
         return False, f"no CSV at {csv}"
+    if studio:
+        return judge_bridge(s, csv, out, report)
     if s.get("cancel_after_s") is not None:
         return judge_cancel(s, csv)
     return judge_run(s, csv, out, report)

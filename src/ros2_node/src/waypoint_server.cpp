@@ -98,6 +98,10 @@ WaypointServer::WaypointServer(rclcpp_lifecycle::LifecycleNode::SharedPtr node,
              const std::shared_ptr<const Follow::Goal>& /*goal*/) {
         const LoopMode mode = snapshot().mode;
         const bool active = link_.active.load(std::memory_order_acquire);
+        if (link_.studio_in_control.load(std::memory_order_acquire)) {
+          RCLCPP_WARN(node_->get_logger(), "goal rejected: studio is in control");
+          return rclcpp_action::GoalResponse::REJECT;
+        }
         if (goal_ || !active || mode != LoopMode::kStandby) {
           const char* why = goal_     ? "a goal is running"
                             : !active ? "the controller is not active"
@@ -163,6 +167,7 @@ cobot::common::Result<WaypointServer::Validation> WaypointServer::validate(
   if (!link_.active.load(std::memory_order_acquire)) {
     return cobot::common::Result<Validation>::error("the controller is not active");
   }
+  const std::lock_guard<std::mutex> lock(model_mutex_);
   if (!s.standby_seen) {
     return cobot::common::Result<Validation>::error("the loop has not been in standby yet");
   }
@@ -187,7 +192,14 @@ cobot::common::Result<WaypointServer::Validation> WaypointServer::validate(
                                             config_.path_validation);
 }
 
+void WaypointServer::set_model(cobot::model::Arm7 model, cobot::pipeline::Config<kN> config) {
+  const std::lock_guard<std::mutex> lock(model_mutex_);
+  model_ = std::move(model);
+  config_ = std::move(config);
+}
+
 nav_msgs::msg::Path WaypointServer::path_msg(const Validation& v) const {
+  const std::lock_guard<std::mutex> lock(model_mutex_);
   nav_msgs::msg::Path path;
   path.header.frame_id = config_.base_link;
   path.header.stamp = node_->now();
@@ -283,6 +295,11 @@ void WaypointServer::finish(const std::shared_ptr<Follow::Result>& result, bool 
 }
 
 void WaypointServer::reset(std_srvs::srv::Trigger::Response& response) {
+  if (link_.studio_in_control.load(std::memory_order_acquire)) {
+    response.success = false;
+    response.message = "studio is in control";
+    return;
+  }
   const std::uint64_t id = ++reset_id_;
   link_.reset_requested.store(id, std::memory_order_release);
   const auto deadline = std::chrono::steady_clock::now() + kResetWait;

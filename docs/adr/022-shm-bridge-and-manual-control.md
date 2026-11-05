@@ -121,6 +121,27 @@ Chốt cả hai mặc định trên:
   giảm tốc về 0 với lý do `deadman`.
 - `move_tcp` dùng dải jog làm `joint_margin_rad` của `validate_path`.
 
+**Bổ sung 2026-11-05** (PR controller-bridge):
+
+- Phần nối chung không có ROS (`bridge::LoopPort` trên luồng điều khiển, `bridge::CommandService`
+  trên luồng cầu nối) trao lệnh qua `pipeline::SpscRing` thay cho `realtime_tools::RealtimeBuffer`,
+  để `cobot_controller` và `cobot_bench serve` dùng cùng một mã.
+- Quyền điều khiển = token ngẫu nhiên của chủ + pid; mất nhịp 200 ms hoặc pid không còn thì dừng có
+  giảm tốc một lần, trả quyền khi vòng đã ra khỏi `tracking`. Chủ đổi hoặc trả quyền khi vòng đang
+  chạy lệnh do studio khởi động (jog, `move_joint`, `move_tcp`, `run_waypoints`) cũng dừng một lần.
+  Chuyển động không do studio khởi động (quỹ đạo của config, goal RViz nhận trước khi studio giành
+  quyền) chạy tiếp; chủ mất nhịp khi đó được xoá ngay.
+- Cầu nối chỉ có khi `log.mode: recorder_live`; lệnh chuyển động (`move_joint`, `move_tcp`,
+  `run_waypoints`, `apply_config`) cần thêm `command_source: external`.
+- Xuất đoạn = xuất Recorder vào Run CSV như thường lệ, rồi chép các dòng `[t0, t1]` của Run CSV;
+  Run CSV vẫn đúng một lần.
+- Panel RViz: khi studio giữ quyền, goal bị từ chối (log `goal rejected: studio is in control`),
+  `~/reset` trả `studio is in control`; `~/preview_waypoints` không đổi.
+- Hai host: `cobot_controller` (Gazebo, sau này Pi 5) và `cobot_bench serve` (CI, test, demo không
+  Gazebo); client không đồ hoạ `cobot_bridge_cli` chạy được với cả hai (câu hỏi B3).
+- Còn một tình huống tranh chấp: lệnh của chủ cũ còn trong vòng lệnh SPSC khi chủ mới giành quyền bị
+  trả lời "not the owner" cho chủ mới (câu hỏi B4); không lệnh nào chạy hai lần.
+
 **PF-02**: `cobot_bench timing --paced` (chạy theo nhịp 1 kHz bằng `clock_nanosleep`) đo thời gian
 bước (p50, p99, max) với `log.mode` = `off`, `recorder`, `recorder_live` có người đọc ở lõi khác. Trên
 CI chỉ chạy như báo cáo trong job `core`, gate lỏng p99 < 1 ms và không cấp phát; số thật đo tay trên
