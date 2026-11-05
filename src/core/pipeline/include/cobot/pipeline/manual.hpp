@@ -26,8 +26,8 @@ const char* to_string(ManualStop stop);
 // Synchronised trapezoid (ADR-022 "Đã chốt ở PR manual-commands"): one normalised profile s(t) in
 // [0, 1] for every joint, q(t) = q_start + s(t) (q_goal - q_start): a straight line in joint
 // space, every joint arrives at duration_s. With d_j = |q_goal_j - q_start_j| (joints with d_j = 0
-// ignored):
-//   s_v_max = min_j speed qd_max_j / d_j,  s_a_max = min_j speed a_max_j / d_j
+// ignored) and f = config.manual.joint_speed_fraction:
+//   s_v_max = min_j speed f qd_max_j / d_j,  s_a_max = min_j speed a_max_j / d_j
 //   trapezoid when s_v_max^2 / s_a_max < 1: duration = 1 / s_v_max + s_v_max / s_a_max
 //   triangle otherwise:                      duration = 2 sqrt(1 / s_a_max), peak s' =
 //   sqrt(s_a_max)

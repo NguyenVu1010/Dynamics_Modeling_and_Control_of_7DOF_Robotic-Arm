@@ -113,6 +113,8 @@ Chốt cả hai mặc định trên:
 - Mục cấu hình mới, tuỳ chọn, `cobot.manual`: `joint_a_max_rad_s2`, `tcp_v_max_m_s`,
   `tcp_w_max_rad_s`, `tcp_a_max_m_s2`, `tcp_alpha_max_rad_s2` (ở 100 % tốc độ), `deadman_ms`,
   `jog_margin_deg` (`docs/conventions.md`).
+- (PR jog-headroom) `manual.joint_speed_fraction` (mặc định 0.9, trong (0, 1]): jog khớp và
+  `move_joint` ở 100 % = 0.9 qd_max, vì qd bám vượt nhẹ mục tiêu qd_max và gây giữ `overspeed`.
 - `HoldReason::kEstop` (chuỗi `estop`): `estop()` đưa bước kế tiếp vào `kHolding`, cần `reset`;
   phiên bản bố cục log hộp đen `kShmLogLayoutVersion` lên 3.
 - Nút người chết đếm theo bước điều khiển: `deadman_s · control_rate_hz` bước không làm mới thì jog

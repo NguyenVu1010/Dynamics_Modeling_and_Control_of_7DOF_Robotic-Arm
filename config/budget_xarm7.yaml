@@ -66,6 +66,7 @@ cobot:
     tcp_alpha_max_rad_s2: 2.0          # rad/s^2 at 100 % speed
     deadman_ms: 100.0                  # a jog not refreshed for this long ramps to rest
     jog_margin_deg: 2.0                # jog and move_joint stop this far inside safety.soft_margin_deg
+    joint_speed_fraction: 0.9          # joint jog and move_joint at 100 % use 0.9 qd_max, below the overspeed hold
   tcp_offset:                          # tool centre point in the link_7 frame (none: zero)
     position_m: [0.0, 0.0, 0.0]
     rpy_deg: [0.0, 0.0, 0.0]           # R = Rz(yaw) Ry(pitch) Rx(roll)

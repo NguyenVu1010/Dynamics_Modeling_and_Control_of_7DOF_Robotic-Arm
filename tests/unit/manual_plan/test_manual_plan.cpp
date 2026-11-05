@@ -6,10 +6,11 @@
 // controller's model (pipeline::controller_model). URDF: qd_max 2.1 rad/s for joints 1-4, 3.1 for
 // 5-7; joint_4 in [-3.1416, -0.4] rad. manual.joint_a_max_rad_s2 = (15, 7.5, 12.5, 12.5, 15, 20,
 // 20). Home q = (0, 30, 0, -90, 0, 60, 0) deg. Jog band = soft_margin 3 deg + jog_margin 2 deg =
-// 5 deg = 0.0872665 rad.
+// 5 deg = 0.0872665 rad. manual.joint_speed_fraction f = 0.9 (feature jog-headroom; the key is
+// absent or 0.9 in default.yaml, 0.9 either way).
 //
 // Synchronised trapezoid, d_j = |q_goal_j - q_start_j|:
-//   s_v_max = min_j speed qd_max_j / d_j,  s_a_max = min_j speed a_max_j / d_j
+//   s_v_max = min_j speed f qd_max_j / d_j,  s_a_max = min_j speed a_max_j / d_j
 //   trapezoid when s_v_max^2 / s_a_max < 1: duration = 1 / s_v_max + s_v_max / s_a_max
 //   triangle otherwise: duration = 2 sqrt(1 / s_a_max), peak s' = sqrt(s_a_max)
 #include <algorithm>
@@ -69,11 +70,12 @@ bool contains(const std::string& text, const std::string& part) {
 }
 
 // The first case of the brief: home -> q1 + 0.5 rad, q2 - 0.25 rad at 10 % speed.
-//   d = (0.5, 0.25); speed qd_max = (0.21, 0.21); speed a_max = (1.5, 0.75)
-//   s_v_max = min(0.21 / 0.5, 0.21 / 0.25) = min(0.42, 0.84) = 0.42
+//   d = (0.5, 0.25); speed f qd_max = 0.1 * 0.9 * 2.1 = (0.189, 0.189); speed a_max = (1.5, 0.75)
+//   s_v_max = min(0.189 / 0.5, 0.189 / 0.25) = min(0.378, 0.756) = 0.378
 //   s_a_max = min(1.5 / 0.5, 0.75 / 0.25) = min(3.0, 3.0) = 3.0
-//   0.42^2 / 3 = 0.0588 < 1 -> trapezoid, duration = 1 / 0.42 + 0.42 / 3 = 2.380952 + 0.14
-//   = 2.520952 s; peak qd = 0.42 d = (0.21, 0.105) rad/s, peak qdd = 3 d = (1.5, 0.75) rad/s^2.
+//   0.378^2 / 3 = 0.047628 < 1 -> trapezoid, duration = 1 / 0.378 + 0.378 / 3 = 2.645503 + 0.126
+//   = 2.771503 s; peak qd = 0.378 d = (0.189, 0.0945) rad/s, peak qdd = 3 d = (1.5, 0.75) rad/s^2.
+//   (Before jog-headroom, f = 1: s_v_max 0.42, 2.520952 s, peak qd (0.21, 0.105) rad/s.)
 TEST(ManualPlan, JointMoveTrapezoidNumbers) {
   const Arm arm = load_arm();
   const Vec7 q0 = arm.cfg.home_q_rad;
@@ -84,10 +86,10 @@ TEST(ManualPlan, JointMoveTrapezoidNumbers) {
   const auto plan = plan_joint_move<7>(arm.model, arm.cfg, q0, goal, 0.1);
   ASSERT_TRUE(plan) << plan.reason();
   const JointMove<7>& mv = plan.value();
-  EXPECT_NEAR(mv.s_v_max, 0.42, 1e-12);
+  EXPECT_NEAR(mv.s_v_max, 0.378, 1e-12);
   EXPECT_NEAR(mv.s_a_max, 3.0, 1e-12);
-  EXPECT_NEAR(mv.duration_s, 1.0 / 0.42 + 0.42 / 3.0, 1e-5);
-  EXPECT_NEAR(mv.duration_s, 2.52095, 1e-5);
+  EXPECT_NEAR(mv.duration_s, 1.0 / 0.378 + 0.378 / 3.0, 1e-5);
+  EXPECT_NEAR(mv.duration_s, 2.771503, 1e-5);
   for (int j = 0; j < 7; ++j) {
     EXPECT_EQ(mv.q_start(j), q0(j)) << j;
     EXPECT_EQ(mv.q_goal(j), goal(j)) << j;
@@ -98,7 +100,7 @@ TEST(ManualPlan, JointMoveTrapezoidNumbers) {
   double s_dd = 0.0;
   mv.sample(0.5 * mv.duration_s, s, s_d, s_dd);
   EXPECT_NEAR(s, 0.5, 1e-12);
-  EXPECT_NEAR(s_d, 0.42, 1e-12);  // cruise
+  EXPECT_NEAR(s_d, 0.378, 1e-12);  // cruise
   EXPECT_NEAR(s_dd, 0.0, 1e-12);
 
   // Peaks sampled every 1 ms over [0, duration]: qd_j = s' d_j, qdd_j = s'' d_j.
@@ -120,8 +122,8 @@ TEST(ManualPlan, JointMoveTrapezoidNumbers) {
     qdd1 = std::max(qdd1, std::abs(s_dd * d(0)));
     qdd2 = std::max(qdd2, std::abs(s_dd * d(1)));
   }
-  EXPECT_NEAR(qd1, 0.21, 1e-9);
-  EXPECT_NEAR(qd2, 0.105, 1e-9);
+  EXPECT_NEAR(qd1, 0.189, 1e-9);   // 0.378 * 0.5
+  EXPECT_NEAR(qd2, 0.0945, 1e-9);  // 0.378 * 0.25
   EXPECT_NEAR(qdd1, 1.5, 1e-9);
   EXPECT_NEAR(qdd2, 0.75, 1e-9);
 }
@@ -151,7 +153,7 @@ TEST(ManualPlan, JointMoveSampleEndsAndSymmetry) {
     EXPECT_NEAR(s, 1.0, 1e-12) << t;
     EXPECT_NEAR(s_d, 0.0, 1e-12) << t;
   }
-  // During the acceleration phase (t < s_v_max / s_a_max = 0.14 s): s'' = s_a_max.
+  // During the acceleration phase (t < s_v_max / s_a_max = 0.378 / 3 = 0.126 s): s'' = s_a_max.
   mv.sample(0.05, s, s_d, s_dd);
   EXPECT_NEAR(s_dd, 3.0, 1e-12);
   EXPECT_NEAR(s_d, 3.0 * 0.05, 1e-12);        // 0.15
@@ -165,9 +167,10 @@ TEST(ManualPlan, JointMoveSampleEndsAndSymmetry) {
   }
 }
 
-// Joint 1 + 0.01 rad: s_v_max = 0.21 / 0.01 = 21, s_a_max = 1.5 / 0.01 = 150; 21^2 / 150 = 2.94
-// >= 1 -> triangle: duration = 2 sqrt(1 / 150) = 0.163299 s, peak s' = sqrt(150) = 12.2474 at
-// T / 2, peak qd = 0.01 * 12.2474 = 0.122474 rad/s (below the 0.21 rad/s cap).
+// Joint 1 + 0.01 rad: s_v_max = 0.1 * 0.9 * 2.1 / 0.01 = 18.9, s_a_max = 1.5 / 0.01 = 150;
+// 18.9^2 / 150 = 357.21 / 150 = 2.3814 >= 1 -> triangle: duration = 2 sqrt(1 / 150) = 0.163299 s,
+// peak s' = sqrt(150) = 12.2474 at T / 2, peak qd = 0.01 * 12.2474 = 0.122474 rad/s (below the
+// 0.189 rad/s cap).
 TEST(ManualPlan, JointMoveTriangleForAShortMove) {
   const Arm arm = load_arm();
   const Vec7 q0 = arm.cfg.home_q_rad;

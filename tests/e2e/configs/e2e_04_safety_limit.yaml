@@ -55,6 +55,7 @@ cobot:
     tcp_alpha_max_rad_s2: 2.0
     deadman_ms: 100.0
     jog_margin_deg: 2.0
+    joint_speed_fraction: 0.9
   tcp_offset:
     position_m: [0.0, 0.0, 0.0]
     rpy_deg: [0.0, 0.0, 0.0]

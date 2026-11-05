@@ -152,8 +152,9 @@ common::Result<JointMove<N>> plan_joint_move(const model::Model<N>& model,
   for (int j = 0; j < N; ++j) {
     const double d = std::abs(delta(j));
     if (d > 0.0) {
-      const double qd_max = model.joints[static_cast<std::size_t>(j)].qd_max;
-      mv.s_v_max = std::min(mv.s_v_max, speed * qd_max / d);
+      const double qd_manual_max =
+          config.manual.joint_speed_fraction * model.joints[static_cast<std::size_t>(j)].qd_max;
+      mv.s_v_max = std::min(mv.s_v_max, speed * qd_manual_max / d);
       mv.s_a_max = std::min(mv.s_a_max, speed * config.manual.joint_a_max_rad_s2(j) / d);
     }
   }

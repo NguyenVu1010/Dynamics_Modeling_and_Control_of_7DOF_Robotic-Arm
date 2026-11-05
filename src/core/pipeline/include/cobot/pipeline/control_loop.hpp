@@ -51,7 +51,8 @@
 //
 // Manual commands (feature manual-commands, ADR-022 "Lệnh tay"; external mode only, generators in
 // manual.hpp). Each is called on the control thread, allocates nothing and rejects with literals.
-// - Joint jog: target velocity direction * speed * qd_max_j, acceleration speed * a_max_j
+// - Joint jog: target velocity direction * speed * joint_speed_fraction * qd_max_j, acceleration
+//   speed * a_max_j
 //   (semi-implicit per step: v toward the target by at most a dt, q += v dt). The other joints
 //   hold their q_ref exactly. The jog brakes so that q_ref comes to rest at the jog limit
 //   q_max_j - (soft_margin + jog_margin) (or q_min_j + ...) and stops there with kSoftLimit

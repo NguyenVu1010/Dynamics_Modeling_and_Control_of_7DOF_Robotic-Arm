@@ -5,8 +5,11 @@
 // ADR-018 time scaling over stop_time_s applied to s(t).
 //
 // The plan of manual_plan's first case, from the loop's joint_reference() (home after 100 standby
-// steps): Δ = (+0.5, -0.25, 0, ...) rad at 10 %: s_v_max 0.42, s_a_max 3.0, duration
-// 1 / 0.42 + 0.42 / 3 = 2.520952 s; peak |qd_ref| = (0.21, 0.105) rad/s.
+// steps): Δ = (+0.5, -0.25, 0, ...) rad at 10 %, joint_speed_fraction 0.9 (feature jog-headroom):
+// speed * 0.9 * qd_max = 0.1 * 0.9 * 2.1 = 0.189 rad/s, s_v_max = min(0.189 / 0.5, 0.189 / 0.25)
+// = 0.378, s_a_max = min(1.5 / 0.5, 0.75 / 0.25) = 3.0, duration 1 / 0.378 + 0.378 / 3 =
+// 2.645503 + 0.126 = 2.771503 s; peak |qd_ref| = 0.378 * (0.5, 0.25) = (0.189, 0.0945) rad/s.
+// (Before jog-headroom: s_v_max 0.42, 2.520952 s, (0.21, 0.105) rad/s.)
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -48,7 +51,7 @@ TEST(ManualMoveJoint, JointsArriveTogetherAndTheLoopFinishesInStandby) {
   Host h = make_host(*setup, cfg);
   const Vec q0 = h.loop().joint_reference();
   const JointMove<kN> mv = first_case_plan(*setup, cfg, q0);
-  ASSERT_NEAR(mv.duration_s, 2.520952, 1e-5);
+  ASSERT_NEAR(mv.duration_s, 2.771503, 1e-5);
 
   ASSERT_TRUE(h.loop().move_joint(mv).is_ok());
   const int steps = step_until_standby(h, 4000);
@@ -59,11 +62,11 @@ TEST(ManualMoveJoint, JointsArriveTogetherAndTheLoopFinishesInStandby) {
   EXPECT_EQ(h.loop().manual_stop(), ManualStop::kFinished);
   EXPECT_EQ(h.loop().command_mode(), CommandMode::kMoveJoint);
 
-  // ceil(2.520952 / 0.001) = 2521: row 2521 samples t = 2.521 s >= duration (s = 1); row 2520
-  // samples t = 2.520 s, 0.95 ms before the end: 1 - s = 0.5 * 3 * (0.95e-3)^2 = 1.4e-6, so
-  // |q_ref_1 - goal_1| = 6.8e-7 there.
+  // ceil(2.771503 / 0.001) = 2772: row 2772 samples t = 2.772 s >= duration (s = 1); row 2771
+  // samples t = 2.771 s, 0.503 ms before the end: 1 - s = 0.5 * 3 * (0.503e-3)^2 = 3.8e-7, so
+  // |q_ref_1 - goal_1| = 0.5 * 3.8e-7 = 1.9e-7 there.
   const int k_end = static_cast<int>(std::ceil(mv.duration_s / kDt));
-  ASSERT_EQ(k_end, 2521);
+  ASSERT_EQ(k_end, 2772);
   EXPECT_LE(steps, k_end + 2);
   EXPECT_EQ(first_at_goal(h.rows, 0, mv.q_goal(0), 1e-12), k_end);
   EXPECT_EQ(first_at_goal(h.rows, 1, mv.q_goal(1), 1e-12), k_end);
@@ -100,8 +103,8 @@ TEST(ManualMoveJoint, JointsArriveTogetherAndTheLoopFinishesInStandby) {
     EXPECT_NEAR(r.qdd_ref(1), -0.5 * r.qdd_ref(0), 1e-12) << i;
   }
   EXPECT_GE(tracking, 2500U);
-  EXPECT_NEAR(qd1, 0.21, 1e-9);
-  EXPECT_NEAR(qd2, 0.105, 1e-9);
+  EXPECT_NEAR(qd1, 0.189, 1e-9);   // 0.378 * 0.5
+  EXPECT_NEAR(qd2, 0.0945, 1e-9);  // 0.378 * 0.25
 }
 
 // request_stop() at t = 1.0 s (cruise): s(t) slows down over stop_time_s = 0.5 s, standby within
@@ -137,10 +140,11 @@ TEST(ManualMoveJoint, StopDuringAMoveStaysOnTheLine) {
   const double f1 = (last->q_ref(0) - q0(0)) / delta(0);
   const double f2 = (last->q_ref(1) - q0(1)) / delta(1);
   EXPECT_NEAR(f1, f2, 1e-9);
-  // Stopped before the goal, beyond s(1.0 s) = 0.42 * (1.0 - 0.07) = 0.3906 (cruise: s =
-  // s_v_max (t - s_v_max / (2 s_a_max))). The smoothstep ramp adds s_v_max * stop_time_s / 2 =
-  // 0.105: s ~ 0.4956 at rest.
-  EXPECT_GT(f1, 0.39);
+  // Stopped before the goal, beyond s(1.0 s) = 0.378 * (1.0 - 0.063) = 0.354186 (cruise: s =
+  // s_v_max (t - s_v_max / (2 s_a_max)), 0.378 / 6 = 0.063). The smoothstep ramp adds s_v_max *
+  // stop_time_s / 2 = 0.378 * 0.25 = 0.0945: s ~ 0.4487 at rest. (Before jog-headroom: 0.3906,
+  // 0.4956.)
+  EXPECT_GT(f1, 0.354);
   EXPECT_LT(f1, 0.55);
   EXPECT_LT(std::abs(last->qd_ref(0)), 1e-2);
   for (int j = 2; j < kN; ++j) {
@@ -194,6 +198,64 @@ TEST(ManualMoveJoint, MoveOutsideStandbyIsRejected) {
   h.step();
   EXPECT_FALSE(h.loop().move_joint(mv).is_ok());
   EXPECT_EQ(h.loop().command_mode(), CommandMode::kJogJoint);
+}
+
+// Feature jog-headroom: move_joint at 100 % over the full joint-1 range inside the jog band never
+// holds. Joint 1 jog band: |q1| <= 2.9671 - 0.0872665 = 2.8798335 rad; goals 1e-3 rad inside it,
+// q1 = +-2.8788335. Three moves from the loop's joint_reference(): home -> +2.8788 -> -2.8788 ->
+// home, only joint 1 moving, speed 1.0:
+//   s_v_max = 1.0 * 0.9 * 2.1 / d = 1.89 / d, s_a_max = 15 / d; s_v_max^2 / s_a_max = 1.89^2 /
+//   (15 d) = 0.238 / d < 1 for every d >= 0.25: trapezoids, cruise |qd_ref_1| = 1.89 rad/s.
+//   home -> +2.8788: d = 2.8788, duration = 2.8788 / 1.89 + 1.89 / 15 = 1.5232 + 0.126 = 1.649 s
+//   +2.8788 -> -2.8788: d = 5.7577, duration = 3.0464 + 0.126 = 3.172 s
+// Each ends kFinished in standby within 5000 steps; no row in kHolding; measured max |qd_i| <
+// qd_max_i (before jog-headroom the cruise was exactly 2.1 rad/s = qd_max_1: overspeed hold).
+TEST(ManualMoveJoint, FullSpeedMoveNeverHolds) {
+  const auto setup = load_setup();
+  ASSERT_TRUE(setup);
+  const Config<kN> cfg = manual_config(*setup);
+  const Vec qd_max = qd_max_of(setup->model);
+  const double band = cfg.safety.soft_margin_rad + cfg.manual.jog_margin_rad;
+  ASSERT_NEAR(band, 5.0 * kDegree, 1e-12);
+  const double q1_hi = q_max_of(setup->model)(0) - band - 1e-3;
+  const double q1_lo = q_min_of(setup->model)(0) + band + 1e-3;
+  ASSERT_NEAR(q1_hi, 2.8788335, 1e-6);
+  ASSERT_NEAR(q1_lo, -2.8788335, 1e-6);
+
+  Host h = make_host(*setup, cfg);
+  const Vec home = h.loop().joint_reference();
+  Vec hi = home;
+  hi(0) = q1_hi;
+  Vec lo = home;
+  lo(0) = q1_lo;
+  for (const Vec& goal : {hi, lo, home}) {
+    SCOPED_TRACE("goal q1 " + std::to_string(goal(0)));
+    const Vec start = h.loop().joint_reference();
+    const auto plan = plan_joint_move<kN>(planner_model(*setup, cfg), cfg, start, goal, 1.0);
+    ASSERT_TRUE(plan) << plan.reason();
+    ASSERT_TRUE(h.loop().move_joint(plan.value()).is_ok());
+    const int steps = step_until_standby(h, 5000);
+    ASSERT_EQ(h.mode(), LoopMode::kStandby)
+        << "after " << steps << " steps, hold reason " << to_string(h.loop().hold_reason());
+    EXPECT_EQ(h.loop().manual_stop(), ManualStop::kFinished);
+    EXPECT_NEAR(h.loop().joint_reference()(0), goal(0), 1e-9);
+  }
+
+  Vec qd_seen = Vec::Zero();
+  double qd_ref_seen = 0.0;
+  std::size_t holding = 0;
+  for (const Record& r : h.rows) {
+    if (r.mode == LoopMode::kHolding || r.hold_reason != HoldReason::kNone) {
+      ++holding;
+    }
+    qd_seen = qd_seen.cwiseMax(r.qd.cwiseAbs());
+    qd_ref_seen = std::max(qd_ref_seen, std::abs(r.qd_ref(0)));
+  }
+  EXPECT_EQ(holding, 0U);
+  for (int i = 0; i < kN; ++i) {
+    EXPECT_LT(qd_seen(i), qd_max(i)) << "joint " << i + 1 << " max |qd| " << qd_seen(i);
+  }
+  EXPECT_NEAR(qd_ref_seen, kJointSpeedFraction * qd_max(0), 1e-9);  // 0.9 * 2.1 = 1.89 rad/s
 }
 
 }  // namespace

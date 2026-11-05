@@ -98,7 +98,7 @@ inline constexpr double kDeg = 3.14159265358979323846 / 180.0;  // rad per degre
 template <int N>
 struct ManualConfig {
   VecN<N> joint_a_max_rad_s2 =
-      VecN<N>::Constant(5.0);         // > 0; joint velocity limit is the URDF qd_max
+      VecN<N>::Constant(5.0);         // > 0; joint velocity limit: joint_speed_fraction * qd_max
   double tcp_v_max_m_s = 0.25;        // > 0
   double tcp_w_max_rad_s = 1.0;       // > 0
   double tcp_a_max_m_s2 = 0.5;        // > 0
@@ -107,6 +107,10 @@ struct ManualConfig {
   // YAML jog_margin_deg, >= 0: jog/move stop this far INSIDE the safety band, i.e. at
   // soft_margin_rad + jog_margin_rad from a URDF limit (plan ambiguity 1).
   double jog_margin_rad = 2.0 * kDeg;
+  // YAML joint_speed_fraction, in (0, 1] (feature jog-headroom): joint jog and joint move use at
+  // most this fraction of the URDF qd_max at 100 % speed, leaving headroom below the overspeed
+  // hold |qd| > qd_max that the tracked qd would otherwise trip by overshooting a target of qd_max.
+  double joint_speed_fraction = 0.9;
 };
 
 template <int N>
