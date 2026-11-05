@@ -416,6 +416,76 @@ TEST(BridgeService, ReleaseWhileMovingStopsAtTheNextPoll) {
   EXPECT_FALSE(c.h.service().studio_in_control());
 }
 
+// A move the bridge thread posted but the control thread has not applied yet (a lagging control
+// thread: here the service polls twice with no step in between) is the studio's motion too.
+// Sends a move_joint and polls once so it is posted; the loop is still in standby.
+std::optional<std::uint64_t> post_move_without_a_step(Claimed& c) {
+  const Vec goal = move_joint_goal(vec_of(c.h.status().joint_reference));
+  const auto id = c.client->send(move_joint_command(goal, kSpeed));
+  if (!id) {
+    ADD_FAILURE() << "send: " << id.reason();
+    return std::nullopt;
+  }
+  c.h.service().poll(c.h.now_ns());
+  EXPECT_TRUE(in_standby(c.h));
+  return id.value();
+}
+
+// Stamp of the first move_joint row at or after t_ns, -1 if none.
+std::int64_t move_row_after(const Harness& h, std::int64_t t_ns) {
+  const std::ptrdiff_t i = h.first_row(
+      t_ns - 1, [](const Record& rec) { return rec.cmd_mode == CommandMode::kMoveJoint; });
+  return i < 0 ? -1 : h.rows()[static_cast<std::size_t>(i)].t.ns;
+}
+
+TEST(BridgeService, ReleaseBeforeThePostedMoveWasAppliedStillStopsIt) {
+  Claimed c;
+  ASSERT_TRUE(c.ok());
+  ASSERT_TRUE(post_move_without_a_step(c));
+  c.client->release();
+  c.h.stop_beating();
+  c.h.service().poll(c.h.now_ns());  // sees the release before any step applied the move
+  const std::int64_t t_release = c.h.now_ns();
+  ASSERT_GE(c.h.run_until([&] { return move_row_after(c.h, t_release) >= 0; }, 10), 0);
+  const std::int64_t t_move = move_row_after(c.h, t_release);
+  ASSERT_GE(c.h.run_until([&] { return in_standby(c.h); }, 1000), 0);
+  const std::int64_t t_standby = standby_after(c.h, t_move);
+  ASSERT_GE(t_standby, 0);
+  // The move applies at the first step, the stop at the next, then the 0.5 s ramp (2 steps
+  // margin), well before the 2.52 s move would end.
+  EXPECT_LE(t_standby, t_move + 1'000'000 + 500'000'000 + 2'000'000);
+  EXPECT_EQ(c.h.status().manual_stop, manual_stop_value(ManualStop::kStopped));
+  c.h.steps(10);
+  EXPECT_FALSE(c.h.service().studio_in_control());
+}
+
+TEST(BridgeService, HeartbeatLossBeforeThePostedMoveWasAppliedStopsItThenClearsTheOwner) {
+  Claimed c;
+  ASSERT_TRUE(c.ok());
+  ASSERT_TRUE(post_move_without_a_step(c));
+  c.h.stop_beating();
+  // The bridge thread's clock runs 250 ms ahead of the steps: the owner is lost while the move
+  // is still in the command ring. The owner is kept until the loop is back in standby.
+  const std::int64_t t_lost = c.h.now_ns();
+  c.h.service().poll(t_lost + 250'000'000);
+  EXPECT_NE(c.h.server().owner_token(), 0U) << "cleared while a studio move was pending";
+  std::int64_t t_cleared = -1;
+  for (int k = 0; k < 2000 && t_cleared < 0; ++k) {
+    c.h.step();
+    if (c.h.server().owner_token() == 0) {
+      t_cleared = c.h.now_ns();
+    }
+  }
+  const std::int64_t t_move = move_row_after(c.h, t_lost);
+  ASSERT_GE(t_move, 0) << "the posted move never ran";
+  const std::int64_t t_standby = standby_after(c.h, t_move);
+  ASSERT_GE(t_standby, 0) << "never back in standby";
+  EXPECT_LE(t_standby, t_move + 1'000'000 + 500'000'000 + 2'000'000);
+  ASSERT_GE(t_cleared, 0) << "owner never cleared";
+  EXPECT_GT(t_cleared, t_standby);
+  EXPECT_EQ(c.h.status().manual_stop, manual_stop_value(ManualStop::kStopped));
+}
+
 // The watchdog stops only a motion the studio started (43d6117, conventions "Studio bridge").
 // Rows [from, end) of `h` (config mode) are those of the same config run with no client at all:
 // the config's trajectory ran on, tracking, never stopped or held.
