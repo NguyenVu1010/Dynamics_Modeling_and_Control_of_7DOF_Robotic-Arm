@@ -561,12 +561,12 @@ inline std::vector<planning::Waypoint> e2e_13_waypoints() {
 
 // The plan of manual-commands' first move_joint case: q1 + 0.5 rad, q2 - 0.25 rad from `q_ref`.
 // Hand-checked duration (default.yaml at 10 %: qd_max 2.1 rad/s on joints 1 and 2 (URDF
-// velocity), joint_a_max 15 and 7.5 rad/s^2):
-//   s_v_max = min(0.1 * 2.1 / 0.5, 0.1 * 2.1 / 0.25) = min(0.42, 0.84) = 0.42 1/s
+// velocity), joint_speed_fraction 0.9, joint_a_max 15 and 7.5 rad/s^2):
+//   s_v_max = min(0.1 * 0.9 * 2.1 / 0.5, 0.1 * 0.9 * 2.1 / 0.25) = min(0.378, 0.756) = 0.378 1/s
 //   s_a_max = min(0.1 * 15 / 0.5, 0.1 * 7.5 / 0.25) = min(3.0, 3.0) = 3.0 1/s^2
-//   s_v_max^2 / s_a_max = 0.1764 / 3 = 0.0588 < 1: trapezoid,
-//   duration = 1 / 0.42 + 0.42 / 3 = 2.380952 + 0.14 = 2.520952 s.
-constexpr double kMoveJointDurationS = 2.520952;
+//   s_v_max^2 / s_a_max = 0.142884 / 3 = 0.047628 < 1: trapezoid,
+//   duration = 1 / 0.378 + 0.378 / 3 = 2.645503 + 0.126 = 2.771503 s.
+constexpr double kMoveJointDurationS = 2.771503;
 inline Vec move_joint_goal(const Vec& q_ref) {
   Vec q = q_ref;
   q(0) += 0.5;

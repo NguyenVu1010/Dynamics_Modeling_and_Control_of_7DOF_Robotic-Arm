@@ -241,11 +241,11 @@ TEST(BridgeService, JogThroughTheSlotMovesJoint1LikeTheLoopJog) {
   }
   c.client->write_jog(joint_jog(0, 0, kSpeed));  // release
   ASSERT_GE(c.h.run_until([&] { return in_standby(c.h); }, 1000), 0);
-  // v = 0.1 * 2.1 = 0.21 rad/s at a = 0.1 * 15 = 1.5 rad/s^2: ramp 0.14 s covers
-  // 0.21^2 / (2 * 1.5) = 0.0147 rad, cruise (0.5 - 0.14) * 0.21 = 0.0756 rad, brake 0.0147 rad:
-  // 0.105 rad in total.
+  // v = 0.1 * 0.9 * 2.1 = 0.189 rad/s (joint_speed_fraction 0.9) at a = 0.1 * 15 = 1.5 rad/s^2:
+  // ramp 0.126 s covers 0.189^2 / (2 * 1.5) = 0.011907 rad, cruise (0.5 - 0.126) * 0.189 =
+  // 0.070686 rad, brake 0.011907 rad: 0.0945 rad in total.
   const double moved = c.h.rows().back().q_ref(0) - q0;
-  EXPECT_NEAR(moved, 0.105, 1e-3);
+  EXPECT_NEAR(moved, 0.0945, 1e-3);
   EXPECT_EQ(c.h.status().manual_stop, manual_stop_value(ManualStop::kStopped));
   for (const Record& rec : c.h.rows()) {
     if (rec.mode == LoopMode::kTracking) {
