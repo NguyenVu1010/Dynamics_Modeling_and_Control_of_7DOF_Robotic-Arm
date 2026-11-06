@@ -91,6 +91,7 @@ class ClientEndpoint {  // studio side; move-only
   bool is_owner() const noexcept;
   void beat(std::int64_t now_ns) noexcept;  // only while owner
   std::int64_t owner_pid() const noexcept;
+  std::int64_t server_pid() const noexcept;  // the host process (0 before create() wrote it)
   bool server_alive(std::int64_t now_ns) const noexcept;  // heartbeat < 200 ms old, pid alive
   // Commands: id and token filled in; checks ownership right before the push. Errors "not the
   // owner", "command ring full".

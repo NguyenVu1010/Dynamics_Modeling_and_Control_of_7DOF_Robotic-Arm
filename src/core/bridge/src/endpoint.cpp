@@ -521,6 +521,11 @@ std::int64_t ClientEndpoint<N>::owner_pid() const noexcept {
 }
 
 template <int N>
+std::int64_t ClientEndpoint<N>::server_pid() const noexcept {
+  return static_cast<std::int64_t>(load(region_->h.server_pid));
+}
+
+template <int N>
 bool ClientEndpoint<N>::server_alive(std::int64_t now_ns) const noexcept {
   const auto beat = static_cast<std::int64_t>(load(region_->h.server_beat_ns));
   const std::uint64_t pid = load(region_->h.server_pid);

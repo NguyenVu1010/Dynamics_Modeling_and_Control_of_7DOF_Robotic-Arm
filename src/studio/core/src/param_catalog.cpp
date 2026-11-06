@@ -1,6 +1,7 @@
 #include "cobot/studio/param_catalog.hpp"
 
 #include <cmath>
+#include <string>
 #include <utility>
 
 #include "cobot/model/model.hpp"
@@ -205,8 +206,24 @@ std::vector<Entry> make_catalog() {
 #undef COBOT_NUM
 #undef COBOT_BOOL
 
+// What cobot_controller rejects (payload) or ignores with a warning (friction, set in the physics
+// at launch; transmission; sensor.position_source) on the Gazebo path (design 6.5, on_configure),
+// besides the timing and comm keys marked bench_only.
+bool gazebo_ignores(const std::string& key) {
+  const auto starts = [&key](const char* prefix) { return key.rfind(prefix, 0) == 0; };
+  return key == "model.payload_kg" || key == "model.payload_offset_m" ||
+         key == "model.payload_radius_m" || key == "sensor.position_source" ||
+         starts("friction.") || starts("transmission.");
+}
+
 const std::vector<Entry>& entries() {
-  static const std::vector<Entry> entries_list = make_catalog();
+  static const std::vector<Entry> entries_list = [] {
+    std::vector<Entry> out = make_catalog();
+    for (Entry& e : out) {
+      e.info.gazebo_supported = e.info.gazebo_supported && !gazebo_ignores(e.info.key);
+    }
+    return out;
+  }();
   return entries_list;
 }
 

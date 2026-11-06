@@ -39,6 +39,7 @@ struct RunEntry {
   bench::RunSummary summary;
   std::optional<SweepPoint> sweep;
   std::string diff;  // describe_diff(config)
+  std::string note;  // live runs: why the segment is incomplete (truncated); empty otherwise
 };
 
 class RunStore {

@@ -144,3 +144,22 @@ có `max_parallel`, Monte Carlo 100 lần là một người gọi nữa; mỗi 
   nhau từng bit (gồm `omega`); luồng GUI không đứng quá 250 ms khi chạy, quét, nạp mesh; vẽ lại đồ
   thị 10 lần chạy × 7 đường × 12 000 dòng dưới 100 ms (đo tay).
 - Giai đoạn C dùng lại `cobot_studio_core` cho `cobot_bench verify` và tab Kiểm nghiệm (ADR-023).
+
+## Bổ sung (2026-11-06): tab Điều khiển, thanh tốc độ, lần chạy trực tiếp
+
+- **Ba tab theo thứ tự thiết kế 5.3**: Cấu hình, Điều khiển (`controlTab`), Theo dõi. Tab Điều khiển
+  dùng `BridgeClient` của `cobot_studio_core` (không Qt, ADR-022) qua vùng `/cobot_<name>`, tên chọn
+  bằng `--bridge` (mặc định `cobot_controller`).
+- **Thanh tốc độ được bật**: `speedSlider` của tab Cấu hình và `controlSpeedSlider` là một giá trị,
+  `StudioConfig::speed_pct`, dùng cho jog và các lệnh di chuyển.
+- **Lần chạy trực tiếp lấy từ đoạn Recorder**: mỗi chuyển động (lệnh di chuyển, waypoint, jog) kết
+  thúc ở mẫu standby/holding đầu tiên; khi đã có mẫu muộn hơn `settle_window_s` = 1 s, studio yêu cầu
+  host xuất đoạn `[t_start, t_end + 1 s]` của Run CSV. Luồng worker đọc đoạn đó (`read_run_csv`) và
+  tính tóm tắt bằng chính `bench::summarize`, nên số trong tab Theo dõi giống cách tính của bench; luồng
+  GUI không đọc file.
+- **Nhịp tim chạy trên luồng GUI, cố ý**: `bridgeTimer` 50 ms gọi `tick`; GUI đứng thì nhịp tim dừng,
+  controller dừng robot sau 200 ms và trả quyền điều khiển. Khi GUI chạy lại sau một khoảng lặng dài
+  hơn 200 ms, client tự nhả quyền thay vì gia hạn. Đóng cửa sổ cũng nhả quyền ngay.
+- **Khoá dòng không hỗ trợ trên Gazebo**: khi đã kết nối, các khoá controller từ chối hoặc bỏ qua
+  (payload, friction, transmission, `sensor.position_source`, timing, comm) bị làm mờ trong cây tham
+  số.

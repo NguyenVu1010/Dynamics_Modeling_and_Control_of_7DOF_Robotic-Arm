@@ -239,6 +239,32 @@ chart; the magnify box (x1 to x1000) scales the tip's deviation from the desired
 sphere together. The meshes of `src/sim/meshes` are read once, off the GUI thread. The 3D test
 runs under `xvfb-run` when it is installed (`xvfb libgl1-mesa-dri`) and skips without OpenGL.
 
+The Control tab (between Configuration and Tracking) drives a controller through the studio
+bridge `/cobot_<name>`, chosen with `--bridge <name>` (default `cobot_controller`, the Gazebo
+controller's node name). "Take control" claims authority. The joint page jogs a joint while its
+`-` / `+` button is held and moves to typed-in goals (bounded by the jog band of the session's
+limits); the TCP page jogs and moves the TCP in the base or tool frame; the waypoint page teaches
+the current TCP pose, opens and saves waypoint files, previews them (issues per waypoint, the
+planned path in the live 3D view) and runs them. Stop, E-stop and Reset stay visible below the
+pages, next to a speed slider shared with the Configuration tab. The heartbeat runs on the GUI
+timer on purpose: a frozen window stops the robot and gives authority back; closing the window
+releases it. Every finished motion arrives in the Tracking tab as a live run ("live move_joint
+#1") read from the Recorder segment the host exports (the motion plus a 1 s settle window), with
+the same charts, error table and 3D replay as bench runs. "Apply to Gazebo" in the Configuration
+tab materialises the configuration and applies it while the loop is in standby; the rows the
+Gazebo path ignores (payload, friction, transmission, position source, timing, comm) are greyed
+while connected.
+
+```bash
+# Against the bench host (no Gazebo), in two terminals:
+build/src/bench/cobot_bench serve --config config/default.yaml \
+  --imperfections config/imperfections/ideal.yaml --name cobot_bench
+build/src/studio/app/cobot_studio --bridge cobot_bench
+# Against Gazebo:
+ros2 launch cobot_sim sim.launch.py controller:=cobot_controller studio:=true
+build/src/studio/app/cobot_studio   # --bridge cobot_controller
+```
+
 ## Environment configuration
 
 Two kinds of YAML file, kept apart:

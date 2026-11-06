@@ -7,11 +7,13 @@
 #include <filesystem>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
 #include "cobot/pipeline/overrides.hpp"
+#include "cobot/studio/bridge_client.hpp"
 #include "cobot/studio/profile_catalog.hpp"
 #include "cobot/studio/run_store.hpp"
 #include "cobot/studio/studio_config.hpp"
@@ -21,6 +23,8 @@
 #include "time_cursor.hpp"
 
 class QAbstractButton;
+class QCloseEvent;
+class QSlider;
 class QGraphicsLineItem;
 class QTimer;
 class QCheckBox;
@@ -44,6 +48,7 @@ class QValueAxis;
 // of the UI contract.
 namespace cobot::studio {
 
+class ControlTab;
 class ErrorModel;
 class RobotView;
 
@@ -54,6 +59,11 @@ class MainWindow : public QMainWindow {
   // materialised under work_dir.
   MainWindow(std::filesystem::path config_dir,
              std::filesystem::path work_dir,
+             QWidget* parent = nullptr);
+  // bridge_name: "cobot_controller" -> region /cobot_cobot_controller (main.cpp --bridge).
+  MainWindow(std::filesystem::path config_dir,
+             std::filesystem::path work_dir,
+             const std::string& bridge_name,
              QWidget* parent = nullptr);
   ~MainWindow() override;
   MainWindow(const MainWindow&) = delete;
@@ -70,6 +80,9 @@ class MainWindow : public QMainWindow {
   bool open_studio(const QString& path);
   bool export_run(const QString& csv_path);
   bool export_summary(const QString& csv_path);
+
+ protected:
+  void closeEvent(QCloseEvent* event) override;  // releases bridge authority
 
  private:
   // One editor row of paramTree: the catalog key and its value cells.
@@ -96,6 +109,8 @@ class MainWindow : public QMainWindow {
   void job_finished(const QString& error);
   void set_busy(bool busy);
   void error_box(const QString& text);
+  void bridge_tick();  // bridgeTimer: tick, Control tab, live runs, Gazebo rows
+  void apply_gazebo();
 
   std::filesystem::path work_dir_;
   std::vector<BasePair> pairs_;
@@ -141,6 +156,17 @@ class MainWindow : public QMainWindow {
   QPushButton* cancel_button_ = nullptr;
   QProgressBar* progress_ = nullptr;
   QLabel* memory_label_ = nullptr;
+  std::unique_ptr<BridgeClient> client_;
+  ControlTab* control_ = nullptr;
+  QTimer* bridge_timer_ = nullptr;
+  QSlider* speed_ = nullptr;
+  QPushButton* apply_gazebo_ = nullptr;
+  QLabel* bridge_label_ = nullptr;
+  bool greyed_ = false;  // unsupported paramTree rows disabled (connected)
+  std::uint64_t apply_id_ = 0;
+  StudioConfig applying_;                // sent with apply_id_
+  std::optional<StudioConfig> applied_;  // the last accepted apply_config
+  int applies_ = 0;
 };
 
 }  // namespace cobot::studio
