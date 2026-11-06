@@ -93,7 +93,8 @@ ErrorTrace make_error_trace(const bench::RunData& run) {
   if (rows.empty()) {
     return e;
   }
-  const std::int64_t t_eval_ns = std::llround(run.meta.window_end_s * 1e9);
+  // window_end_s counts from the first row (a live run's rows carry the host clock).
+  const std::int64_t t_eval_ns = rows.front().t.ns + std::llround(run.meta.window_end_s * 1e9);
   std::size_t eval = 0;
   for (std::size_t k = 0; k < rows.size(); ++k) {
     eval = rows[k].t.ns <= t_eval_ns ? k : eval;
