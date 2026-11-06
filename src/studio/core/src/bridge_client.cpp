@@ -415,8 +415,8 @@ void BridgeClient::on_response(const bridge::Response& r) {
   pending_.erase(p);
 }
 
-// Opens a jog run, closes the open run at its first standby / holding sample and exports the
-// closed runs once a sample settle_window_s past their end arrived.
+// Opens a jog run, closes the open run at its first standby / holding sample (a jog run: see
+// below) and exports the closed runs once a sample settle_window_s past their end arrived.
 void BridgeClient::track() {
   if (live_.empty()) {
     return;
@@ -437,8 +437,24 @@ void BridgeClient::track() {
     }
   }
   if (run_) {
-    for (const Sample& s : live_) {
-      if (s.t_ns > run_->t_start_ns && (is(s, LoopMode::kStandby) || is(s, LoopMode::kHolding))) {
+    // A jog run is one press: the jog comes to rest while the button is still held when the
+    // refreshes stop for longer than the deadman (a stalled GUI) or at a soft limit, and the
+    // refreshes after that start it again. So a jog run ends at the first standby after its last
+    // jog sample once the button is released; a holding sample ends any run.
+    const bool jog_run = run_->cmd == CommandMode::kJogJoint || run_->cmd == CommandMode::kJogTcp;
+    const bool held = jog_run && jog_.direction != 0;
+    std::size_t from = 0;
+    for (std::size_t k = 0; jog_run && k < live_.size(); ++k) {
+      const Sample& s = live_[k];
+      from = s.t_ns > run_->t_start_ns && is(s, LoopMode::kTracking) &&
+                     static_cast<CommandMode>(s.cmd_mode) == run_->cmd
+                 ? k
+                 : from;
+    }
+    for (std::size_t k = from; k < live_.size(); ++k) {
+      const Sample& s = live_[k];
+      if (s.t_ns > run_->t_start_ns &&
+          ((is(s, LoopMode::kStandby) && !held) || is(s, LoopMode::kHolding))) {
         run_->t_end_ns = s.t_ns;
         to_export_.push_back(*run_);
         run_.reset();
