@@ -326,4 +326,6 @@ or `<k> <step>: stopped (<manual_stop>)` (a move or waypoints step that ends in 
 manual stop other than `finished`: a stop, or the owner's heartbeat lost), and exits 0 when every
 step is ok, 1 when one is not (later steps skipped), 2 on bad arguments, no bridge or a layout
 mismatch. Authority is released on every exit path: SIGINT or SIGTERM ends the running step with
-`failed: interrupted` (exit 1).
+`failed: interrupted` (exit 1). A CLI frozen past the heartbeat timeout (SIGSTOP, a stalled
+host) hands authority back when it resumes instead of beating again, so the motion it started is
+stopped.

@@ -14,7 +14,8 @@
 // lost), "<k> <step>: stopped (<manual_stop>)". Exit 0 all ok; 1 a step rejected, failed,
 // stopped or timed out (later steps skipped); 2 bad arguments, no bridge or a
 // layout mismatch. Authority is released on every exit path (SIGINT / SIGTERM stop the running
-// step: "failed: interrupted", exit 1); a thread beats every 50 ms from `claim` on.
+// step: "failed: interrupted", exit 1); a thread beats every 50 ms from `claim` on and hands
+// authority back after a gap longer than the heartbeat timeout (the process frozen).
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -335,8 +336,18 @@ class Session {
       return;
     }
     beater_ = std::thread([this] {
+      std::int64_t last = bridge::monotonic_ns();
       while (!stop_beating_.load()) {
-        client_.beat(bridge::monotonic_ns());
+        const std::int64_t now = bridge::monotonic_ns();
+        if (now - last > bridge::kHeartbeatTimeoutNs) {
+          // The process was frozen past the heartbeat timeout: the controller has given up on
+          // this client (or will, once a busy bridge thread looks), so authority is handed back
+          // rather than renewed, and the running motion is stopped.
+          client_.release();
+          return;
+        }
+        client_.beat(now);
+        last = now;
         std::this_thread::sleep_for(std::chrono::nanoseconds(bridge::kHeartbeatPeriodNs));
       }
     });
