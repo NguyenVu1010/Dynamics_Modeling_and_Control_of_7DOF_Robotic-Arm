@@ -147,6 +147,16 @@ bước (p50, p99, max) với `log.mode` = `off`, `recorder`, `recorder_live` c�
 CI chỉ chạy như báo cáo trong job `core`, gate lỏng p99 < 1 ms và không cấp phát; số thật đo tay trên
 desktop/WSL và Pi 5, ghi vào `docs/results/`.
 
+**Bổ sung 2026-11-06** (PR docs, số đo PF-02): trên desktop i5-14400F, WSL2 (kernel
+6.18.54.1), ưu tiên thường, không RT, trung vị 5 lần 10 000 bước, `--paced` cho p99 thời gian bước
+108 µs (`off`), 110 µs (`recorder`) và 21 µs (`recorder_live`, người đọc ở lõi khác, không mất mẫu),
+đều dưới gate 1 ms. Hai chế độ đầu chậm hơn vì lõi WSL2 rảnh giữa các bước, không phải do cầu nối:
+cùng `recorder` khi một lõi khác bận cho p50 5,5–5,9 µs. Đo không theo nhịp, `recorder_live` tốn hơn
+`recorder` 0,17 µs ở p50 và 0,28 µs ở p95, trong khoảng ước tính 0,05–1 µs ở "Hệ quả". Từ nhịp sống
+cuối tới standby khi CLI bị `kill -STOP` giữa `move-joint`: tối đa 0,707 s qua 5 lần, so với
+0,2 + 0,005 + 0,5 = 0,705 s cộng 5 ms chu kỳ hỏi của bên quan sát. Pi 5: chờ phần cứng. Chi tiết:
+[`docs/results/studio/README.md`](../results/studio/README.md).
+
 ## Phương án đã cân nhắc
 
 | Phương án | Điểm cộng | Vì sao không chọn |

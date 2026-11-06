@@ -265,6 +265,54 @@ ros2 launch cobot_sim sim.launch.py controller:=cobot_controller studio:=true
 build/src/studio/app/cobot_studio   # --bridge cobot_controller
 ```
 
+### Manual control
+
+1. Start a host. For Gazebo, run `ros2 launch cobot_sim sim.launch.py controller:=cobot_controller
+   studio:=true [gui:=true] [imperfections_path:=<profile>] [seed:=N]` (after `sim.sh build` and
+   `source tools/wsl/env.sh`). Without Gazebo, run `cobot_bench serve --config
+   config/default.yaml --imperfections <profile> [--seed N]` (region `/cobot_cobot_bench`).
+2. Start `cobot_studio --bridge cobot_controller` (or `--bridge cobot_bench`). The status bar
+   shows "Bridge: connected".
+3. In the Control tab, press **Take control**. The jog and Go buttons are enabled only while the
+   studio holds authority. **Release** gives authority back, and so does closing the window.
+4. The three pages:
+   - **Joint**: hold `-` / `+` to jog one joint. **Copy current**, edit the goals and press
+     **Go** for a joint move.
+   - **TCP**: the same in the base or the tool frame. A goal pose is a `move_tcp`.
+   - **Waypoints**: **Add current pose**, **Open...** / **Save...** a waypoint file,
+     **Preview** (issues per waypoint, the path in the 3D view), then **Run**.
+5. Below the pages:
+   - **Stop** decelerates to standby.
+   - **E-stop** holds at once (`estop`). **Reset** leaves the hold.
+   - The speed slider (default 10 %) scales the joint and TCP limits of jogs and moves.
+     Waypoint runs keep their validated durations.
+6. Each finished motion appears in the Tracking tab as a live run, for example "live move_joint
+   #2", with the same charts, error table and 3D replay as a bench run.
+7. **Apply to Gazebo** in the Configuration tab applies the edited configuration while the loop
+   is in standby. While connected, the rows the Gazebo path ignores are greyed: payload,
+   friction, transmission, position source, timing and comm.
+
+![Joint page after a joint move in Gazebo](docs/images/studio-control-joint.png)
+![Waypoint page with a previewed list](docs/images/studio-control-waypoints.png)
+![Tracking tab with four live runs from Gazebo](docs/images/studio-tracking-live.png)
+
+To drive a host headless (CI, scripts), use one line per session, for example:
+`cobot_bridge_cli cobot_bench claim move-joint:0,30,0,-90,0,60,0 release`. On Gazebo, use `ros2
+run cobot_ros2 cobot_bridge_cli cobot_controller ...`.
+
+Safety (ADR-022):
+
+- Heartbeat: the studio beats every 50 ms. If no beat arrives for 200 ms (a frozen or killed
+  studio), the motion stops with deceleration and authority goes back.
+- Deadman: a jog not refreshed for 100 ms decelerates to zero.
+- Jog band: jogs and joint moves stop at the soft margin + 2° (5° from the URDF limits by
+  default), never in the holding band.
+- One command source: while the studio holds authority, the RViz panel's goals and `~/reset`
+  are refused ("studio is in control").
+
+Measurements: [`docs/results/studio/`](docs/results/studio/README.md) (PF-02, stop
+guarantee, sample live runs).
+
 ## Environment configuration
 
 Two kinds of YAML file, kept apart:
