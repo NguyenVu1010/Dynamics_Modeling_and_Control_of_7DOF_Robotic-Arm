@@ -320,8 +320,12 @@ stamps, not `monotonic_ns`.
 | `waypoints:<file>[:<count>]`, `preview:<file>` | the first count points of a waypoint file (TCP poses as written) |
 | `export:<csv>` | segment `[t_start, standby + 1 s]` of the last motion step, copied to csv |
 
-It prints one line per step, `<k> <step>: ok [detail]`, `<k> <step>: rejected: <reason>` or
-`<k> <step>: failed: <reason>` (a motion step that ends in holding fails with `held: <reason>`),
-and exits 0 when every step is ok, 1 when one is not (later steps skipped), 2 on bad arguments, no
-bridge or a layout mismatch. Authority is released on every exit path: SIGINT or SIGTERM ends the
-running step with `failed: interrupted` (exit 1).
+It prints one line per step, `<k> <step>: ok [detail]`, `<k> <step>: rejected: <reason>`,
+`<k> <step>: failed: <reason>` (a motion step that ends in holding fails with `held: <reason>`)
+or `<k> <step>: stopped (<manual_stop>)` (a move or waypoints step that ends in standby with a
+manual stop other than `finished`: a stop, or the owner's heartbeat lost), and exits 0 when every
+step is ok, 1 when one is not (later steps skipped), 2 on bad arguments, no bridge or a layout
+mismatch. Authority is released on every exit path: SIGINT or SIGTERM ends the running step with
+`failed: interrupted` (exit 1). A CLI frozen past the heartbeat timeout (SIGSTOP, a stalled
+host) hands authority back when it resumes instead of beating again, so the motion it started is
+stopped.

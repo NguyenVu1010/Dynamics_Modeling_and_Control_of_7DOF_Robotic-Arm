@@ -9,19 +9,27 @@
 //   - an unknown step: exit 2; a name without a region: exit 2, "no bridge";
 //   - `cobot_bench serve --duration-s 1` exits 0, prints "serving /cobot_<name>" and leaves no
 //     region behind.
+//   - a move-joint or waypoints step stopped by heartbeat loss (the CLI process held with SIGSTOP
+//     for 1 s, five heartbeat timeouts, then SIGCONT) prints "<k> <step>: stopped (<reason>)"
+//     instead of "ok" and exits 1, later steps skipped (feature studio-live-fixes).
+#include <algorithm>
 #include <array>
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <csignal>
 #include <cstddef>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
 #include <optional>
 #include <regex>
+#include <spawn.h>
 #include <sstream>
 #include <string>
 #include <sys/wait.h>
@@ -203,6 +211,113 @@ std::string move_tcp_step(const common::Pose& tcp, double dx) {
          "," + fixed(rpy.x() * deg) + "," + fixed(rpy.y() * deg) + "," + fixed(rpy.z() * deg);
 }
 
+// A tool started as a child process with its stdout and stderr on a pipe read by a thread, so
+// the test can signal it while it runs.
+class Child {
+ public:
+  Child(const char* exe, const std::vector<std::string>& args) {
+    if (std::string(exe).empty()) {
+      ADD_FAILURE() << "tool not built (empty path)";
+      return;
+    }
+    std::array<int, 2> fds{};
+    if (::pipe(fds.data()) != 0) {
+      ADD_FAILURE() << "pipe: " << std::strerror(errno);
+      return;
+    }
+    posix_spawn_file_actions_t actions;
+    posix_spawn_file_actions_init(&actions);
+    posix_spawn_file_actions_adddup2(&actions, fds[1], STDOUT_FILENO);
+    posix_spawn_file_actions_adddup2(&actions, fds[1], STDERR_FILENO);
+    posix_spawn_file_actions_addclose(&actions, fds[0]);
+    posix_spawn_file_actions_addclose(&actions, fds[1]);
+    std::vector<std::string> argv_text = {exe};
+    argv_text.insert(argv_text.end(), args.begin(), args.end());
+    std::vector<char*> argv;
+    argv.reserve(argv_text.size() + 1);
+    for (std::string& a : argv_text) {
+      argv.push_back(a.data());
+    }
+    argv.push_back(nullptr);
+    const int rc = posix_spawn(&pid_, exe, &actions, nullptr, argv.data(), environ);
+    posix_spawn_file_actions_destroy(&actions);
+    ::close(fds[1]);
+    if (rc != 0) {
+      ::close(fds[0]);
+      pid_ = -1;
+      ADD_FAILURE() << "posix_spawn " << exe << ": " << std::strerror(rc);
+      return;
+    }
+    reader_ = std::thread([this, fd = fds[0]] {
+      std::array<char, 4096> buf{};
+      for (;;) {
+        const ssize_t n = ::read(fd, buf.data(), buf.size());
+        if (n <= 0) {
+          break;
+        }
+        const std::lock_guard<std::mutex> lock(mutex_);
+        out_.append(buf.data(), static_cast<std::size_t>(n));
+      }
+      ::close(fd);
+    });
+  }
+  Child(const Child&) = delete;
+  Child& operator=(const Child&) = delete;
+  Child(Child&&) = delete;
+  Child& operator=(Child&&) = delete;
+  ~Child() {
+    if (pid_ > 0 && !exit_code_) {
+      ::kill(pid_, SIGCONT);
+      ::kill(pid_, SIGKILL);
+      static_cast<void>(wait());
+    }
+    if (reader_.joinable()) {
+      reader_.join();
+    }
+  }
+
+  bool started() const { return pid_ > 0; }
+  void signal(int sig) const { ::kill(pid_, sig); }
+
+  std::string out() const {
+    const std::lock_guard<std::mutex> lock(mutex_);
+    return out_;
+  }
+
+  // Waits up to timeout_ms for `text` in the output.
+  bool wait_for_output(const std::string& text, int timeout_ms) const {
+    const auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    while (std::chrono::steady_clock::now() < end) {
+      if (out().find(text) != std::string::npos) {
+        return true;
+      }
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
+    return false;
+  }
+
+  // The exit code (-1: killed by a signal); joins the reader so out() is complete.
+  int wait() {
+    if (!exit_code_) {
+      int status = 0;
+      while (::waitpid(pid_, &status, 0) < 0 && errno == EINTR) {
+      }
+      exit_code_ = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+    }
+    if (reader_.joinable()) {
+      reader_.join();
+    }
+    return *exit_code_;
+  }
+
+ private:
+  pid_t pid_ = -1;
+  std::optional<int> exit_code_;
+  std::thread reader_;
+  mutable std::mutex mutex_;
+  std::string out_;
+};
+
 int ok_lines(const std::string& out) {
   static const std::regex ok_line(R"(^[0-9]+ \S+: ok( .*)?$)");
   int n = 0;
@@ -327,6 +442,51 @@ TEST_F(BridgeServeCli, NameWithoutARegionIsNoBridge) {
   const Cli cli = run_tool(kBridgeCliExe, "cobot_test_nobridge_" + pid_text() + " claim");
   EXPECT_EQ(cli.exit_code, 2) << cli.out;
   EXPECT_NE(cli.out.find("no bridge"), std::string::npos) << cli.out;
+}
+
+// Runs `claim wait-standby <motion> wait-standby` and freezes the CLI (SIGSTOP, its heartbeat
+// thread too) `after_ms` after "wait-standby: ok", for 1 s (5 x the 200 ms heartbeat timeout):
+// the server stops the motion with deceleration and returns to standby with manual_stop =
+// stopped; after SIGCONT the CLI sees that standby. The motion must not be reported "ok".
+void expect_stopped_motion_fails(const std::string& name, const std::string& motion, int after_ms) {
+  Child cli(kBridgeCliExe,
+            {name, "--timeout-s", "30", "claim", "wait-standby", motion, "wait-standby"});
+  ASSERT_TRUE(cli.started());
+  ASSERT_TRUE(cli.wait_for_output("2 wait-standby: ok", 20000)) << cli.out();
+  std::this_thread::sleep_for(std::chrono::milliseconds(after_ms));  // the motion is running
+  cli.signal(SIGSTOP);
+  std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+  cli.signal(SIGCONT);
+  const int code = cli.wait();
+  const std::string out = cli.out();
+  EXPECT_EQ(code, 1) << out;
+  const std::string head = "3 " + motion + ": ";
+  const std::vector<std::string> lines = lines_of(out);
+  const auto line = std::find_if(
+      lines.begin(), lines.end(), [&](const std::string& l) { return l.rfind(head, 0) == 0; });
+  ASSERT_NE(line, lines.end()) << out;
+  const std::string verdict = line->substr(head.size());
+  EXPECT_EQ(verdict.rfind("stopped (", 0), 0U) << *line;
+  EXPECT_EQ(verdict.back(), ')') << *line;
+  EXPECT_GT(verdict.size(), std::string("stopped ()").size()) << "a reason in the parentheses";
+  EXPECT_EQ(out.find("4 wait-standby"), std::string::npos) << "later steps skipped: " << out;
+  EXPECT_EQ(ok_lines(out), 2) << out;
+}
+
+// q1 0 -> 40 deg from home at speed 0.1 (default.yaml, joint 1: qd_max 2.1 rad/s, a_max
+// 15 rad/s^2, joint_speed_fraction 0.9): d = 0.6981 rad, s_v_max = 0.1 * 0.9 * 2.1 / 0.6981 =
+// 0.2707 1/s, s_a_max = 0.1 * 15 / 0.6981 = 2.149 1/s^2; 0.2707^2 / 2.149 = 0.034 < 1, trapezoid
+// of 1 / 0.2707 + 0.2707 / 2.149 = 3.69 + 0.13 = 3.82 s, still running 0.5 s in (16 % of real
+// time without optimisation makes it longer still).
+TEST_F(BridgeServeCli, MoveJointStoppedByHeartbeatLossIsStoppedNotOk) {
+  expect_stopped_motion_fails(name(), "move-joint:40,30,0,-90,0,60,0", 500);
+}
+
+// E2E-13: two triangle segments of 0.65 s and 0.61 s (test_studio_live_run.cpp), still running
+// 0.3 s in.
+TEST_F(BridgeServeCli, WaypointsStoppedByHeartbeatLossIsStoppedNotOk) {
+  expect_stopped_motion_fails(
+      name(), "waypoints:" + repo_path("tests/e2e/waypoints/e2e_13.yaml").string() + ":2", 300);
 }
 
 TEST(BridgeServeCliTool, ServeFromTheCommandLineEndsAfterItsDurationWithoutARegion) {

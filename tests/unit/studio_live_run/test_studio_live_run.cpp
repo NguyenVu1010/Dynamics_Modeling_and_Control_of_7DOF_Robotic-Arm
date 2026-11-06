@@ -229,6 +229,68 @@ TEST(StudioLiveRun, WaypointRunEntryUsesBenchSummarizeOnTheSegmentRows) {
   expect_same_summary(metrics.summary, want);
 }
 
+// The same segment on the host clock (feature studio-live-fixes): a live run's rows start tens of
+// seconds in, while goal_time_s / window_end_s count from the first row. The entry of the segment
+// shifted by 50 s has the error trace and the settle time of the segment as the bench wrote it
+// (time-shift invariance); the evaluation row is the last row at or before t_end + 1 s.
+TEST(StudioLiveRun, SegmentOnTheHostClockHasTheMetricsOfTheSameSegmentAtZero) {
+  constexpr std::int64_t kShiftNs = 50 * kNsPerS;
+  const fs::path dir = work_dir("host_clock");
+  const std::optional<Segment> s = waypoint_segment(dir);
+  ASSERT_TRUE(s);
+  const bridge::SessionInfo<bench::kN> session = session_of(*s);
+  const LiveRunInfo info = info_of(*s);
+  const common::Result<RunEntry> at_zero = make_live_entry(s->csv, info, session, 1);
+  ASSERT_TRUE(at_zero.is_ok()) << at_zero.reason();
+
+  bench::RunData shifted_run = s->run;
+  for (auto& r : shifted_run.records) {
+    r.t.ns += kShiftNs;
+  }
+  const fs::path shifted_csv = dir / "segment-shifted.csv";
+  const common::Status written = bench::write_run_files(shifted_run, shifted_csv);
+  ASSERT_TRUE(written.is_ok()) << written.reason();
+  LiveRunInfo shifted_info = info;
+  shifted_info.t_start_ns += kShiftNs;
+  shifted_info.t_end_ns += kShiftNs;
+  const common::Result<RunEntry> shifted = make_live_entry(shifted_csv, shifted_info, session, 2);
+  ASSERT_TRUE(shifted.is_ok()) << shifted.reason();
+
+  const RunEntry& a = shifted.value();
+  const RunEntry& b = at_zero.value();
+  ASSERT_TRUE(a.errors);
+  ASSERT_TRUE(b.errors);
+  ASSERT_TRUE(a.data);
+  EXPECT_NEAR(a.meta.goal_time_s, b.meta.goal_time_s, 1e-9);
+  EXPECT_NEAR(a.meta.window_end_s, b.meta.window_end_s, 1e-9);
+  expect_same_summary(a.summary, b.summary);
+
+  // Evaluation row: the last row with t <= t_end + 1 s (first row + window_end_s).
+  const std::int64_t t_eval = shifted_info.t_end_ns + kNsPerS;
+  std::ptrdiff_t want_row = 0;
+  for (std::size_t k = 0; k < a.data->records.size(); ++k) {
+    want_row = a.data->records[k].t.ns <= t_eval ? static_cast<std::ptrdiff_t>(k) : want_row;
+  }
+  ASSERT_GT(want_row, 0) << "rows after t_end exist";
+  EXPECT_EQ(a.errors->eval_row, want_row);
+  EXPECT_EQ(a.errors->eval_row, b.errors->eval_row);
+  EXPECT_EQ(a.errors->goal_pos_m, b.errors->goal_pos_m);
+  EXPECT_EQ(a.errors->goal_rot_rad, b.errors->goal_rot_rad);
+
+  // E2E-13 on the ideal profile ends well inside the 1 mm / 0.5 deg goal tolerance.
+  const TrackingMetrics ma = compute_metrics(*a.errors, a.meta, a.summary, Tolerance{});
+  const TrackingMetrics mb = compute_metrics(*b.errors, b.meta, b.summary, Tolerance{});
+  ASSERT_TRUE(mb.settle_time_s.has_value()) << "the bench segment settles";
+  ASSERT_TRUE(ma.settle_time_s.has_value()) << "settle not reached on the host clock";
+  EXPECT_NEAR(*ma.settle_time_s, *mb.settle_time_s, 1e-6);
+  ASSERT_EQ(ma.stops.size(), mb.stops.size());
+  for (std::size_t i = 0; i < ma.stops.size(); ++i) {
+    EXPECT_EQ(ma.stops[i].pos_err_m, mb.stops[i].pos_err_m) << i;
+    EXPECT_EQ(ma.stops[i].time_to_enter_s.has_value(), mb.stops[i].time_to_enter_s.has_value())
+        << i;
+  }
+}
+
 TEST(StudioLiveRun, TruncatedSegmentIsLabelledAndNoted) {
   const fs::path dir = work_dir("truncated");
   const std::optional<Segment> s = waypoint_segment(dir);

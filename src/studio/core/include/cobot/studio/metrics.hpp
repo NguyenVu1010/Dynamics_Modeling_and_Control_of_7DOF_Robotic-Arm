@@ -17,10 +17,10 @@
 // - Path error: position |p_d - p| and the rotation angle of R_d R^T (T_b_d, T_b_e of the row),
 //   over the rows in tracking or finished (holding, fault, standby and idle rows excluded).
 // - Settle time (final goal): t0 = first row + meta.goal_time_s; the error to the goal pose (T_b_d
-//   of the last row with t <= window_end_s, the RunSummary evaluation row); settle = time from t0
-//   to the last entry into {pos <= goal_pos_m and rot <= goal_rot_rad} after which the run stays
-//   inside until that row (0 when inside from t0); nullopt when not inside at that row, when the
-//   run ends before t0, or when the run held. Waypoint and config modes alike.
+//   of the last row with t <= first row + window_end_s, the RunSummary evaluation row); settle =
+//   time from t0 to the last entry into {pos <= goal_pos_m and rot <= goal_rot_rad} after which the
+//   run stays inside until that row (0 when inside from t0); nullopt when not inside at that row,
+//   when the run ends before t0, or when the run held. Waypoint and config modes alike.
 // - Stop waypoints (every stop but the last waypoint): t_arrive = first row + node time; window =
 //   rows from the one nearest t_arrive to the one nearest t_arrive + kStopSettleS, both included
 //   (cobot_eval STOP_SETTLE_S); error to the waypoint: position to meta.waypoint_positions_m,
@@ -71,8 +71,8 @@ struct StopTrace {
 struct ErrorTrace {
   std::vector<double> t_s, path_pos_m, path_rot_rad, goal_pos_m, goal_rot_rad;
   std::vector<std::uint8_t> on_path;  // 1: tracking or finished row
-  // Last row with t <= window_end_s; row 0 when no row is that early (as bench::summarize), -1
-  // only for an empty run.
+  // Last row with t <= first row + window_end_s; row 0 when no row is that early (as
+  // bench::summarize), -1 only for an empty run.
   std::ptrdiff_t eval_row = -1;
   std::vector<StopTrace> stops;
 };

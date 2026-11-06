@@ -95,6 +95,7 @@ class BridgeClient {
                                           bridge::CommandType type);
   void on_response(const bridge::Response& r);
   void track();
+  void close_run(bool held);  // closes the open run at its end sample, if one arrived
   void write_jog(int kind, int joint, int axis, int frame, int direction, double speed);
 
   std::string name_;
