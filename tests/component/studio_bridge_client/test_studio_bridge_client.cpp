@@ -16,6 +16,8 @@
 //     region is free and the samples show standby within 0.75 s of sample time after the last
 //     beat;
 //   - live(): at most the last 10 s of sample time; lost_samples is reported.
+//   - one jog press (0.5 s held, a refresh every 25 ms, then released) is exactly one live run
+//     (feature studio-live-fixes).
 // Joints of jog_joint are 0-based, like the wire's JogRequest::joint and ControlLoop::jog_joint
 // (the Control tab's jogPlus_1 is joint 0).
 #include <atomic>
@@ -120,9 +122,13 @@ std::uint8_t raw(pipeline::CommandMode m) {
 // bench::serve on its own thread until stop().
 class Serve {
  public:
-  explicit Serve(const fs::path& dir) {
+  // `profile`: config/imperfections/<profile>.yaml, `seed` its seed override.
+  explicit Serve(const fs::path& dir,
+                 const std::string& profile = "ideal",
+                 std::optional<std::uint64_t> seed = std::nullopt) {
     options_.config_yaml = serve_config(dir);
-    options_.imperfections_yaml = kRepo / "config/imperfections/ideal.yaml";
+    options_.imperfections_yaml = kRepo / "config/imperfections" / (profile + ".yaml");
+    options_.seed = seed;
     options_.name = name_of_test_region();
     options_.out_dir = dir / "serve";
   }
@@ -230,6 +236,11 @@ class StudioBridgeClient : public ::testing::Test {
 
   fs::path dir_;
   std::unique_ptr<Serve> serve_;
+};
+
+class StudioBridgeClientJog : public StudioBridgeClient {
+ protected:
+  void press_is_one_live_run(int stall_ms);
 };
 
 TEST_F(StudioBridgeClient, ConnectsOnceServeStartsAndReadsTheSession) {
@@ -430,6 +441,102 @@ TEST_F(StudioBridgeClient, JogJointMovesJoint1AndIsALiveRun) {
   })) << "the jog is a live run too";
   EXPECT_EQ(segments.front().info.cmd, pipeline::CommandMode::kJogJoint);
   EXPECT_EQ(segments.front().info.command_id, 0U);
+}
+
+// One press of a jog button (feature studio-live-fixes): the Control tab refreshes the jog slot
+// every 25 ms while the button is held (kJogRefreshMs) and the GUI timer ticks every 50 ms; held
+// for 0.5 s, then released, the press is exactly one live run, from the first jog sample to the
+// standby after the release. Joint jog at speed 0.1 (see above): ramp 0.126 s, cruise, ramp down
+// 0.126 s after the release; the export follows 1 s (settle window) + one 200 ms export period
+// later. A second run, if any, would close by the release too, so 3 s more of ticks after the
+// first segment would show it. Serve runs the profile of the measurement (realistic, seed 7).
+//
+// `stall_ms` > 0: the GUI thread is blocked (no refresh, no tick) for that long from 200 ms into
+// the press, as a slow frame of the studio under xvfb does. 130 ms: refreshes 25 + 130 = 155 ms
+// apart, past the 100 ms deadman (default.yaml), which brings the jog to rest; beats at most
+// 130 + 25 ms apart, inside the 200 ms owner timeout. The refreshes after the stall start the jog
+// again. Still one press, one live run.
+void StudioBridgeClientJog::press_is_one_live_run(int stall_ms) {
+  serve_ = std::make_unique<Serve>(dir_, "realistic", 7);
+  BridgeClient c(name_of_test_region());
+  ASSERT_NO_FATAL_FAILURE(start_and_connect(c));
+  ASSERT_NO_FATAL_FAILURE(claim_in_standby(c));
+  const std::int64_t t_press = c.live().back().t_ns;
+
+  constexpr int kRefreshMs = 25;
+  constexpr int kHoldMs = 500;
+  constexpr int kStallAtMs = 200;
+  const auto pressed = std::chrono::steady_clock::now();
+  const auto release_at = pressed + std::chrono::milliseconds(kHoldMs);
+  auto next_tick = pressed;
+  bool stalled = stall_ms <= 0;
+  while (std::chrono::steady_clock::now() < release_at) {  // press, then a refresh every 25 ms
+    c.jog_joint(0, +1, 0.1);
+    if (std::chrono::steady_clock::now() >= next_tick) {
+      tick({&c});
+      next_tick += std::chrono::milliseconds(kTickMs);
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(kRefreshMs));
+    if (!stalled &&
+        std::chrono::steady_clock::now() >= pressed + std::chrono::milliseconds(kStallAtMs)) {
+      tick({&c});  // the last beat before the stall: it stays under the 200 ms owner timeout
+      std::this_thread::sleep_for(std::chrono::milliseconds(stall_ms));
+      stalled = true;
+    }
+  }
+  c.jog_release();
+  ASSERT_TRUE(drive({&c}, 5000, [&] { return in_standby(c); })) << "no standby after the release";
+  if (stall_ms <= 0) {
+    EXPECT_TRUE(c.take_jog_rejections().empty());
+  }
+
+  std::vector<SegmentReady> segments;
+  ASSERT_TRUE(drive({&c}, 4000, [&] {
+    for (SegmentReady& s : c.take_segments()) {
+      segments.push_back(std::move(s));
+    }
+    return !segments.empty();
+  })) << "the jog is a live run";
+  drive({&c}, 3000, [&] {
+    for (SegmentReady& s : c.take_segments()) {
+      segments.push_back(std::move(s));
+    }
+    return false;
+  });
+  ASSERT_EQ(segments.size(), 1U) << "one press, one live run; the second starts at "
+                                 << (segments.size() > 1 ? segments[1].info.t_start_ns - t_press
+                                                         : 0)
+                                 << " ns after the press, the first ends at "
+                                 << segments.front().info.t_end_ns - t_press << " ns";
+  const LiveRunInfo& run = segments.front().info;
+  EXPECT_EQ(run.cmd, pipeline::CommandMode::kJogJoint);
+  EXPECT_EQ(run.command_id, 0U);
+  EXPECT_GT(run.t_start_ns, t_press);
+  // The run covers the whole press: at least the 0.5 s hold (less one 50 ms tick of slack).
+  EXPECT_GE(run.t_end_ns - run.t_start_ns, 450'000'000) << "ns of sample time";
+  // No jog motion after the run's end: the press ended with it.
+  for (const Sample& s : c.live()) {
+    const bool jogging = s.mode == raw(pipeline::LoopMode::kTracking) &&
+                         s.cmd_mode == raw(pipeline::CommandMode::kJogJoint);
+    if (s.t_ns > run.t_end_ns && jogging) {
+      ADD_FAILURE() << "jog sample " << s.t_ns - run.t_end_ns << " ns after the run's end";
+      break;
+    }
+  }
+}
+
+TEST_F(StudioBridgeClientJog, OneJogPressIsOneLiveRun) {
+  if (!kOptimised) {
+    GTEST_SKIP() << kSlowServe;
+  }
+  press_is_one_live_run(0);
+}
+
+TEST_F(StudioBridgeClientJog, OneJogPressWithAStalledGuiIsOneLiveRun) {
+  if (!kOptimised) {
+    GTEST_SKIP() << kSlowServe;
+  }
+  press_is_one_live_run(130);
 }
 
 // No tick for 400 ms during a move_joint (1.05 s, see above): the server sees the owner lost
