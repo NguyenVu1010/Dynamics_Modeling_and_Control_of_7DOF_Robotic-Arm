@@ -47,30 +47,31 @@ of 5): p50 4.73 µs, p95 4.98 µs, max 69 µs (gate p95 < 1 ms; desktop target <
 ## Stop guarantee
 
 Setup: `cobot_bench serve` (default + ideal), and a CLI running `claim
-move-joint:60,30,0,-90,0,60,0 release` at 10 % speed. The CLI is frozen with `kill -STOP` about
-1.8 s into the 2.5 s move. Two times are recorded:
+move-joint:60,30,0,-90,0,60,0 release` at 10 % speed. The CLI is frozen with `kill -STOP` 1.8 s
+after it starts, during the 2.5 s move. Two times are taken, both on `CLOCK_MONOTONIC`:
 
-- The last heartbeat: the owner's beat stamp (`owner_beat_ns`, `CLOCK_MONOTONIC`), read from the
-  region header at the moment of the SIGSTOP.
-- Standby: the moment a second, read-only `cobot_bridge_cli cobot_bench wait-standby` returns.
-  Its poll period is 5 ms.
+- The last heartbeat: the owner's beat stamp `owner_beat_ns`, read with `od` from the region
+  file `/dev/shm/cobot_cobot_bench` (offset 72 of the header) right after the SIGSTOP. A frozen
+  CLI beats no more, so this is its last beat.
+- Standby: the moment a second, read-only `cobot_bridge_cli cobot_bench wait-standby` returns,
+  stamped by a Python wrapper (`time.monotonic_ns()`). Its poll period is 5 ms.
 
-5 trials:
+The commands are in "Reproduce" below. 5 trials:
 
-| Trial | last beat before SIGSTOP | last beat → standby |
-| --- | --- | --- |
-| 1 | 39.1 ms | 0.707 s |
-| 2 | 42.1 ms | 0.703 s |
-| 3 | 44.3 ms | 0.707 s |
-| 4 | 44.2 ms | 0.706 s |
-| 5 | 42.5 ms | 0.707 s |
+| Trial | last beat → standby |
+| --- | --- |
+| 1 | 0.706 s |
+| 2 | 0.706 s |
+| 3 | 0.709 s |
+| 4 | 0.705 s |
+| 5 | 0.707 s |
 
-The maximum is 0.707 s. The bound is 0.2 s (heartbeat timeout) + 0.005 s (bridge poll) +
-0.5 s (`safety.stop_time_s`) = 0.705 s, plus up to 5 ms for the observer's own poll. So the
-measurement stays within the bound at the observer's resolution. The Run CSV shows the
-deceleration ramp lasting 0.499 s in every trial. Each frozen CLI, once resumed, printed
-`move-joint:...: stopped (stopped)` and exited 1. The next `claim` from a new CLI succeeded,
-which shows the authority was handed back.
+The maximum is 0.709 s. The bound is 0.2 s (heartbeat timeout) + 0.005 s (bridge poll) +
+0.5 s (`safety.stop_time_s`) = 0.705 s, plus up to 5 ms for the observer's own poll and the
+wrapper's exit. So the measurement stays within the bound at the observer's resolution. The Run
+CSV of an earlier series of 5 trials shows the deceleration ramp lasting 0.499 s each time. Each
+frozen CLI, once resumed, printed `move-joint:...: stopped (stopped)` and exited 1. The next
+`claim` from a new CLI succeeded, which shows the authority was handed back.
 
 ## Sample live runs
 
@@ -115,30 +116,50 @@ runs](../../images/studio-tracking-live.png).
 - The screenshots were taken from the studio running on an Xvfb display (1600×1000, no window
   manager) against headless Gazebo. The steps were driven with XTest events from a script. The
   WSLg window looks the same apart from the title bar.
-- In Gazebo standby the arm's joints creep slowly while the TCP pose is held (J1 from −0.5° to
-  −1.1° in about 3 min, J3 and J7 alike). This is the redundant self-motion: standby holds a
-  Cartesian reference through CLIK. A `move_joint` brings the joints back. It is reported here
-  for the owner and not changed by this PR.
+
+## Known limitations
+
+- In standby on the realistic profile, the TCP pose holds within 0.05 mm while the joints drift
+  slowly in the null space (about 0.007°/s; the standby hold has no posture term). A
+  `move_joint` brings the joints back. Tracked in
+  [#69](https://github.com/NguyenVu1010/Dynamics_Modeling_and_Control_of_7DOF_Robotic-Arm/issues/69).
 
 ## Reproduce
 
+All commands run from the repository root in WSL. `B` is the Release build of
+`tools/wsl/build.sh` (`build/<branch>` under `~/projects/7dof_dynamic_control`, here `main`).
+
 ```bash
 B=~/projects/7dof_dynamic_control/build/main/src/bench
+OUT=~/projects/7dof_dynamic_control/out/studio
+mkdir -p $OUT
 # PF-02, PF-01 (repeat 5 times, take the median)
 for m in off recorder recorder_live; do
   $B/cobot_bench timing --config config/default.yaml --steps 10000 --paced --log-mode $m
 done
 $B/cobot_bench timing --config config/default.yaml --steps 10000
-# Stop guarantee: host, then a CLI frozen with kill -STOP during the move
-$B/cobot_bench serve --config config/default.yaml --imperfections config/imperfections/ideal.yaml
-$B/cobot_bridge_cli cobot_bench claim move-joint:60,30,0,-90,0,60,0 release &
-sleep 1.8; kill -STOP $!; $B/cobot_bridge_cli cobot_bench wait-standby; kill -CONT %1
-# Live runs, headless
+# Stop guarantee (one trial): host in the background, a CLI frozen with kill -STOP mid-move
 $B/cobot_bench serve --config config/default.yaml \
-  --imperfections config/imperfections/realistic.yaml --seed 7
+  --imperfections config/imperfections/ideal.yaml --out $OUT/stop > /dev/null & srv=$!
+sleep 2
+$B/cobot_bridge_cli cobot_bench claim move-joint:60,30,0,-90,0,60,0 release & cli=$!
+sleep 1.8; kill -STOP $cli
+beat=$(od -An -t d8 -j 72 -N 8 /dev/shm/cobot_cobot_bench)  # owner_beat_ns
+standby=$(python3 -c 'import subprocess, sys, time
+subprocess.run(sys.argv[1:], check=True, stdout=sys.stderr); print(time.monotonic_ns())' \
+  $B/cobot_bridge_cli cobot_bench wait-standby)
+echo "last beat -> standby: $(( (standby - beat) / 1000000 )) ms"
+kill -CONT $cli; wait $cli    # prints "stopped (stopped)", exit 1
+$B/cobot_bridge_cli cobot_bench claim release
+kill -INT $srv; wait $srv
+# Live runs, headless (realistic, seed 7)
+$B/cobot_bench serve --config config/default.yaml \
+  --imperfections config/imperfections/realistic.yaml --seed 7 --out $OUT/live > /dev/null & srv=$!
+sleep 2
 $B/cobot_bridge_cli cobot_bench claim jog-joint:1:+:0.5 move-joint:0,30,0,-90,0,60,0 \
-  export:mj.csv move-tcp:0.160012653,-0.806959296,0.389122496,0,-90,90 export:mt.csv \
-  waypoints:tests/e2e/waypoints/e2e_13.yaml:2 export:wp.csv release
+  export:$OUT/mj.csv move-tcp:0.160012653,-0.806959296,0.389122496,0,-90,90 \
+  export:$OUT/mt.csv waypoints:tests/e2e/waypoints/e2e_13.yaml:2 export:$OUT/wp.csv release
+kill -INT $srv; wait $srv
 ```
 
 On Gazebo: `ros2 launch cobot_sim sim.launch.py controller:=cobot_controller studio:=true
