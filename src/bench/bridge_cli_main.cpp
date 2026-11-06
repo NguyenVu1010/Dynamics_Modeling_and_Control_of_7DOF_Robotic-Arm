@@ -9,8 +9,10 @@
 // move-joint:<q1_deg,...,q7_deg> | move-tcp:<x,y,z,roll_deg,pitch_deg,yaw_deg> (TCP in base_link,
 // R = Rz(yaw) Ry(pitch) Rx(roll)) | waypoints:<file>[:<count>] | preview:<file> | export:<csv>
 // (segment of the last motion step, [t_start, standby + 1 s]). One line per step: "<k> <step>: ok
-// <detail>", "<k> <step>: rejected: <reason>" or "<k> <step>: failed: <reason>". Exit 0 all ok;
-// 1 a step rejected, failed or timed out (later steps skipped); 2 bad arguments, no bridge or a
+// <detail>", "<k> <step>: rejected: <reason>", "<k> <step>: failed: <reason>" or, for a motion
+// step whose standby carries a manual stop other than finished (a stop, the owner's heartbeat
+// lost), "<k> <step>: stopped (<manual_stop>)". Exit 0 all ok; 1 a step rejected, failed,
+// stopped or timed out (later steps skipped); 2 bad arguments, no bridge or a
 // layout mismatch. Authority is released on every exit path (SIGINT / SIGTERM stop the running
 // step: "failed: interrupted", exit 1); a thread beats every 50 ms from `claim` on.
 #include <algorithm>
@@ -39,6 +41,7 @@
 #include "cobot/model/model.hpp"
 #include "cobot/pipeline/config.hpp"
 #include "cobot/pipeline/log_record.hpp"
+#include "cobot/pipeline/manual.hpp"
 #include "cobot/pipeline/waypoint_file.hpp"
 
 namespace {
@@ -46,6 +49,7 @@ namespace {
 namespace fs = std::filesystem;
 namespace bridge = cobot::bridge;
 using cobot::pipeline::LoopMode;
+using cobot::pipeline::ManualStop;
 
 constexpr int kN = cobot::model::kArmDof;
 constexpr int kExitFailed = 1;
@@ -253,11 +257,12 @@ struct Sample {
   std::int64_t t_ns = 0;
   LoopMode mode = LoopMode::kIdle;
   cobot::pipeline::HoldReason hold = cobot::pipeline::HoldReason::kNone;
+  ManualStop manual_stop = ManualStop::kNone;
 };
 
-// Outcome of one step: ok (detail), rejected or failed (reason).
+// Outcome of one step: ok (detail), rejected, failed or stopped (reason).
 struct Outcome {
-  enum Kind { kOk, kRejected, kFailed } kind = kOk;
+  enum Kind { kOk, kRejected, kFailed, kStopped } kind = kOk;
   std::string text;
 };
 
@@ -352,13 +357,16 @@ class Session {
     for (const bridge::StateSample<kN>& s : buffer_) {
       history_.push_back(Sample{s.t_ns,
                                 static_cast<LoopMode>(s.mode),
-                                static_cast<cobot::pipeline::HoldReason>(s.hold_reason)});
+                                static_cast<cobot::pipeline::HoldReason>(s.hold_reason),
+                                static_cast<ManualStop>(s.manual_stop)});
     }
   }
 
-  // Stamp of the first standby sample later than after_ns (-1: the current state); holding
-  // fails.
-  Outcome wait_standby(std::int64_t after_ns, std::int64_t* standby_ns = nullptr) {
+  // Stamp and manual stop of the first standby sample later than after_ns (-1: the current
+  // state); holding fails.
+  Outcome wait_standby(std::int64_t after_ns,
+                       std::int64_t* standby_ns = nullptr,
+                       ManualStop* manual_stop = nullptr) {
     const Clock::time_point end = deadline();
     std::size_t k = 0;
     while (Clock::now() < end) {
@@ -380,6 +388,9 @@ class Session {
         if (s.mode == LoopMode::kStandby) {
           if (standby_ns != nullptr) {
             *standby_ns = s.t_ns;
+          }
+          if (manual_stop != nullptr) {
+            *manual_stop = s.manual_stop;
           }
           return ok();
         }
@@ -487,7 +498,11 @@ class Session {
       return ok();
     }
     std::int64_t standby_ns = 0;
-    Outcome done = wait_standby(r->t_start_ns, &standby_ns);
+    ManualStop stop = ManualStop::kNone;
+    Outcome done = wait_standby(r->t_start_ns, &standby_ns, &stop);
+    if (done.kind == Outcome::kOk && stop != ManualStop::kFinished) {
+      return {Outcome::kStopped, cobot::pipeline::to_string(stop)};
+    }
     if (done.kind == Outcome::kOk) {
       motion_ = std::make_pair(r->t_start_ns, standby_ns);
       done.text = std::to_string(r->duration_s) + " s";
@@ -594,10 +609,14 @@ int main_impl(int argc, char** argv) {
       std::fflush(stdout);
       continue;
     }
-    std::printf("%s%s: %s\n",
-                head.c_str(),
-                o.kind == Outcome::kRejected ? "rejected" : "failed",
-                o.text.c_str());
+    if (o.kind == Outcome::kStopped) {
+      std::printf("%sstopped (%s)\n", head.c_str(), o.text.c_str());
+    } else {
+      std::printf("%s%s: %s\n",
+                  head.c_str(),
+                  o.kind == Outcome::kRejected ? "rejected" : "failed",
+                  o.text.c_str());
+    }
     std::fflush(stdout);
     return kExitFailed;  // the session's destructor releases authority
   }
