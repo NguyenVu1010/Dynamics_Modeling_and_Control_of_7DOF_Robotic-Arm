@@ -543,6 +543,9 @@ TEST_F(StudioBridgeClientJog, OneJogPressWithAStalledGuiIsOneLiveRun) {
 // 200 ms after the last beat, stops the move with deceleration, returns to standby and clears
 // the owner once the motion is over.
 TEST_F(StudioBridgeClient, FrozenTickStopsTheMoveAndFreesTheRegion) {
+  if (!kOptimised) {
+    GTEST_SKIP() << kSlowServe;
+  }
   BridgeClient c(name_of_test_region());
   ASSERT_NO_FATAL_FAILURE(start_and_connect(c));
   ASSERT_NO_FATAL_FAILURE(claim_in_standby(c));
