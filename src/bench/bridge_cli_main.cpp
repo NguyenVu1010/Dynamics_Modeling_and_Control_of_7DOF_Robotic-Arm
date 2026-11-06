@@ -332,9 +332,13 @@ class Session {
   }
 
   void start_beating() {
-    if (beater_.joinable()) {
+    if (beater_.joinable() && !beater_done_.load()) {
       return;
     }
+    if (beater_.joinable()) {
+      beater_.join();  // it handed authority back after a freeze: this claim needs a new one
+    }
+    beater_done_.store(false);
     beater_ = std::thread([this] {
       std::int64_t last = bridge::monotonic_ns();
       while (!stop_beating_.load()) {
@@ -344,6 +348,7 @@ class Session {
           // this client (or will, once a busy bridge thread looks), so authority is handed back
           // rather than renewed, and the running motion is stopped.
           client_.release();
+          beater_done_.store(true);
           return;
         }
         client_.beat(now);
@@ -565,6 +570,7 @@ class Session {
   double timeout_s_;
   std::thread beater_;
   std::atomic<bool> stop_beating_{false};
+  std::atomic<bool> beater_done_{false};  // the beater returned on its own (after a freeze)
   std::vector<bridge::StateSample<kN>> buffer_;
   std::vector<Sample> history_;
   std::string jog_rejection_;

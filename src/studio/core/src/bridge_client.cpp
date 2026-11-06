@@ -1,5 +1,6 @@
 #include "cobot/studio/bridge_client.hpp"
 
+#include <algorithm>
 #include <cerrno>
 #include <cmath>
 #include <csignal>
@@ -89,6 +90,7 @@ void BridgeClient::tick(std::int64_t now_ns) {
     // this client, so authority is handed back rather than renewed.
     if (last_beat_ns_ != 0 && now_ns - last_beat_ns_ > bridge::kHeartbeatTimeoutNs) {
       ep_->release();
+      jog_.direction = 0;  // the controller stopped the jog: a held button no longer jogs
       reason_ = "authority lost: no heartbeat for " +
                 std::to_string((now_ns - last_beat_ns_) / 1'000'000) + " ms";
     } else {
@@ -166,6 +168,7 @@ common::Status BridgeClient::claim() {
 }
 
 void BridgeClient::release() {
+  jog_.direction = 0;  // without authority no button jogs
   if (ep_ && ep_->is_owner()) {
     track();  // runs whose settle window has passed are exported while still the owner
     ep_->release();
@@ -324,6 +327,9 @@ common::Result<std::uint64_t> BridgeClient::apply_config(const Materialized& fil
 void BridgeClient::write_jog(
     int kind, int joint, int axis, int frame, int direction, double speed) {
   if (!ep_ || !ep_->is_owner()) {
+    if (direction == 0) {
+      jog_.direction = 0;  // a release is recorded even without authority
+    }
     return;
   }
   bridge::JogRequest j{};
@@ -409,6 +415,14 @@ void BridgeClient::on_response(const bridge::Response& r) {
       info.waypoint_stop.clear();  // node times unknown: no waypoint fields
       info.waypoint_positions_m.clear();
     }
+    if (run_ && (run_->cmd == CommandMode::kJogJoint || run_->cmd == CommandMode::kJogTcp)) {
+      // A jog run still open (its standby not read yet) is closed, not dropped, by the new run.
+      close_run(false);
+      if (run_) {
+        run_->t_end_ns = std::max(run_->t_start_ns, r.t_start_ns);
+        to_export_.push_back(*run_);
+      }
+    }
     run_ = info;
     jog_armed_after_ns_.reset();
   }
@@ -437,30 +451,7 @@ void BridgeClient::track() {
     }
   }
   if (run_) {
-    // A jog run is one press: the jog comes to rest while the button is still held when the
-    // refreshes stop for longer than the deadman (a stalled GUI) or at a soft limit, and the
-    // refreshes after that start it again. So a jog run ends at the first standby after its last
-    // jog sample once the button is released; a holding sample ends any run.
-    const bool jog_run = run_->cmd == CommandMode::kJogJoint || run_->cmd == CommandMode::kJogTcp;
-    const bool held = jog_run && jog_.direction != 0;
-    std::size_t from = 0;
-    for (std::size_t k = 0; jog_run && k < live_.size(); ++k) {
-      const Sample& s = live_[k];
-      from = s.t_ns > run_->t_start_ns && is(s, LoopMode::kTracking) &&
-                     static_cast<CommandMode>(s.cmd_mode) == run_->cmd
-                 ? k
-                 : from;
-    }
-    for (std::size_t k = from; k < live_.size(); ++k) {
-      const Sample& s = live_[k];
-      if (s.t_ns > run_->t_start_ns &&
-          ((is(s, LoopMode::kStandby) && !held) || is(s, LoopMode::kHolding))) {
-        run_->t_end_ns = s.t_ns;
-        to_export_.push_back(*run_);
-        run_.reset();
-        break;
-      }
-    }
+    close_run(jog_.direction != 0 && ep_->is_owner());
   }
   // Exporting needs authority: without it the closed runs wait for the next claim.
   if (!ep_->is_owner()) {
@@ -487,6 +478,33 @@ void BridgeClient::track() {
       exports_[id.value()] = *it;
     }
     it = to_export_.erase(it);
+  }
+}
+
+// A jog run is one press: the jog comes to rest while the button is still held when the refreshes
+// stop for longer than the deadman (a stalled GUI) or at a soft limit, and the refreshes after
+// that start it again. So a jog run ends at the first standby after its last jog sample once the
+// button is released (held: pressed by the owner); a holding sample ends any run.
+void BridgeClient::close_run(bool held) {
+  const bool jog_run = run_->cmd == CommandMode::kJogJoint || run_->cmd == CommandMode::kJogTcp;
+  held = jog_run && held;
+  std::size_t from = 0;
+  for (std::size_t k = 0; jog_run && k < live_.size(); ++k) {
+    const Sample& s = live_[k];
+    from = s.t_ns > run_->t_start_ns && is(s, LoopMode::kTracking) &&
+                   static_cast<CommandMode>(s.cmd_mode) == run_->cmd
+               ? k
+               : from;
+  }
+  for (std::size_t k = from; k < live_.size(); ++k) {
+    const Sample& s = live_[k];
+    if (s.t_ns > run_->t_start_ns &&
+        ((is(s, LoopMode::kStandby) && !held) || is(s, LoopMode::kHolding))) {
+      run_->t_end_ns = s.t_ns;
+      to_export_.push_back(*run_);
+      run_.reset();
+      break;
+    }
   }
 }
 
