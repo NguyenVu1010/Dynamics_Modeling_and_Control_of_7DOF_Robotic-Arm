@@ -18,13 +18,14 @@ Unit and known-answer component tests cover every module (`tests/unit/`, `tests/
 | E2E-05 | Monte Carlo, 50 seeds, `realistic` | ≥ 95 % pass E2E-02 thresholds | nightly, manual |
 | E2E-06 | one-factor sensitivity sweep, report + hardware requirement table | report generated | nightly, manual |
 | E2E-07 | headless Gazebo, real controller through `gz_ros2_control`, `ideal` | G3 | every PR |
-| E2E-08 | arm64 (Pi 5) container under QEMU: build, unit, E2E-01..04 | pass | every PR |
+| E2E-08 | arm64 (Pi 5) container under QEMU: build, unit, E2E-01..04 | pass | nightly, PR label `arm64`, manual |
 | E2E-09 | headless Gazebo, real controller, `realistic`, seed 7 (friction in the physics) | 5 mm, 2°, 0.02 rad | every PR |
 | E2E-10 | bench, 4 waypoints, `realistic` | 5 mm, 2°, 0.02 rad, stop waypoints ≤ 5 mm | every PR |
 | E2E-11 | headless Gazebo, E2E-10 waypoints sent through `follow_waypoints`, `realistic`, seed 7 | 5 mm, 2°, 0.02 rad | every PR |
 | E2E-11b | as E2E-11, goal canceled after 3 s | canceled, ends in standby, max \|qd\| < 0.03 rad/s over the last 0.5 s (measured velocity: encoder noise std 0.0047 rad/s at rest), torque in limits | every PR |
 | E2E-12 | the E2E-01 trajectory on the three hardware profiles, seeds 1–3 | E2E-02 level (proposed) | tag `realism2`, manual |
 | E2E-13 | headless Gazebo driven through the studio bridge: jog, joint move, TCP move, waypoints; RViz goal refused | E2E-02 level | every PR |
+| E2E-14 | the E2E-01 trajectory on `budget_xarm7` with the position loop in the simulated drive, seeds 1–3 | E2E-02 level (proposed), no hold | tag `realism2`, manual |
 | PF-01 | `ControlLoop` step time | p50/p95 reported; p95 < 1 ms on CI, 200 µs measured on desktop | every PR |
 
 ## Results
