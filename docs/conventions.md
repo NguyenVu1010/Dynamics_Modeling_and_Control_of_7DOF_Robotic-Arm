@@ -76,8 +76,9 @@ law, one of the names registered at build time (`computed_torque`, `pd_gravity`;
 computed_torque, pd_gravity)`. The hold law is the same for every algorithm (computed-torque
 gains). Optional section `cobot.pd_gravity: {kp, kd}` holds the gains of PD plus gravity
 compensation, `tau = J .* (kp .* (q_ref - q) + kd .* (qd_ref - qd)) + G(q)`: both keys required
-in the section, > 0, 7 values or one scalar broadcast, `kp` in 1/s² and `kd` in 1/s, scaled by
-the constant joint inertia `J = diag(M(home_q))` of the controller's model, so the same
+in the section, > 0, 7 values or one scalar broadcast (a wrong count is `cobot.pd_gravity.kp:
+expected a scalar or 7 values, got 6`, the wording of `coulomb_nm`), `kp` in 1/s² and `kd` in
+1/s, scaled by the constant joint inertia `J = diag(M(home_q))` of the controller's model, so the same
 `omega` (`kp = omega²`, `kd = 2 omega`) means the same bandwidth as computed torque. The section
 is required when `algorithm` is `pd_gravity` (`cobot.pd_gravity: required when
 cobot.control.algorithm is pd_gravity`) and, with another algorithm, parsed and checked but
