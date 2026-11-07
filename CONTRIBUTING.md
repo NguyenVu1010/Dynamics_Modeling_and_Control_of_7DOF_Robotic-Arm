@@ -204,9 +204,10 @@ them in a script file.
   numbers and step time, with numbers or "no change expected". Gazebo demo runs attach
   the CSV report and plots.
 - Required checks: `lint`, `frozen-tests`, `core`, `sanitizers`, `coverage` (≥ 80 % lines
-  of `src/core/`), `python`, `e2e`, `gazebo`, `arm64`. A job with nothing to run yet still
-  exists and passes, so the list never changes. `nightly` (E2E-05/06) is scheduled and not
-  required; `deploy` pushes the Pi 5 image to GHCR on every push to `main`.
+  of `src/core/`), `python`, `e2e`, `gazebo`. A job with nothing to run yet still exists and
+  passes, so the list never changes. `nightly` (E2E-05/06) is scheduled and not required.
+  `arm64` (E2E-08) runs nightly, with the PR label `arm64`, or by hand, and is not required until
+  the Pi 5 work starts; `deploy` pushes the Pi 5 image to GHCR by hand.
 - Squash merge only, and only when every required check is green. The branch is deleted
   after merge.
 - Every review finding is fixed before merge; nothing is parked for later.

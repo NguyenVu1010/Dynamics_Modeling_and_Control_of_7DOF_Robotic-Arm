@@ -38,5 +38,5 @@ Yêu cầu cho hiện thực sau (không làm trong MVP):
 ## Hệ quả
 
 Thiết kế hiện tại giữ được đường lên phần cứng: lõi không ROS, không cấp phát, phụ thuộc apt, ảnh
-arm64 kiểm tra mỗi PR. Bảng yêu cầu phần cứng từ ADR-015 (bit encoder, trễ lệnh, sai số mô-men)
+arm64 kiểm tra hằng đêm (ADR-016). Bảng yêu cầu phần cứng từ ADR-015 (bit encoder, trễ lệnh, sai số mô-men)
 dùng để kiểm tra actuator thật đủ tốt hay không trước khi viết driver.

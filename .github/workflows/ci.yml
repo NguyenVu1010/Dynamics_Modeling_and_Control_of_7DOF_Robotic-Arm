@@ -1,9 +1,11 @@
 name: ci
-# Required checks for main (design 11.5): every job below. Jobs whose subject does not exist
-# yet (no e2e scenarios, no ros2_node) still run and pass, so the required list never changes.
+# Required checks for main (ADR-016): every job below, plus frozen-tests (frozen-tests.yml). Jobs
+# whose subject does not exist yet (no e2e scenarios, no ros2_node) still run and pass, so the
+# required list never changes. arm64 lives in arm64.yml and is not required until the Pi 5 work.
+# No labeled/unlabeled here: a label would cancel a running job and restart all of them.
 on:
   pull_request:
-    types: [opened, synchronize, reopened, labeled, unlabeled]
+    types: [opened, synchronize, reopened]
   push:
     branches: [main]
 
@@ -39,20 +41,6 @@ jobs:
           files=$(git diff --name-only --diff-filter=AM origin/${{ github.base_ref }}...HEAD -- '*.cpp' ':!src/ros2_node/**' ':!src/ros2_gui/**')
           if [ -n "$files" ]; then clang-tidy-18 -p build --quiet --warnings-as-errors='*' $files; fi
 
-  frozen-tests:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
-      - name: Tests on main are frozen; tests( commits come first
-        if: github.event_name == 'pull_request'
-        run: >
-          bash tools/ci/check_frozen_tests.sh
-          origin/${{ github.base_ref }} ${{ github.event.pull_request.head.sha }}
-          "${{ join(github.event.pull_request.labels.*.name, ',') }}"
-      - if: github.event_name != 'pull_request'
-        run: echo "push to main, nothing to check"
-
   core:
     runs-on: ubuntu-24.04
     steps:
@@ -72,10 +60,11 @@ jobs:
           "-DCMAKE_CXX_FLAGS=-fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all"
       - run: cmake --build build --parallel 4
       # The tests excluded here re-run whole bench scenarios to compare results and take 33 to 79 min
-      # each under Debug + ASan (3h14 job on #65). They still run in core and coverage.
+      # each under Debug + ASan (3h14 job on #65). They still run in core and coverage. ctest names
+      # of parameterised tests end in "  # GetParam() = ...", so those alternatives end in a space.
       - run: >
           ctest --test-dir build --output-on-failure --parallel 4 --exclude-regex
-          "OverridesRerun\.WrittenPairGivesTheSameRunCsvBytes/(premium_fr3|budget_xarm7|mid_kr1205)$|StudioRun\.OverrideEqualToTheFileGivesTheSameSummary$|LogChannelsBench\.MidTierMotorEncoderShowsDeflectionAndTheCompensation$|BridgeService\.UnreachableMoveTcpIsRejectedWithTheIssuesOfPlanTcpMove$|ManualPlan\.TcpMoveUnreachableMatchesValidatePath$"
+          "OverridesRerun\.WrittenPairGivesTheSameRunCsvBytes/(premium_fr3|budget_xarm7|mid_kr1205) |StudioRun\.OverrideEqualToTheFileGivesTheSameSummary$|LogChannelsBench\.MidTierMotorEncoderShowsDeflectionAndTheCompensation$|BridgeService\.UnreachableMoveTcpIsRejectedWithTheIssuesOfPlanTcpMove$|ManualPlan\.TcpMoveUnreachableMatchesValidatePath$"
 
   coverage:
     runs-on: ubuntu-24.04
@@ -144,22 +133,3 @@ jobs:
         run: >
           docker run --rm --shm-size=512m -v ${{ github.workspace }}:/repo -w /repo cobot-ros:ci
           bash tools/ci/gazebo_ci.sh
-
-  arm64:
-    runs-on: ubuntu-24.04
-    # QEMU emulation: the image took 71 min on #58 and hit 90 min on main right after it.
-    timeout-minutes: 150
-    steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-qemu-action@v3
-        with: { platforms: arm64 }
-      - uses: docker/setup-buildx-action@v3
-      - name: Build and test in the Pi5-like image (E2E-08)
-        uses: docker/build-push-action@v6
-        with:
-          context: .
-          file: docker/pi5.Dockerfile
-          platforms: linux/arm64
-          target: test
-          cache-from: type=gha,scope=pi5
-          cache-to: type=gha,mode=max,scope=pi5

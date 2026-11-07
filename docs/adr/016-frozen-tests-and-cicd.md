@@ -43,9 +43,9 @@ khác), áp dụng cả cho admin, cấm push thẳng và force-push.
 | `python` | pytest | có |
 | `e2e` | E2E-01..04, PF-01, báo cáo artifact | có |
 | `gazebo` | image ROS 2 Jazzy + Gazebo (amd64): colcon build, E2E-07 | có |
-| `arm64` | `docker/pi5.Dockerfile` qua buildx + QEMU: E2E-08 (ADR-017) | có |
+| `arm64` | `docker/pi5.Dockerfile` qua buildx + QEMU: E2E-08 (ADR-017); hằng đêm, label `arm64`, chạy tay | không, xem Bổ sung |
 | `nightly` | lịch: E2E-05, E2E-06, báo cáo artifact | không |
-| `deploy` | push vào `main`: image arm64 runtime lên `ghcr.io/nguyenvu1010/cobot-pi5:{main,<sha>}` | không |
+| `deploy` | chạy tay: image arm64 runtime lên `ghcr.io/nguyenvu1010/cobot-pi5:{main,<sha>}` | không |
 
 Job chưa có gì để chạy (ví dụ `e2e` trước khi có bench) vẫn tồn tại và pass rỗng, để danh sách
 check bắt buộc cố định từ đầu. Đây thay mục 6 của thiết kế (ba job, không ROS/Gazebo).
@@ -68,3 +68,17 @@ issue, comment không có chữ ký công cụ; file riêng của công cụ tr�
 
 Mỗi tính năng có bằng chứng test viết trước hiện thực trong lịch sử PR. CI dài hơn (Gazebo và
 QEMU mất nhiều phút) và một lỗi trong test cần thêm một PR `test-change` riêng.
+
+## Bổ sung (2026-11-07): rút gọn CI khi chưa deploy Pi 5
+
+- `arm64` không còn là check bắt buộc và không chạy trên mọi PR: chạy hằng đêm, khi PR có label
+  `arm64`, hoặc chạy tay (`arm64.yml`). QEMU mất 1h50 trên #70 và chạm giới hạn 150 phút trên #72,
+  trong khi chưa có deploy Pi 5. `deploy` chỉ chạy tay. Khi bắt đầu phần Pi 5: đưa `arm64` lại vào
+  check bắt buộc và thêm trigger push vào `deploy.yml`.
+- `frozen-tests` tách sang `frozen-tests.yml`, là workflow duy nhất phản ứng với label. Trước đây
+  gắn `test-change` làm toàn bộ `ci` chạy lại và huỷ lượt đang chạy. Không dùng `if:` để skip job
+  khi có sự kiện label: job bị skip được tính là pass cho check bắt buộc, trong khi lượt test thật
+  vừa bị huỷ, nên PR có thể merge mà chưa test.
+- Regex loại test trong `sanitizers` (#66) không khớp ba test `OverridesRerun`: tên ctest của test
+  tham số kết thúc bằng `  # GetParam() = ...`, nên `$` không khớp. Ba test đó vẫn chạy 50 đến 80
+  phút mỗi test. Nay các nhánh đó kết thúc bằng dấu cách.

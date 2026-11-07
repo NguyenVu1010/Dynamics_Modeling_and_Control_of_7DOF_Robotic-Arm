@@ -1,8 +1,7 @@
 name: deploy
-# CD (design 11.5): every push to main publishes the Pi5-like runtime image (arm64) to GHCR.
+# CD (ADR-016): publishes the Pi5-like runtime image (arm64) to GHCR. By hand until the Pi 5 work
+# starts; then add back a push trigger on main.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
