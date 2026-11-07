@@ -33,7 +33,7 @@ tuyển dụng cần tin được con số, nên mỗi tiêu chí G3 phải có 
 | E2E-05 | Monte Carlo 50 seed, `realistic` | ≥ 95 % đạt ngưỡng E2E-02 | hằng đêm, chạy tay |
 | E2E-06 | sweep độ nhạy, báo cáo + bảng yêu cầu phần cứng | báo cáo sinh được | hằng đêm, chạy tay |
 | E2E-07 | Gazebo headless, controller thật, `ideal` | G3 | mỗi PR |
-| E2E-08 | container arm64 dưới QEMU: build, unit, E2E-01..04 | pass | mỗi PR |
+| E2E-08 | container arm64 dưới QEMU: build, unit, E2E-01..04 | pass | hằng đêm, label `arm64`, chạy tay (ADR-016) |
 | PF-01 | thời gian một bước `ControlLoop` | p95 < 1 ms trên runner CI; 200 µs đo tay trên desktop | mỗi PR |
 
 - Mọi test ngẫu nhiên dùng seed cố định. Test C++ định nghĩa `EIGEN_RUNTIME_NO_MALLOC` để bắt cấp

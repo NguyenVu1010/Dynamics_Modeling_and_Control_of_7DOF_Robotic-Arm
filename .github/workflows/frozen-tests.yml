@@ -1,0 +1,22 @@
+name: frozen-tests
+# Required check (ADR-016). A workflow of its own because it is the only check that reads the PR
+# labels (test-change): adding a label re-runs this job and leaves the ci workflow alone.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
+
+concurrency:
+  group: frozen-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frozen-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Tests on main are frozen; tests( commits come first
+        run: >
+          bash tools/ci/check_frozen_tests.sh
+          origin/${{ github.base_ref }} ${{ github.event.pull_request.head.sha }}
+          "${{ join(github.event.pull_request.labels.*.name, ',') }}"
