@@ -126,7 +126,7 @@ TEST(ConfigAlgorithm, ErrorsNameTheFullKey) {
   expect_error("unknown.yaml",
                "  control:\n    algorithm: foo\n",
                "cobot.control.algorithm: unknown algorithm 'foo' (registered: computed_torque, "
-               "pd_gravity)");
+               "pd_gravity, drive_position)");
   expect_error("number.yaml", "  control:\n    algorithm: 3\n", "cobot.control.algorithm");
   expect_error("case.yaml", "  control:\n    algorithm: PD_GRAVITY\n", "registered: ");
   expect_error("key.yaml", "  control:\n    algo: x\n", "cobot.control.algo: unknown key");
