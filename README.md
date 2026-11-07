@@ -49,8 +49,8 @@ Tracking tab plots the run. [Full-resolution video](docs/media/demo-v1.mp4); rec
 - **The same controller in two hosts.** It runs in Gazebo Harmonic through `ros2_control` and in
   a ROS-free bench. Gazebo with realistic errors ends 0.071 mm from the goal
   ([E2E-09](docs/results/realism/e2e_09/report.md)). An RViz2 waypoint panel and the Qt app
-  `cobot_studio` drive it. If the app freezes, the arm reaches standby at most 0.709 s after its last heartbeat (bound: 0.705 s plus 5 ms observer
-  resolution, [stop guarantee](docs/results/studio/README.md#stop-guarantee)).
+  `cobot_studio` drive it. If the app freezes, the arm reaches standby at most 0.709 s after its
+  last heartbeat (bound: 0.705 s plus 5 ms observer resolution, [stop guarantee](docs/results/studio/README.md#stop-guarantee)).
 - **Engineering process.** Tests are written first and frozen on `main`
   ([check](tools/ci/check_frozen_tests.sh)). 9 required CI jobs run on every PR: lint, frozen
   tests, build and test, ASan + UBSan, line coverage ≥ 80 % on `src/core`, Python, bench E2E,
