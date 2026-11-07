@@ -24,7 +24,8 @@ constexpr double kG3RmsJointErrRad = 0.01;
 // RunSummary of the logged rows, fed one record at a time.
 class Metrics {
  public:
-  Metrics(const Vec& tau_max, const Vec& rated, std::int64_t t_eval_ns) : t_eval_ns_(t_eval_ns) {
+  Metrics(const Vec& tau_max, const Vec& rated, std::int64_t t_eval_ns, TorqueSource torque)
+      : t_eval_ns_(t_eval_ns), motor_torque_(torque == TorqueSource::kMotor) {
     tau_max_ = tau_max;
     rated_ = rated;
   }
@@ -46,10 +47,11 @@ class Metrics {
       final_e_ = r.T_b_e;
       final_d_ = r.T_b_d;
     }
+    const Vec& tau = motor_torque_ ? r.tau_motor : r.tau;
     // PropagateNaN and the explicit isnan keep a NaN torque visible in the summary
     // (std::max and the default maxCoeff may drop it).
     const double ratio =
-        (r.tau.cwiseAbs().array() / tau_max_.array()).maxCoeff<Eigen::PropagateNaN>();
+        (tau.cwiseAbs().array() / tau_max_.array()).maxCoeff<Eigen::PropagateNaN>();
     if (std::isnan(ratio) || ratio > s_.peak_tau_ratio) {
       s_.peak_tau_ratio = std::isnan(s_.peak_tau_ratio) ? s_.peak_tau_ratio : ratio;
     }
@@ -60,7 +62,7 @@ class Metrics {
     if (r.mode == pipeline::LoopMode::kTracking || r.mode == pipeline::LoopMode::kFinished) {
       const Vec e = r.q_ref - r.q;
       sum_sq_ += e.cwiseProduct(e);
-      tau_sum_sq_ += r.tau.cwiseProduct(r.tau);
+      tau_sum_sq_ += tau.cwiseProduct(tau);
       ++error_rows_;
     }
   }
@@ -85,6 +87,7 @@ class Metrics {
   Vec tau_max_ = Vec::Zero();
   Vec rated_ = Vec::Zero();
   std::int64_t t_eval_ns_;
+  bool motor_torque_;
   RunSummary s_;
   common::Pose final_e_;
   common::Pose final_d_;
@@ -141,8 +144,9 @@ bool passes(const RunSummary& s) {
 RunSummary summarize(const std::vector<pipeline::LogRecord<kN>>& rows,
                      const Vec& tau_max,
                      const Vec& rated,
-                     std::int64_t t_eval_ns) {
-  Metrics metrics(tau_max, rated, t_eval_ns);
+                     std::int64_t t_eval_ns,
+                     TorqueSource torque) {
+  Metrics metrics(tau_max, rated, t_eval_ns, torque);
   for (const pipeline::LogRecord<kN>& r : rows) {
     metrics.add(r);
   }

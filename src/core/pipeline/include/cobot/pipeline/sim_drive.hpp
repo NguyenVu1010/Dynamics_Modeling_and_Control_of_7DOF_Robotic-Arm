@@ -24,7 +24,7 @@
 //   (4) q_t = q_s + qd_s min(age, T_sp), qd_t = age < T_sp ? qd_s : 0, T_sp = setpoint_period_s;
 //   (5) tau = clamp(tau_s + kp (q_t - q_m) + kd (qd_t - v), +-peak_torque_nm), non-finite -> 0;
 //   (6) tau = stage.limit(stage.shape(tau, plant.q()), plant.qd_motor()), an ActuatorStage at
-//       the nominal h with the decorator's torque scale;
+//       period h (the slew limit of the actual sub-step) with the decorator's torque scale;
 //   (7) plant.step(tau, h); (8) age += h.
 // Gains kp = J omega^2 (N m/rad), kd = 2 zeta J omega (N m s/rad), J = inertia_kg_m2 (the hosts
 // pass diag(M(home_q)) of the controller model). No allocation after construction.

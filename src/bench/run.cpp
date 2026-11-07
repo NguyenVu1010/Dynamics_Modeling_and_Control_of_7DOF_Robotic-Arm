@@ -331,12 +331,14 @@ common::Result<RunData> run_engine(const RunRequest& request, bool& path_invalid
   } catch (const std::exception& e) {
     return Out::error(label.string() + ": " + e.what());
   }
-  // After the loop: the summary from the recorded rows.
+  // After the loop: the summary from the recorded rows; a drive run rates the motor torque.
   run.summary = summarize(
       run.records,
       meta.tau_max,
       meta.rated,
-      std::llround(meta.window_end_s * static_cast<double>(common::kNanosecondsPerSecond)));
+      std::llround(meta.window_end_s * static_cast<double>(common::kNanosecondsPerSecond)),
+      config.algorithm == control::Algorithm::kDrivePosition ? TorqueSource::kMotor
+                                                             : TorqueSource::kCommand);
   return Out::ok(std::move(run));
 }
 

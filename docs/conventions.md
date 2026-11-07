@@ -220,6 +220,10 @@ the controller config instead of an imperfection key; the virtual param
 `cobot.limits.peak_torque_nm`, the controller's `tau_max`; `rms_tau_ratio` is the max over joints
 of `RMS(tau_j) / R_j` over the `tracking`/`finished` rows, R the rated torque
 `cobot.limits.rated_torque_nm`. Without the `limits` section both P and R are the URDF effort.
+In a `drive_position` run the three torque metrics of the C++ summary (`cobot_bench run`,
+`montecarlo`, `sweep`, `run_in_memory`) use the applied torque `taum` (the drive's PD output plus
+the feed-forward, after the actuator chain), since `tau` is only the feed-forward sent with the
+set point; `cobot_eval` on the Run CSV still reads `tau`.
 
 ### Studio file
 

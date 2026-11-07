@@ -73,6 +73,7 @@ void SimDrive<N>::advance(dynamics::SimPlant<N>& plant,
                           double dt_s) {
   const double h = dt_s / static_cast<double>(substeps_);
   const double a = h / (h + 1.0 / (kTwoPi * filter_hz_));
+  stage_.set_period(h);
   for (int k = 0; k < substeps_; ++k) {
     ++substeps_run_;
     if (cmd.mode != hal::DriveMode::kPosition) {

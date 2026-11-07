@@ -151,6 +151,10 @@ trễ, so với profile, và ghi độ lệch vào báo cáo. Đến lúc đó, 
   (5) Các luật mômen không gắn driver nên chạy giống hệt từng bit. Đã loại: driver trong
   `ControlLoop` (chạy ở tốc độ host trên phép đo trễ, tức đường mômen từ host), trong `SimPlant`
   (plant chỉ là vật lý), một lớp decorator mới (không chia bước con được plant).
+- **Chỉ số mômen.** Trong lần chạy `drive_position`, `tau` của Run CSV chỉ là feed-forward gửi
+  kèm điểm đặt; `peak_tau_ratio`, `sat_time_s` và `rms_tau_ratio` của tóm tắt C++ dùng mômen đặt
+  vào động cơ `taum` (PD của driver cộng feed-forward). Khâu chấp hành của driver chạy với chu kỳ
+  bước con thực `h` (giới hạn slew theo `h` cả khi chu kỳ bị jitter).
 - **Host.** Engine bench (run, montecarlo, sweep) và `timing` gắn driver; `cobot_bench serve` và
   `cobot_controller` từ chối `drive_position` (câu hỏi C4, chưa có mô hình driver ở đó).
 - **`config/budget_xarm7_drive.yaml`.** `budget_xarm7.yaml` cộng `control.algorithm:

@@ -24,6 +24,8 @@ class ActuatorStage {
   common::VecN<N> limit(const common::VecN<N>& tau, const common::VecN<N>& qd_true);
   // Bus voltage of the last limit(), V; v_nom_v before it, the normalised 1.0 with the bus off.
   double bus_voltage_v() const { return bus_voltage_v_; }
+  // Period of the next limit() calls (s): the drive sets its actual sub-step on a jittered period.
+  void set_period(double period_s) { period_s_ = period_s; }
 
  private:
   ActuatorConfig<N> act_;
