@@ -133,7 +133,7 @@ scenes=(
   "$(rel loaded 0.5) $(rel preview 0) 1 Place waypoints in RViz"
   "$(rel preview -0.3) $(rel save 0) 1 Preview the path"
   "$(rel run -1.5) $(rel run 16) 1 Run: Gazebo and RViz in sync, 1 kHz computed torque"
-  "$(rel plots 0.8) $(rel end 0) 1 Live tracking plots in cobot_studio"
+  "$(rel plots 0.8) $(rel end 0) 1 Tracking plots of the run in cobot_studio"
 )
 font=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf
 inputs=() filters="" concat=""
