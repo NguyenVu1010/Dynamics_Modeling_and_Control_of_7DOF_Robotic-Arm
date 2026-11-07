@@ -48,8 +48,20 @@ common::Status SimJointInterface<N>::read(hal::JointState<N>& out) {
 
 template <int N>
 common::Status SimJointInterface<N>::write(const hal::JointCommand<N>& cmd) {
+  if (cmd.mode == hal::DriveMode::kPosition && drive_ == nullptr) {
+    return common::Status::error("sim joint interface: position command without a drive");
+  }
   last_cmd_ = cmd;
   return common::Status::ok();
+}
+
+template <int N>
+void SimJointInterface<N>::step_period(double dt) {
+  if (drive_ != nullptr) {
+    drive_->advance(plant_, last_cmd_, dt);
+  } else {
+    plant_.step(last_cmd_.tau, dt);
+  }
 }
 
 template <int N>
@@ -59,12 +71,12 @@ void SimJointInterface<N>::advance() {
     std::normal_distribution<double> jitter(0.0, jitter_std_s_);
     dt = std::clamp(period_s_ + jitter(rng_), 0.5 * period_s_, 1.5 * period_s_);
   }
-  plant_.step(last_cmd_.tau, dt);
+  step_period(dt);
   if (overrun_prob_ > 0.0) {
     std::uniform_real_distribution<double> unit(0.0, 1.0);
     if (unit(overrun_rng_) < overrun_prob_) {
       for (int k = 0; k < overrun_cycles_; ++k) {
-        plant_.step(last_cmd_.tau, period_s_);
+        step_period(period_s_);
       }
     }
   }

@@ -31,6 +31,31 @@
 // Strict YAML reading: every problem becomes one line "<full.key.path>: <reason>" and all
 // lines are returned together, so a config file is fixed in one pass.
 namespace cobot::pipeline {
+
+int drive_substeps(double rate_hz, double control_rate_hz) {
+  constexpr double kRatioTol = 1e-9;    // relative, drive rate / control rate is an integer
+  constexpr double kMaxSubsteps = 1e6;  // keeps the count an int
+  const double ratio = rate_hz / control_rate_hz;
+  if (!(rate_hz > 0.0) || !(control_rate_hz > 0.0) || !std::isfinite(ratio)) {
+    return 0;
+  }
+  const double s = std::round(ratio);
+  if (s < 1.0 || std::abs(ratio - s) > kRatioTol * ratio || s > kMaxSubsteps) {
+    return 0;
+  }
+  return static_cast<int>(s);
+}
+
+std::string drive_rate_reason(double rate_hz, double control_rate_hz) {
+  std::array<char, 96> text{};
+  std::snprintf(text.data(),
+                text.size(),
+                "must be an integer multiple of control_rate_hz (%g), got %g",
+                control_rate_hz,
+                rate_hz);
+  return text.data();
+}
+
 namespace {
 
 namespace fs = std::filesystem;
@@ -494,6 +519,44 @@ void read_algorithm(Reader& m, Config<N>& c) {
   }
 }
 
+// `drive: {rate_hz, omega_rad_s, zeta, velocity_filter_hz, torque_feedforward}` (feature
+// drive-loop): optional, every key required inside it; required when the algorithm is
+// drive_position. Read after control_rate_hz and the algorithm.
+template <int N>
+void read_drive(Reader& m, Config<N>& c) {
+  if (!m.has("drive")) {
+    if (c.algorithm == control::Algorithm::kDrivePosition) {
+      m.fail("drive", "required when cobot.control.algorithm is drive_position");
+    }
+    return;
+  }
+  Reader x = m.map("drive");
+  DriveConfig<N>& d = c.drive;
+  double rate = 0.0;
+  x.number("rate_hz", kPositive, rate);
+  if (rate > 0.0 && drive_substeps(rate, c.control_rate_hz) == 0) {
+    x.fail("rate_hz", drive_rate_reason(rate, c.control_rate_hz));
+  } else if (rate > 0.0) {
+    d.rate_hz = rate;
+  }
+  x.vector<N>("omega_rad_s", kPositive, true, d.omega_rad_s);
+  x.number("zeta", kPositive, d.zeta);
+  x.number("velocity_filter_hz", kPositive, d.velocity_filter_hz);
+  std::string ff;
+  if (x.scalar("torque_feedforward", ff)) {
+    if (ff == "none") {
+      d.torque_feedforward = control::DriveFeedForward::kNone;
+    } else if (ff == "gravity") {
+      d.torque_feedforward = control::DriveFeedForward::kGravity;
+    } else if (ff == "inverse_dynamics") {
+      d.torque_feedforward = control::DriveFeedForward::kInverseDynamics;
+    } else {
+      x.fail("torque_feedforward", "expected none, gravity or inverse_dynamics, got '" + ff + "'");
+    }
+  }
+  x.finish();
+}
+
 template <int N>
 void read_config(Reader& root, const fs::path& dir, Config<N>& c) {
   Reader m = root.map("cobot");
@@ -551,6 +614,7 @@ void read_config(Reader& root, const fs::path& dir, Config<N>& c) {
   c.log_output_dir = (dir / text).lexically_normal();
   read_log_mode(l, c);
   read_algorithm<N>(m, c);
+  read_drive<N>(m, c);
   read_external<N>(m, c);
   read_limits<N>(m, c);
   read_deflection_comp<N>(m, c.deflection_comp);

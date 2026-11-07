@@ -140,7 +140,42 @@ tại `home_q` khi dựng bộ điều khiển, không tính lại mỗi chu k�
   khi `G` của mô hình đúng với plant. Sai lệch khối lượng hay tải để lại `e_i ≈ ΔG_i / (J_ii k_p,i)`
   (không có thành phần tích phân).
 - Đầu vào không hữu hạn (q, q̇, q_ref, q̇_ref) cho lệnh toàn số không, như computed torque. Hold
-  không đổi: vẫn dùng `HoldController` với hệ số computed torque cho mọi thuật toán.
+  không đổi: vẫn dùng `HoldController` với hệ số computed torque cho các luật mômen.
+
+## Vòng vị trí trong driver
+
+Thuật toán thứ ba (`cobot.control.algorithm: drive_position`, ADR-023 "Bổ sung" PR drive-loop):
+host không gửi mômen mà gửi gói điểm đặt `JointCommand` chế độ `kPosition`: `q_s = q_ref`,
+`q̇_s = q̇_ref` và feed-forward mômen `τ_s` (`none`: 0, `gravity`: `G(q_ref)`, `inverse_dynamics`:
+`rnea(q_ref, q̇_ref, q̈_ref) + D q̇_ref`, clamp theo `τ_max`), cộng feed-forward ma sát như các luật
+mômen. Driver mô phỏng (`pipeline::SimDrive`, chỉ bench) đóng vòng trên encoder động cơ của chính
+nó ở `drive.rate_hz` (4 kHz), `h = dt / n`:
+
+    q_t = q_s + q̇_s min(age, T_sp),   q̇_t = q̇_s nếu age < T_sp, ngược lại 0
+    τ = clamp(τ_s + k_p ⊙ (q_t − q_m) + k_d ⊙ (q̇_t − v), ±P)
+    k_p = J ⊙ ω²,  k_d = 2 ζ J ⊙ ω,  J = diag(M(q_home))
+
+`q_m` là encoder động cơ đã lượng tử hoá (`encoder_bits` của profile), `v` là sai phân `q_m` qua
+bộ lọc thông thấp bậc một `velocity_filter_hz`. Sau đó `τ` đi qua chuỗi actuator của profile
+(`imperfect::ActuatorStage`: hệ số, ripple, deadband, độ phân giải, slew, bus, đường cong
+mômen-tốc độ) và trễ động cơ của plant (vòng dòng).
+
+- **Hệ số từ `J` và `ω`.** Với khớp tách riêng `J ë + k_d ė + k_p e = 0`, tức `ë + 2ζω ė + ω² e = 0`:
+  `ω` là băng thông vòng vị trí (rad/s), `ζ = 1` tới hạn. Cùng cách đặt hệ số như PD+G nên tự chỉnh
+  quét một tham số `ω`.
+- **Ngoại suy.** Gói mới đến mỗi `T_sp = 1 / servo_rate_hz` (4 ms ở 250 Hz). Giữa hai gói, điểm
+  đặt chạy tiếp theo `q̇_s` tối đa một chu kỳ servo, nên driver không thấy bậc thang 4 ms; gói mất
+  thì điểm đặt dừng ở `q_s + q̇_s T_sp` và `q̇_t = 0` (giữ vị trí).
+- **Vì sao bền với khớp đàn hồi.** Vòng đặt chung chỗ (collocated): cảm biến và cơ cấu chấp hành
+  cùng ở phía động cơ, nên hàm truyền từ mômen tới `q_m` luôn có pha trên −180° (cặp phản cộng
+  hưởng trước cộng hưởng); lò xo Harmonic Drive chỉ thêm một mode ở phía link được giảm chấn thụ
+  động. Vòng chạy 4 kHz trên encoder không trễ, nên trễ cảm biến, trễ lệnh và servo 250 Hz của bus
+  không nằm trong vòng kín như ở đường mômen từ host.
+- **Dịch điểm đặt theo độ võng.** Driver điều chỉnh động cơ, còn `q_ref` là vị trí link. Khi
+  `deflection_comp` bật và trạng thái lấy từ encoder động cơ, host gửi
+  `q_s,j = q_ref,j + δ_j(G_j(q_ref))`, `δ` là độ võng tĩnh Harmonic Drive (nghịch của phép bù trên
+  phép đo), một lần tính `G` của mô hình bộ điều khiển tại điểm đặt. Hold cũng đi qua driver:
+  `q_s = q_hold` (cùng phép dịch), `q̇_s = 0`, `τ_s = 0` (`none`) hoặc `clamp(G(q_hold))`.
 
 ## Bù ma sát
 

@@ -131,3 +131,40 @@ trễ, so với profile, và ghi độ lệch vào báo cáo. Đến lúc đó, 
   và 5 lần nhánh xen kẽ; trung vị p50 / p95 / max: main 4.726 / 4.967 / 117.5 µs, nhánh
   4.733 / 4.992 / 84.3 µs. Chênh +0.007 µs (p50) và +0.025 µs (p95), trong dung sai +0.25 / +0.35
   µs: đạt. PD+G (cùng lệnh, `algorithm: pd_gravity`, 3 lần, không chặn): p50 4.729 µs, p95 4.995 µs.
+
+## Bổ sung (2026-11-07): PR drive-loop (vòng vị trí trong driver)
+
+- **Thuật toán `drive_position`.** `Algorithm::kDrivePosition = 2`: host (ControlLoop 1 kHz) gửi
+  điểm đặt vị trí, feed-forward vận tốc và feed-forward mômen (`cobot.drive.torque_feedforward`);
+  driver mô phỏng đóng vòng vị trí trên encoder động cơ ở `cobot.drive.rate_hz` (4 kHz),
+  `k_p = J ω²`, `k_d = 2 ζ J ω`, `J = diag(M(home_q))` (docs/derivations/control.md "Vòng vị trí
+  trong driver"). Hold cũng đi qua driver.
+- **Thay đổi HAL (câu hỏi C5).** `JointCommand<N>` có thêm `mode` (`DriveMode::kTorque` mặc định,
+  `kPosition`), `q`, `qd` và `seq`; mọi nơi tạo và dùng lệnh mômen giữ nguyên `tau`.
+  `ImperfectJointInterface` chỉ áp servo hold và trễ lệnh lên gói điểm đặt; phần tạo dạng mômen
+  chuyển sang `imperfect::ActuatorStage` (cùng biểu thức, cùng thứ tự, đầu ra từng bit như cũ).
+- **Điểm tích hợp: driver nằm giữa bus và plant, trong `SimJointInterface::advance()`.** (1) Chỉ
+  chủ plant chạy được nhiều bước con mỗi chu kỳ (cả jitter và overrun). (2) Hiệu ứng bus của
+  profile (servo hold, mất gói, burst trễ, trễ lệnh) nằm trong decorator và phải áp lên gói điểm
+  đặt, nên driver đứng sau decorator. (3) Driver thật đọc thẳng encoder động cơ, không qua trễ cảm
+  biến và servo hold của host. (4) Khi host trễ (overrun), driver vẫn điều chỉnh như trên phần cứng.
+  (5) Các luật mômen không gắn driver nên chạy giống hệt từng bit. Đã loại: driver trong
+  `ControlLoop` (chạy ở tốc độ host trên phép đo trễ, tức đường mômen từ host), trong `SimPlant`
+  (plant chỉ là vật lý), một lớp decorator mới (không chia bước con được plant).
+- **Chỉ số mômen.** Trong lần chạy `drive_position`, `tau` của Run CSV chỉ là feed-forward gửi
+  kèm điểm đặt; `peak_tau_ratio`, `sat_time_s` và `rms_tau_ratio` của tóm tắt C++ dùng mômen đặt
+  vào động cơ `taum` (PD của driver cộng feed-forward). Khâu chấp hành của driver chạy với chu kỳ
+  bước con thực `h` (giới hạn slew theo `h` cả khi chu kỳ bị jitter).
+- **Host.** Engine bench (run, montecarlo, sweep) và `timing` gắn driver; `cobot_bench serve` và
+  `cobot_controller` từ chối `drive_position` (câu hỏi C4, chưa có mô hình driver ở đó).
+- **`config/budget_xarm7_drive.yaml`.** `budget_xarm7.yaml` cộng `control.algorithm:
+  drive_position`, khối `drive` (4 kHz, `ω = 80` rad/s sau khi quét 20..150, `ζ = 1`, lọc 500 Hz,
+  `inverse_dynamics`) và `safety.hal_timeout_ms: 20` (câu hỏi C2: với 5 ms, một gói 250 Hz bị mất
+  hay một burst 5 chu kỳ đã gây `state_timeout` với mọi luật; 20 ms = 5 chu kỳ servo, driver giữ
+  điểm đặt cuối trong lúc đó). E2E-12 giữ nguyên kết luận mômen từ host; E2E-14 là cùng profile với
+  vòng trong driver.
+- **Số liệu budget, seeds 1-3.** Trước (computed torque từ host, E2E-12): hold trên mọi seed. Sau
+  (`drive_position`, `ω = 80`): không hold; `final_pos_err_m` 2.9e-4 / 1.20e-3 / 3.45e-3,
+  `final_rot_err_rad` 4.1e-3 / 2.5e-3 / 8.9e-3, `rms_joint_err_rad` 3.4e-3 / 1.2e-3 / 4.0e-3, trong
+  biên 20 %. Biên độ dao động sau đích (`q − q_ref` trên 0.5 s) khoảng 3e-4 rad ở cả hai cửa sổ,
+  bằng mức nhiễu đo (`q_noise_std_rad` 5e-5, encoder 17 bit), không phải dao động của vòng.

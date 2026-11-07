@@ -32,8 +32,17 @@
 // computed torque -> kFault with zero torque. Output torque is always finite and within tau_max.
 //
 // Tracking torque: clamp(law(state, ref) + friction feed-forward of ref.qd, tau_max);
-// law = cobot.control.algorithm (control::TrackingController, ADR-023). The hold is not
-// compensated and uses the computed-torque gains whatever the algorithm.
+// law = cobot.control.algorithm (control::TrackingController, ADR-023). The hold of the torque
+// laws is not compensated and uses the computed-torque gains.
+//
+// drive_position (feature drive-loop): `out` is a position command (set point ref.q, velocity
+// ref.qd, torque feed-forward plus friction feed-forward in out.tau); with deflection_comp enabled
+// and a q_from_motor state the set point is shifted by the static deflection of the controller
+// model's gravity torque there (out.q_j += harmonic_spring_deflection(G_j(out.q))), since the drive
+// regulates the motor. Holding goes through the drive too (TrackingController::hold at the hold
+// target, same shift). The Run CSV keeps tau = the feed-forward sent and q_ref = the set point
+// before the shift. A non-finite tau, q or qd -> kFault with the zero torque command. Every step
+// sets out.seq to 1, 2, 3, ... (all algorithms; torque consumers ignore it).
 //
 // External command mode (command_source: external, feature `loop-external`, design
 // docs/design/2026-10-29-waypoint-gui-design.md 6.3): start() -> kStandby, which keeps the
@@ -166,6 +175,8 @@ class ControlLoop {
   bool external() const { return config_.command_source == CommandSource::kExternal; }
   // `measured`, or state_hat_ holding it with q_hat when the compensation applies.
   const JointState<N>& compensated(const JointState<N>& measured);
+  // drive_position: out.q += static deflection of G(out.q) per joint (deflection-comp).
+  void shift_set_point(JointCommand<N>& out) const;
 
   model::Model<N> model_;
   Config<N> config_;
@@ -190,6 +201,7 @@ class ControlLoop {
   bool stopping_ = false;
   std::int64_t stop_steps_ = 0;  // steps since request_stop()
   JointState<N> state_hat_;      // last compensated state (deflection-comp)
+  std::uint32_t seq_ = 0;        // set point number of the last step's command
   // Manual commands.
   CommandMode cmd_ = CommandMode::kConfig;
   ManualStop manual_stop_ = ManualStop::kNone;
