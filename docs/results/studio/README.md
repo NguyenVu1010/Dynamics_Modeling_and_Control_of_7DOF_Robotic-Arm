@@ -165,4 +165,4 @@ kill -INT $srv; wait $srv
 On Gazebo: `ros2 launch cobot_sim sim.launch.py controller:=cobot_controller studio:=true
 imperfections_path:=$PWD/config/imperfections/realistic.yaml seed:=7`, then the same CLI steps
 through `ros2 run cobot_ros2 cobot_bridge_cli cobot_controller ...`, or `cobot_studio`
-(README "cobot_studio").
+([studio guide](../../guides/studio.md)).

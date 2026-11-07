@@ -1,381 +1,178 @@
 # Dynamics Modeling and Control of a 7-DOF Robotic Arm
 
-![ci](https://github.com/NguyenVu1010/Dynamics_Modeling_and_Control_of_7DOF_Robotic-Arm/actions/workflows/ci.yml/badge.svg)
+A 7-DOF arm controller in C++17, from the URDF to the torque command: a dynamics library written
+from scratch, a 1 kHz computed-torque loop, and a simulation that adds real-hardware errors and
+tells you which hardware is good enough.
 
-A final-year project: a self-written C++17 dynamics core (forward kinematics, geometric
-Jacobian, RNEA, CRBA, forward dynamics, no Pinocchio or KDL) and a 1 kHz computed-torque
-controller for a 7-DOF arm, read from a single URDF. The controller runs in Gazebo Harmonic
-through `ros2_control` and in a ROS-free bench, a configurable imperfection layer (encoder
-resolution, noise, delays, torque errors, friction, model mismatch) turns the simulation into a
-sim-to-real sensitivity study, and the core is kept free of anything a Raspberry Pi 5 cannot
-install with `apt`, which is the later hardware target.
+[![ci](https://github.com/NguyenVu1010/Dynamics_Modeling_and_Control_of_7DOF_Robotic-Arm/actions/workflows/ci.yml/badge.svg)](https://github.com/NguyenVu1010/Dynamics_Modeling_and_Control_of_7DOF_Robotic-Arm/actions/workflows/ci.yml)
+![C++17](https://img.shields.io/badge/C%2B%2B-17-blue)
+![ROS 2 Jazzy](https://img.shields.io/badge/ROS%202-Jazzy-22314E)
+![Gazebo Harmonic](https://img.shields.io/badge/Gazebo-Harmonic-orange)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
+
+[![Demo](docs/media/demo-v1.gif)](docs/media/demo-v1.mp4)
+*Waypoints placed in the RViz2 panel and previewed, then run from `cobot_studio`: Gazebo, RViz and
+the studio's 3D view follow the arm together under the 1 kHz computed-torque controller, and the
+Tracking tab plots the run. [Full-resolution video](docs/media/demo-v1.mp4); recorded by
+[`tools/demo/record_demo.sh`](tools/demo/record_demo.sh).*
+
+## Highlights
+
+- **Dynamics written from scratch.** FK, geometric Jacobian, RNEA, CRBA and forward dynamics
+  without Pinocchio or KDL ([ADR-004](docs/adr/004-self-written-dynamics.md),
+  [derivations](docs/derivations/)). They match KDL on 100 random 7-DOF states within a
+  relative tolerance of 1e-6 ([test](tests/unit/dynamics/test_kdl_reference.cpp)) and
+  closed-form pendulum and two-link models within 1e-12
+  ([test](tests/unit/dynamics/test_analytic.cpp)).
+- **Real-time 1 kHz loop.** One control step takes 5.3 µs at p95 on a desktop, about 0.5 % of the
+  1 ms period ([PF-01](docs/results/realism/timing_desktop.txt)). A test counts every
+  `operator new` and fails if `ControlLoop::step()` allocates
+  ([test](tests/component/control_loop/test_control_loop_no_alloc.cpp)). Errors come back as
+  `Status` values, and the tracking law is `noexcept`
+  ([static_assert](tests/unit/control_registry/test_algorithms.cpp)).
+- **Bit-reproducible runs.** Two runs with the same seed give byte-identical CSV logs. CI checks
+  this on every PR (E2E-03, [test levels](docs/guides/testing.md#test-levels)).
+- **Sim-to-real study, not only a simulation.** An imperfection layer adds encoder resolution,
+  noise, delays, torque errors, friction, model mismatch, elastic gearboxes and packet loss
+  ([ADR-015](docs/adr/015-imperfections-and-sim-to-real.md),
+  [ADR-019](docs/adr/019-realism-2-hardware-profiles.md)). A sweep of 12 parameters gives a
+  [hardware requirement table](docs/results/realism/hardware_requirements.md): sensor delay
+  ≤ 4 cycles and torque-constant error ≤ 20 %. With realistic errors, 50 of 50 Monte Carlo seeds
+  pass ([Monte Carlo](docs/results/realism/montecarlo.md)).
+- **Hardware tiers compared.** Three profiles take the sensor, gearbox and communication
+  quality of real arms (Franka FR3, Kassow KR1205, xArm 7). On premium and mid, the final
+  position error stays at least 8x under the threshold. On budget (250 Hz servo, torque sent
+  from the host), every seed trips the safety hold: that class of hardware needs a control loop
+  in the drive
+  ([E2E-12](tests/e2e/scenarios/e2e_12_profiles.yaml),
+  [ADR-023](docs/adr/023-hardware-scenario-verification.md)).
+- **The same controller in two hosts.** It runs in Gazebo Harmonic through `ros2_control` and in
+  a ROS-free bench. Gazebo with realistic errors ends 0.071 mm from the goal
+  ([E2E-09](docs/results/realism/e2e_09/report.md)). An RViz2 waypoint panel and the Qt app
+  `cobot_studio` drive it. If the app freezes, the arm reaches standby at most 0.709 s after its
+  last heartbeat (bound: 0.705 s plus 5 ms observer resolution, [stop guarantee](docs/results/studio/README.md#stop-guarantee)).
+- **Engineering process.** Tests are written first and frozen on `main`
+  ([check](tools/ci/check_frozen_tests.sh)). 9 required CI jobs run on every PR: lint, frozen
+  tests, build and test, ASan + UBSan, line coverage ≥ 80 % on `src/core`, Python, bench E2E,
+  Gazebo E2E and an arm64 Raspberry Pi 5 image ([ci.yml](.github/workflows/ci.yml)). Design
+  decisions are recorded in [23 ADRs](docs/adr/).
+
+## Architecture
+
+```mermaid
+flowchart LR
+  URDF["URDF + mass budget"] --> MODEL
+  subgraph CORE["src/core: C++17, no ROS"]
+    MODEL["model"] --> DYN["kinematics + dynamics<br/>FK, Jacobian, RNEA, CRBA"]
+    PLAN["planning<br/>quintic path, CLIK"] --> CTRL["control<br/>computed torque, PD + gravity"]
+    DYN --> CTRL
+    CTRL --> LOOP["pipeline<br/>ControlLoop, 1 kHz"]
+    LOOP --> IMP["imperfect<br/>sensor, motor, comm, model errors"]
+    IMP --> HAL["hal::JointInterface"]
+  end
+  HAL --> BENCH["cobot_bench<br/>SimPlant, Monte Carlo, sweeps"]
+  HAL --> GZ["Gazebo Harmonic<br/>via ros2_control"]
+  HAL -.-> PI["Raspberry Pi 5<br/>(planned)"]
+  STUDIO["cobot_studio (Qt)"] <-->|shared-memory bridge| LOOP
+  RVIZ["RViz2 waypoint panel"] -->|FollowWaypoints action| GZ
+```
+
+| Directory | Content |
+| --- | --- |
+| `src/core/` | the controller library: model, kinematics, dynamics, planning, control, HAL, imperfections, pipeline, bridge |
+| `src/bench/` | `cobot_bench`: ROS-free host for runs, Monte Carlo, sweeps, timing and `serve` |
+| `src/ros2_node/` | `ros2_control` controller plugin around `ControlLoop` |
+| `src/ros2_gui/`, `src/ros2_interfaces/` | RViz2 waypoint panel, `FollowWaypoints` action |
+| `src/studio/` | `cobot_studio`: configuration, live control, tracking plots, 3D replay |
+| `src/sim/` | URDF/xacro, meshes, Gazebo world and launch files |
+| `src/eval/` | Python reports and sensitivity analysis (reads CSV only) |
+| `config/` | controller configs and imperfection profiles (YAML) |
+| `tests/`, `tools/`, `docker/` | unit, component and E2E tests; WSL and CI scripts; Pi 5 and ROS images |
+
+More detail, including one control cycle step by step: [architecture](docs/guides/architecture.md).
+
+## Results
+
+Thresholds and full numbers: [tests and results](docs/guides/testing.md#results).
+
+| Check | Threshold | Measured |
+| --- | --- | --- |
+| E2E-02 bench, realistic sensors, motors and friction | 5 mm / 2° / 0.02 rad | 0.060 mm / 0.0075° / 1.8e-4 rad ([report](docs/results/realism/e2e_02/report.md)) |
+| E2E-05 Monte Carlo, 50 seeds, realistic | ≥ 95 % pass | 100 % ([table](docs/results/realism/montecarlo.md)) |
+| E2E-09 Gazebo, realistic profile | 5 mm / 2° / 0.02 rad | 0.071 mm / 0.014° / 2.3e-4 rad ([report](docs/results/realism/e2e_09/report.md)) |
+| E2E-11 Gazebo, waypoints through the action | 5 mm / 2° / 0.02 rad | 0.055 mm / 0.013° / 2.0e-4 rad ([report](docs/results/waypoints/e2e_11/report.md)) |
+| PF-01 control step, desktop | p95 < 200 µs | p50 4.8 µs, p95 5.3 µs ([timing](docs/results/realism/timing_desktop.txt)) |
+| PF-02 studio bridge cost per step | – | +0.17 µs at p50 ([studio](docs/results/studio/README.md#pf-02-control-step-with-the-studio-bridge)) |
+| Stop guarantee, frozen studio | 0.705 s + 5 ms observer poll | 0.709 s max over 5 trials ([studio](docs/results/studio/README.md#stop-guarantee)) |
+| E2E-08 arm64 Pi 5 image (QEMU) | ctest + E2E-01..04 | pass in CI |
+
+## Quick start
+
+Everything runs in WSL Ubuntu 24.04 with ROS 2 Jazzy and Gazebo Harmonic; details in
+[build and run](docs/guides/build.md).
+
+```bash
+tools/wsl/setup.sh                  # prints the apt line to run, creates the Python venv
+tools/wsl/build.sh --studio         # CMake + Ninja, -Werror, all C++ tests (ctest)
+tools/wsl/pytest.sh                 # Python tests
+
+# Bench E2E scenarios (E2E-01..04, 10, PF-01)
+B=~/projects/7dof_dynamic_control/build/main
+~/projects/7dof_dynamic_control/venv/bin/python tools/run_e2e.py --all --tag pr \
+  --bench $B/src/bench/cobot_bench --out out/pr
+
+# Gazebo with the real controller, then the studio connected to it
+tools/wsl/sim.sh build && source tools/wsl/env.sh
+ros2 launch cobot_sim sim.launch.py controller:=cobot_controller studio:=true gui:=true
+~/projects/7dof_dynamic_control/build/main/src/studio/app/cobot_studio   # second terminal
+```
+
+On another branch, replace `build/main` with `build/<branch>` (`/` becomes `-`).
+
+### Waypoint GUI
+
+The RViz2 panel adds waypoints from a draggable marker, previews the path without moving, runs
+it, and can stop and reset the arm:
+
+```bash
+ros2 launch cobot_sim sim.launch.py controller:=cobot_controller rviz:=true
+```
+
+Full workflow: [waypoint GUI guide](docs/guides/waypoint-gui.md).
 
 ![Gazebo](docs/images/gazebo.png)
 
-## Layout
-
-```
-src/
-  core/         C++17, no ROS; one target cobot::<module> per directory
-    common/       VecN, MatN, Pose, Timestamp, Result, logger, so3_exp/so3_log
-    model/        URDF -> Model<N> (fixed joints merged)
-    kinematics/   FK, Jacobian J_e_b, Jdot*qdot
-    dynamics/     RNEA, CRBA, G, C*qdot, forward dynamics, SimPlant
-    planning/     quintic Cartesian trajectory, CLIK reference
-    control/      computed torque, hold mode
-    hal/          JointInterface<N>
-    imperfect/    sensor/actuator/model imperfections
-    pipeline/     ControlLoop, YAML config, SPSC ring, CSV
-  ros2_node/    ros2_control controller plugin around ControlLoop
-  ros2_interfaces/ cobot_interfaces: FollowWaypoints action, PreviewWaypoints service
-  bench/        cobot_bench: ControlLoop + SimPlant, run / montecarlo / sweep / timing
-  sim/          cobot_sim: URDF/xacro, meshes, world, controllers, launch
-  eval/         Python reports and sensitivity analysis (reads CSV only)
-config/       default.yaml, imperfections/, sweeps/
-docker/       Pi 5 (arm64) and ROS 2 + Gazebo images
-tests/        unit/, component/, e2e/scenarios/, python/, data/
-tools/        wsl/ scripts, ci/ checks, URDF mass fix, E2E runner
-```
-
-## Control data flow
-
-One 1 kHz cycle (`ControlLoop::step()`), two tiers:
-
-```
-                     reference tier (planning)                 control tier (control)
-                  +------------------------------+          +--------------------------+
- goal pose ---->  | CartesianTrajectory (quintic)|  x_d     | ComputedTorque           |
- (YAML)           |  x_d, xd_d, xdd_d            | -------> |  tau = M(q)(qdd_d        |
-                  | ClikReference (2nd order,    |  q_d,    |   + Kd(qd_d - qd)        |
-                  |  DLS, joint-limit null space)|  qd_d,   |   + Kp(q_d - q))         |
-                  |  runs on q_d, not on q       |  qdd_d   |   + C qd + G + D qd      |
-                  +------------------------------+ -------> |  clamp tau_max; hold mode|
-                                                            +------------+-------------+
-                                                                 tau     |   ^ q, qd
-                                                                         v   |
-                              +------------------------------------------------------+
-                              | ImperfectJointInterface<N>  (decorator, optional)     |
-                              |   read: quantise, noise, offset, delay               |
-                              |   write: torque scale, ripple, resolution, lag, delay|
-                              +------------------------------------------------------+
-                              | hal::JointInterface<N>                               |
-                              |   SimJointInterface (SimPlant)  |  gz_ros2_control   |
-                              +------------------------------------------------------+
-```
-
-The core creates no threads; the host (`cobot_bench` or `controller_manager`) owns the control
-thread and drains the log ring into a CSV file.
-
-## Status
-
-| Phase | Content | Status |
-| --- | --- | --- |
-| 0 | Repo setup: build, CI jobs, corrected URDF, Gazebo assets, interface headers, docs, ADRs | done (#1, #5) |
-| 1 | `common-lie`, `model-urdf`, `pipeline-config`, `eval-report` | done (#2, #3, #4, #7) |
-| 2 | `kinematics`, `planning-traj`, `imperfect-io` | done (#6, #8, #9) |
-| 3 | `dynamics` (with KDL reference fixture), `planning-clik` | done (#10, #11) |
-| 4 | `sim-plant`, `control` | done (#12, #13) |
-| 5 | `control-loop`, `bench-e2e` | done (#14, #15) |
-| 6 | `ros2-controller` (Gazebo), `sensitivity` | done (#16, #17) |
-| 7 | `mvp-results`: tuning, reports, hardware requirement table | done |
-| 8 | Realism: friction compensation, armature, stick-slip plant friction, Gazebo with noise | done (#23–#28) |
-| 9 | Waypoints: multi-point trajectory, path validation, external command mode, `FollowWaypoints` action, RViz2 panel | done (#33–#39) |
-
-MVP acceptance (G3): track a fixed 10 s straight-line trajectory; at t = 12 s end-effector
-position error < 2 mm, orientation error < 1°, joint tracking RMS < 0.01 rad, desktop step
-time p95 < 200 µs.
-
-### Results
-
-Current report: [docs/results/realism](docs/results/realism/README.md). Waypoint runs:
-[docs/results/waypoints](docs/results/waypoints/README.md). The MVP baseline stays in
-[docs/results/mvp](docs/results/mvp/README.md) for comparison.
-
-| Check | Threshold | MVP | Current |
-| --- | --- | --- | --- |
-| E2E-01 bench, ideal | 2 mm / 1° / 0.01 rad | 2.6e-7 mm / 9.8e-7 rad | 6.7e-8 mm / 6.7e-7 rad |
-| E2E-02 bench, realistic sensors, motors and friction | 5 mm / 2° / 0.02 rad | 0.17 mm / 0.31° / 0.0105 rad | 0.060 mm / 0.0075° / 1.8e-4 rad |
-| E2E-05 Monte Carlo, 50 seeds realistic | ≥ 95 % pass | 96 % | 100 % |
-| E2E-07 Gazebo Harmonic, ideal | 2 mm / 1° / 0.01 rad | 0.000 mm / 3.7e-6 rad | 0.000 mm / 4.8e-6 rad |
-| E2E-09 Gazebo, realistic profile | 5 mm / 2° / 0.02 rad | – | 0.071 mm / 0.014° / 2.3e-4 rad |
-| PF-01 control step, desktop | p95 < 200 µs | p95 4.9 µs | p95 5.3 µs |
-| E2E-08 arm64 Pi5-like image (QEMU) | ctest + E2E-01..04 | pass in CI | pass in CI |
-| E2E-10 bench, 4 waypoints, realistic | 5 mm / 2° / 0.02 rad, stops ≤ 5 mm | – | 0.067 mm / 0.0095° / 2.0e-4 rad, stops 0.11 mm |
-| E2E-11 Gazebo, waypoints through the action | 5 mm / 2° / 0.02 rad | – | 0.055 mm / 0.013° / 2.0e-4 rad |
-| E2E-11b Gazebo, cancel after 3 s | canceled, standby, at rest | – | pass, max \|q̇\| 0.016 rad/s |
-
-The main gain came from modelling the gearbox-reflected rotor inertia (armature, `J_in N²`):
-without it the wrist inertia was about 1300× too small and its effective stiffness
-`M_ii k_p` about 1 N·m/rad. The MVP friction numbers were also optimistic, because the old plant
-lost Coulomb friction numerically. Armature values are assumed until the eRob H-series datasheet
-is confirmed (`src/sim/urdf/mass_budget.yaml`).
-
-The sweep over 12 sensor, motor, model and timing parameters gives a
-[hardware requirement table](docs/results/realism/hardware_requirements.md): sensor delay
-≤ 4 cycles and torque constant error ≤ 20 % are the binding limits. Peak torque now reaches
-89 % of `τ_max` in Monte Carlo, so faster trajectories need a torque check.
-
-Environment parameters are edited in config files, not code: `config/imperfections/*.yaml`
-(sensor, motor, friction, model mismatch, timing, seed), `config/default.yaml` (gains, friction
-compensation) and `src/sim/urdf/mass_budget.yaml` (masses, armature). Gazebo takes the profile with
-`imperfections_path:=` and `seed:=`.
-
-## Build
-
-All C++ builds run in WSL Ubuntu-24.04 (ROS 2 Jazzy and Gazebo Harmonic installed). From
-PowerShell: `wsl -d Ubuntu-24.04 -- bash <repo>/tools/wsl/<script>.sh`.
-
-Everything the scripts generate lives in one folder per project, `~/projects/7dof_dynamic_control/`
-(override with `COBOT_ROOT`): `build/<branch>[-asan|-cov]`, `colcon/<branch>`, `venv`, `out`.
-`tools/wsl/prune.sh` removes the builds of branches that no longer exist.
-
-```bash
-tools/wsl/setup.sh                 # prints the apt line to type, creates the venv
-tools/wsl/build.sh                 # CMake + Ninja, -Werror, ctest
-tools/wsl/build.sh --asan          # Debug with ASan + UBSan
-tools/wsl/build.sh --target T      # one target
-tools/wsl/pytest.sh                # Python tests
-tools/wsl/lint.sh                  # clang-format, clang-tidy, ruff
-tools/wsl/sim.sh build             # colcon build of src/sim, src/ros2_interfaces, src/ros2_node, src/ros2_gui
-tools/wsl/sim.sh check             # xacro + check_urdf + gz sdf, no Gazebo needed
-tools/wsl/sim.sh test              # colcon test of cobot_gui (panel data model)
-tools/wsl/sim.sh smoke             # headless Gazebo, 20 s
-source tools/wsl/env.sh            # ROS 2 + workspace, own ROS domain (42) and Gazebo partition
-```
-
-`env.sh` keeps this project apart from other ROS 2 projects in the same WSL, which use the
-default domain 0: override with `COBOT_ROS_DOMAIN_ID` / `COBOT_GZ_PARTITION`. `sim.sh build`
-wipes the colcon workspace when it was built from another source directory (a deleted worktree).
-
-The real controller in Gazebo (after `sim.sh build` and `source tools/wsl/env.sh`):
-
-```bash
-ros2 launch cobot_sim sim.launch.py controller:=cobot_controller [gui:=true]   [config_path:=config/default.yaml] [imperfections_path:=config/imperfections/realistic.yaml]   [seed:=7] [log_path:=results/<run-id>/run.csv]
-python tools/run_e2e.py --all --tag gazebo --out results/e2e-gazebo   # E2E-07, 09, 11, 11b
-```
-
-The controller's log lives in the shared-memory region `/cobot_log_cobot_controller` and survives a
-crash of the controller or of Gazebo. `ros2 service call /cobot_controller/dump_log
-std_srvs/srv/Trigger` appends the rows not yet written to `log_path` (`log_stream_ms:=200` does it
-every 200 ms); after a crash, `ros2 run cobot_ros2 cobot_logdump cobot_controller [--out file.csv]`
-exports what the region still holds, and the next activation writes any leftover rows to
-`<log_path>.recovered-<YYYYmmdd-HHMMSS>.csv` before it starts.
-
-External command mode: `command_source:=external` (default: the config file's
-`cobot.command_source`) starts the arm in standby at the measured pose and offers, under
-`/cobot_controller/`, the action `follow_waypoints`, the services `preview_waypoints` (validation
-only, no motion) and `reset` (std_srvs/Trigger, leaves the safety hold once its cause is gone),
-and the latched `reference_path` of the running goal. A goal is accepted only in standby; it is
-validated from the standby pose, and canceling it stops along the path. Client:
-
-```bash
-ros2 run cobot_ros2 send_waypoints.py tests/e2e/waypoints/e2e_10.yaml [--preview] [--cancel-after 3]
-```
-
-## Waypoint GUI
-
-An RViz2 panel (`cobot_gui/WaypointPanel`, package `src/ros2_gui/`) edits a waypoint list and drives
-the external command mode. After `sim.sh build` and `source tools/wsl/env.sh`:
-
-```bash
-ros2 launch cobot_sim sim.launch.py controller:=cobot_controller rviz:=true [gui:=true]
-```
-
-`rviz:=true` opens RViz2 with `src/sim/rviz/waypoints.rviz` (robot, TF, interactive markers, the
-preview and reference paths, the panel docked) and starts the controller with
-`command_source:=external` unless `command_source` is given. Workflow:
-
-1. Add: drag the 6-DOF marker and press **Add from marker**, or edit the table cells
-   (x, y, z in m; roll, pitch, yaw in degrees, `R = Rz(yaw) Ry(pitch) Rx(roll)`; duration in s,
-   0 = from the Cartesian limits; stop). Selecting a row puts the 6-DOF marker on it and dragging
-   moves that point; **Up**, **Down** and **Delete** reorder or remove it. **Load** and **Save**
-   read and write the waypoint file (`docs/conventions.md` "Waypoint file").
-2. Preview: validates the list from the current standby pose without moving; the path is drawn
-   (`/rviz/preview_path`) and points with issues turn red with the reason in a tooltip and in
-   the status area.
-3. Run: enabled only after an ok preview of the unchanged list; any edit disables it again.
-   The status area shows the mode, segment, time and tip errors, then the result.
-4. Stop: cancels the goal; the arm decelerates along the path and waits in standby.
-5. Reset: leaves the safety hold once its cause is gone (`/cobot_controller/reset`).
-
-The studio bridge (ADR-022, `docs/conventions.md` "Studio bridge") is served by the controller
-with `studio:=true` (`command_source:=external log_mode:=recorder_live` unless given) and driven
-headless with `cobot_bridge_cli`; while it holds authority the panel's goals are refused:
-
-```bash
-ros2 launch cobot_sim sim.launch.py controller:=cobot_controller studio:=true
-ros2 run cobot_ros2 cobot_bridge_cli cobot_controller claim jog-joint:1:+:0.5 \
-  move-joint:0,30,0,-90,0,60,0 waypoints:tests/e2e/waypoints/e2e_13.yaml export:/tmp/seg.csv release
-```
-
-Without Gazebo, `cobot_bench serve --config config/default.yaml --imperfections
-config/imperfections/ideal.yaml [--name cobot_bench] [--out DIR] [--duration-s S]` runs the same
-loop paced at 1 kHz against SimPlant and serves `/cobot_<name>` until Ctrl-C (Run CSV in
-`DIR/run.csv`, default `results/serve-<YYYYmmdd-HHMMSS>`); `cobot_bridge_cli <name> ...` drives it.
-
-## cobot_studio
-
-A Qt5 desktop app over `cobot_studio_core` (ADR-021): a Configuration tab (base pair, parameter
-overrides, controller gains, tolerances, studio file, export for `cobot_bench`) and a Tracking
-tab (bench runs and sweeps on a worker thread, overlaid charts, an error table that recomputes on
-tolerance edits, Run CSV and Summary CSV export). It is off by default:
-
-```bash
-sudo apt install qtbase5-dev libqt5charts5-dev qt3d5-dev
-cmake -S . -B build -DCOBOT_BUILD_STUDIO=ON && cmake --build build   # or: tools/wsl/build.sh --studio
-build/src/studio/app/cobot_studio [--config-dir config] [--work-dir ~/.cache/cobot_studio/runs]
-```
-
-Under WSL the window opens through WSLg (Windows 11, no X server needed). Each run materialises
-its inputs under the work dir, never in the repository. The source stays MIT; the `cobot_studio`
-binary links Qt Charts (GPLv3), so the binary as distributed is under GPLv3.
-
-The Tracking tab also has a 3D view (Qt3D) that replays the checked runs at the chart's time
-cursor: the selected run solid, up to three other checked runs as ghosts in their colours, the
-plant's true joint angles when the run has them (else the logged `q`). The selected run shows
-its tip trace, the dashed desired path, the goal points, a sphere of the goal tolerance and a
-red cross at the hold time. Play (0.25x, 1x, 4x) and the time slider move the same cursor as the
-chart; the magnify box (x1 to x1000) scales the tip's deviation from the desired path and the
-sphere together. The meshes of `src/sim/meshes` are read once, off the GUI thread. The 3D test
-runs under `xvfb-run` when it is installed (`xvfb libgl1-mesa-dri`) and skips without OpenGL.
-
-The Control tab (between Configuration and Tracking) drives a controller through the studio
-bridge `/cobot_<name>`, chosen with `--bridge <name>` (default `cobot_controller`, the Gazebo
-controller's node name). "Take control" claims authority. The joint page jogs a joint while its
-`-` / `+` button is held and moves to typed-in goals (bounded by the jog band of the session's
-limits); the TCP page jogs and moves the TCP in the base or tool frame; the waypoint page teaches
-the current TCP pose, opens and saves waypoint files, previews them (issues per waypoint, the
-planned path in the live 3D view) and runs them. Stop, E-stop and Reset stay visible below the
-pages, next to a speed slider shared with the Configuration tab. The heartbeat runs on the GUI
-timer on purpose: a frozen window stops the robot and gives authority back; closing the window
-releases it. Every finished motion arrives in the Tracking tab as a live run ("live move_joint
-#1") read from the Recorder segment the host exports (the motion plus a 1 s settle window), with
-the same charts, error table and 3D replay as bench runs. "Apply to Gazebo" in the Configuration
-tab materialises the configuration and applies it while the loop is in standby; the rows the
-Gazebo path ignores (payload, friction, transmission, position source, timing, comm) are greyed
-while connected.
-
-```bash
-# Against the bench host (no Gazebo), in two terminals:
-build/src/bench/cobot_bench serve --config config/default.yaml \
-  --imperfections config/imperfections/ideal.yaml --name cobot_bench
-build/src/studio/app/cobot_studio --bridge cobot_bench
-# Against Gazebo:
-ros2 launch cobot_sim sim.launch.py controller:=cobot_controller studio:=true
-build/src/studio/app/cobot_studio   # --bridge cobot_controller
-```
-
-### Manual control
-
-1. Start a host. For Gazebo, run `ros2 launch cobot_sim sim.launch.py controller:=cobot_controller
-   studio:=true [gui:=true] [imperfections_path:=<profile>] [seed:=N]` (after `sim.sh build` and
-   `source tools/wsl/env.sh`). Without Gazebo, run `cobot_bench serve --config
-   config/default.yaml --imperfections <profile> [--seed N]` (region `/cobot_cobot_bench`).
-2. Start `cobot_studio --bridge cobot_controller` (or `--bridge cobot_bench`). The status bar
-   shows "Bridge: connected".
-3. In the Control tab, press **Take control**. The jog and Go buttons are enabled only while the
-   studio holds authority. **Release** gives authority back, and so does closing the window.
-4. The three pages:
-   - **Joint**: hold `-` / `+` to jog one joint. **Copy current**, edit the goals and press
-     **Go** for a joint move.
-   - **TCP**: the same in the base or the tool frame. A goal pose is a `move_tcp`.
-   - **Waypoints**: **Add current pose**, **Open...** / **Save...** a waypoint file,
-     **Preview** (issues per waypoint, the path in the 3D view), then **Run**.
-5. Below the pages:
-   - **Stop** decelerates to standby.
-   - **E-stop** holds at once (`estop`). **Reset** leaves the hold.
-   - The speed slider (default 10 %) scales the joint and TCP limits of jogs and moves.
-     Waypoint runs keep their validated durations.
-6. Each finished motion appears in the Tracking tab as a live run, for example "live move_joint
-   #2", with the same charts, error table and 3D replay as a bench run.
-7. **Apply to Gazebo** in the Configuration tab applies the edited configuration while the loop
-   is in standby. While connected, the rows the Gazebo path ignores are greyed: payload,
-   friction, transmission, position source, timing and comm.
-
-![Joint page after a joint move in Gazebo](docs/images/studio-control-joint.png)
-![Waypoint page with a previewed list](docs/images/studio-control-waypoints.png)
-![Tracking tab with four live runs from Gazebo](docs/images/studio-tracking-live.png)
-
-To drive a host headless (CI, scripts), use one line per session, for example:
-`cobot_bridge_cli cobot_bench claim move-joint:0,30,0,-90,0,60,0 release`. On Gazebo, use `ros2
-run cobot_ros2 cobot_bridge_cli cobot_controller ...`.
-
-Safety (ADR-022):
-
-- Heartbeat: the studio beats every 50 ms. If no beat arrives for 200 ms (a frozen or killed
-  studio), the motion stops with deceleration and authority goes back.
-- Deadman: a jog not refreshed for 100 ms decelerates to zero.
-- Jog band: jogs and joint moves stop at the soft margin + 2° (5° from the URDF limits by
-  default), never in the holding band.
-- One command source: while the studio holds authority, the RViz panel's goals and `~/reset`
-  are refused ("studio is in control").
-
-Measurements: [`docs/results/studio/`](docs/results/studio/README.md) (PF-02, stop
-guarantee, sample live runs).
-
-## Environment configuration
-
-Two kinds of YAML file, kept apart:
-
-| File | Holds |
-| --- | --- |
-| `config/default.yaml` | the controller: URDF path, rate, trajectory, CLIK, computed-torque gains, friction compensation, safety |
-| `config/imperfections/*.yaml` | the environment (the robot as it really is): sensors, motors, friction, model mismatch, timing, seed |
-
-Profiles: `ideal.yaml` (perfect robot), `realistic.yaml` (typical industrial servo, the
-default), `pessimistic.yaml`. Every group in a profile names the source of its numbers.
-
-- bench: `cobot_bench run --config config/default.yaml --imperfections config/imperfections/realistic.yaml [--seed N] --out run.csv`
-- Gazebo: `ros2 launch cobot_sim sim.launch.py controller:=cobot_controller imperfections_path:=<profile> [seed:=N]`;
-  without `imperfections_path` the realistic profile applies. Sensor and motor effects go
-  through the controller's imperfect joint interface; friction goes into the physics (each
-  joint's `<dynamics friction damping>`); model mismatch is emulated by perturbing the
-  controller's model. `payload_kg` must be 0 on this path and timing jitter is ignored
-  ([ADR-011](docs/adr/011-simulation.md)).
-- Custom profile: copy `config/imperfections/realistic.yaml`, change the values (a scalar
-  applies to every joint, a 7-element list sets each joint), update the `source` lines, and
-  pass the new file to `--imperfections` or `imperfections_path:=`.
-
-## Test levels
-
-Unit and known-answer component tests cover every module. End-to-end scenarios live in
-`tests/e2e/scenarios/` and run through `tools/run_e2e.py`:
-
-| ID | Content | Threshold | Runs |
-| --- | --- | --- | --- |
-| E2E-01 | bench + SimPlant, profile `ideal`, MVP trajectory | 2 mm, 1°, 0.01 rad | every PR |
-| E2E-02 | as E2E-01, profile `realistic`, fixed seed | 5 mm, 2°, 0.02 rad | every PR |
-| E2E-03 | determinism: two runs with one seed give byte-identical CSV | equal | every PR |
-| E2E-04 | safety: goal into a joint limit, NaN from HAL, HAL timeout | hold mode, no NaN out, torque in limits | every PR |
-| E2E-05 | Monte Carlo, 50 seeds, `realistic` | ≥ 95 % pass E2E-02 thresholds | nightly, manual |
-| E2E-06 | one-factor sensitivity sweep, report + hardware requirement table | report generated | nightly, manual |
-| E2E-07 | headless Gazebo, real controller through `gz_ros2_control`, `ideal` | G3 | every PR |
-| E2E-08 | arm64 (Pi 5) container under QEMU: build, unit, E2E-01..04 | pass | every PR |
-| E2E-09 | headless Gazebo, real controller, `realistic`, seed 7 (friction in the physics) | 5 mm, 2°, 0.02 rad | every PR |
-| E2E-11 | headless Gazebo, E2E-10 waypoints sent through `follow_waypoints`, `realistic`, seed 7 | 5 mm, 2°, 0.02 rad | every PR |
-| E2E-11b | as E2E-11, goal canceled after 3 s | canceled, ends in standby, max \|qd\| < 0.03 rad/s over the last 0.5 s (measured velocity: encoder noise std 0.0047 rad/s at rest), torque in limits | every PR |
-| PF-01 | `ControlLoop` step time | p50/p95 reported; p95 < 1 ms on CI, 200 µs measured on desktop | every PR |
-
 ## Documentation
 
-- [Design](docs/design/) — the full design (Vietnamese)
-- [ADRs](docs/adr/) — architecture decisions and rejected options (Vietnamese)
-- [Conventions](docs/conventions.md) — frames, units, data contracts
-- [Lessons](docs/lessons/README.md) — problems met so far, how they were found and fixed (Vietnamese)
-- [Contributing](CONTRIBUTING.md) — rules for every change
+| Topic | Where |
+| --- | --- |
+| Build, run, Gazebo, logs, external command mode | [docs/guides/build.md](docs/guides/build.md) |
+| RViz2 waypoint panel and headless bridge client | [docs/guides/waypoint-gui.md](docs/guides/waypoint-gui.md) |
+| `cobot_studio` and manual control, safety rules | [docs/guides/studio.md](docs/guides/studio.md) |
+| Controller and environment YAML, imperfection profiles | [docs/guides/configuration.md](docs/guides/configuration.md) |
+| Test levels and full results | [docs/guides/testing.md](docs/guides/testing.md) |
+| Layout, control data flow, project phases | [docs/guides/architecture.md](docs/guides/architecture.md) |
+| Frames, units, data contracts | [docs/conventions.md](docs/conventions.md) |
+| Architecture decisions (Vietnamese) | [docs/adr/](docs/adr/) |
+| Derivations: Jacobian, RNEA, CRBA, control | [docs/derivations/](docs/derivations/) |
+| Design documents (Vietnamese) | [docs/design/](docs/design/) |
+| Lessons learned (Vietnamese) | [docs/lessons/](docs/lessons/README.md) |
+| Rules for every change | [CONTRIBUTING.md](CONTRIBUTING.md) |
 
 The previous ROS 1 / Python implementation (six nodes, Maple closed-form M, C, G) is kept at
 tag [`v0-python`](https://github.com/NguyenVu1010/Dynamics_Modeling_and_Control_of_7DOF_Robotic-Arm/tree/v0-python).
 
 ## Tóm tắt
 
-Đồ án tốt nghiệp: lõi động lực học C++17 tự viết (FK, Jacobian, RNEA, CRBA) và bộ điều khiển
-computed torque 1 kHz cho tay máy 7 bậc, mô hình đọc từ một file URDF duy nhất. Điều khiển hai
-tầng: quỹ đạo Cartesian → tham chiếu khớp bằng CLIK → computed torque → HAL. Chạy trong Gazebo
-Harmonic qua `ros2_control` và trong bench không ROS; lớp mô hình không hoàn hảo (nhiễu cảm biến,
-trễ, sai số động cơ, sai lệch mô hình) dùng để đánh giá độ nhạy khi chuyển sang robot thật.
-Đích phần cứng sau này là Raspberry Pi 5. Thiết kế và ADR viết bằng tiếng Việt trong `docs/`.
+Đồ án tốt nghiệp: lõi động lực học C++17 tự viết (FK, Jacobian, RNEA, CRBA, không dùng
+Pinocchio hay KDL) và bộ điều khiển computed torque 1 kHz cho tay máy 7 bậc, mô hình đọc từ một
+file URDF. Cùng bộ điều khiển chạy trong Gazebo Harmonic qua `ros2_control` và trong bench không
+ROS. Lớp mô hình không hoàn hảo (nhiễu, trễ, sai số động cơ, ma sát, hộp số đàn hồi, mất gói)
+cùng ba profile phần cứng cho biết phần cứng nào đủ dùng. `cobot_studio` điều khiển tay máy bằng
+tay và vẽ sai số bám. Đích phần cứng sau này là Raspberry Pi 5. ADR, thiết kế và bài học viết
+bằng tiếng Việt trong `docs/`.
 
 ## License
 
-MIT, see [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE). The `cobot_studio` binary links Qt Charts (GPLv3), so that binary
+as distributed is under GPLv3 ([studio guide](docs/guides/studio.md)).
