@@ -29,7 +29,8 @@ src/
   bench/       cobot_bench binary without ROS: ControlLoop + SimPlant, run/montecarlo/sweep/timing
   sim/         ament package cobot_sim: URDF/xacro, meshes, world SDF, controller config, launch
   eval/        Python (cobot_eval): metrics, reports, sensitivity analysis; never imports core
-config/      default.yaml, imperfections/<profile>.yaml, sweeps/<name>.yaml
+config/      default.yaml, imperfections/<profile>.yaml, sweeps/<name>.yaml,
+             hardware/<model>.yaml, tasks/<task>.yaml
 docs/        conventions.md, derivations/, adr/, design/, results/
 docker/      pi5.Dockerfile (arm64, apt-only core deps), ros.Dockerfile (Jazzy + Gazebo)
 tests/       unit/<module>, component/ (known-answer problems), e2e/scenarios/, python/,

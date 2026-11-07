@@ -168,3 +168,30 @@ trễ, so với profile, và ghi độ lệch vào báo cáo. Đến lúc đó, 
   `final_rot_err_rad` 4.1e-3 / 2.5e-3 / 8.9e-3, `rms_joint_err_rad` 3.4e-3 / 1.2e-3 / 4.0e-3, trong
   biên 20 %. Biên độ dao động sau đích (`q − q_ref` trên 0.5 s) khoảng 3e-4 rad ở cả hai cửa sổ,
   bằng mức nhiễu đo (`q_noise_std_rad` 5e-5, encoder 17 bit), không phải dao động của vòng.
+
+## Bổ sung (2026-11-08): PR hardware-catalog (model phần cứng và nhiệm vụ)
+
+- **"Giới hạn khớp" của model (điểm chưa rõ 9).** Chỉ là hai mức mômen `limits: {rated_torque_nm,
+  peak_torque_nm}`, áp vào `cobot.limits`; giới hạn vị trí và vận tốc vẫn lấy từ URDF trong giai đoạn
+  C (câu hỏi C10). `pipeline::config_for` = file bộ điều khiển gốc + `config.control.algorithm` +
+  limits + overrides của thuật toán, qua `load_config_with`. `pd_gravity` dùng khoá `kp`, `kd` tường
+  minh cùng `ω` với computed torque của model (chưa có khoá ảo). `drive_position` chỉ có ở budget, là
+  đúng phần khác nhau giữa `budget_xarm7_drive.yaml` và `budget_xarm7.yaml`.
+- **Nguồn gốc (điểm chưa rõ 10, câu hỏi C8).** Văn bản `source` của profile không đọc được theo từng
+  khoá và không có khoảng, nên model có `provenance`: mỗi khoá đang bật một mục `published`, `derived`
+  hoặc `assumed`, thiếu thì model không nạp được; mục cho khoá không bật, mục trùng, loại lạ cũng là
+  lỗi. `derived` và `assumed` cần đúng một trong `range` (tuyệt đối, khoá mà profile ghi là một số) và
+  `scale` (hệ số nhân mọi phần tử, khoá mà profile ghi là danh sách, chứa 1, cận dưới >= 0); khoá bool
+  và lựa chọn không nhận cả hai. Khoá đang bật do `pipeline::active_imperfection_keys` quyết định (quy
+  tắc trong header và `docs/conventions.md`). Loại lấy từ văn bản `source` và ADR-019, văn bản không
+  nêu tên khoá thì là `assumed`. Các khoảng là phán đoán kỹ thuật, chờ chủ dự án duyệt.
+- **"Thời gian chu kỳ" (điểm chưa rõ 11).** `cycle_time_s` là thời gian ổn định: từ dòng đầu tiên đến
+  khi sai số vị trí và góc của TCP vào và ở lại trong ngưỡng cuối, xét từng lần chạy. PR này chỉ lưu
+  giá trị; `verify` đo nó. Ngưỡng của hai nhiệm vụ là mức E2E-12, đang ở dạng đề xuất (câu hỏi C13).
+- **Tải (điểm chưa rõ 12, câu hỏi C9).** Plant luôn mang tải của nhiệm vụ (`model.payload_*`). Với
+  `known: true` (mặc định) bộ điều khiển cũng được báo qua mục tuỳ chọn mới `cobot.payload: {kg,
+  offset_m, radius_m}`; `known: false` thì không. `pipeline::controller_model` nhập tải vào khâu cuối,
+  nên mọi host và bước kiểm đường đều thấy; phép nhập nằm trong một hàm `imperfect::merge_payload`,
+  dùng chung với `perturb_model`. 0 kg không đi qua phép nhập nên mô hình giữ nguyên từng bit.
+- **Không đổi bước nóng.** Không đổi `control_loop`, không thêm cột Run CSV. Sha256 của năm Run CSV
+  (E2E-01, 02, 03, 04, 10) bằng nhau giữa main và nhánh trên cùng một máy.

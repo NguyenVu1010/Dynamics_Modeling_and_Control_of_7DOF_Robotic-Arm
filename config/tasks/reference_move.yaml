@@ -1,0 +1,19 @@
+# Reference task (feature hardware-catalog, ADR-023; schema in docs/conventions.md "Task file"): the
+# E2E-01 straight-line trajectory of config/default.yaml, no payload. Loaded by pipeline::load_task.
+# Thresholds: proposed, awaiting owner approval (question C13). final_pos_err_m, final_rot_err_deg and
+# rms_joint_err_rad are the E2E-12 levels; cycle_time_s is the settle time, trajectory plus hold.
+task:
+  name: reference_move
+  trajectory:
+    goal_position_m: [-0.5, -0.6, 0.9]   # tip position in base_link
+    goal_rpy_deg: [0.0, 0.0, 90.0]       # R = Rz(yaw) Ry(pitch) Rx(roll)
+    duration_s: 10.0
+    hold_s: 2.0
+  requirements:
+    final_pos_err_m: 0.005
+    final_rot_err_deg: 2.0
+    rms_joint_err_rad: 0.02
+    cycle_time_s: 12.0                   # s, stored here, measured by verify
+    max_hold_rate: 0.05
+    target_pass_rate: 0.95
+    margin_frac: 0.2

@@ -23,13 +23,15 @@
 
 #include "cobot/common/dof.hpp"
 #include "cobot/control/algorithm.hpp"
+#include "cobot/imperfect/perturb.hpp"
 #include "cobot/model/model.hpp"
 #include "cobot/pipeline/overrides.hpp"
 #include "cobot/pipeline/sweep_config.hpp"
 #include "cobot/pipeline/waypoint_file.hpp"
 
-// Strict YAML reading: every problem becomes one line "<full.key.path>: <reason>" and all
-// lines are returned together, so a config file is fixed in one pass.
+#include "yaml_reader.hpp"
+
+// Strict YAML reading through yaml_reader.hpp: all problems of a file are reported together.
 namespace cobot::pipeline {
 
 int drive_substeps(double rate_hz, double control_rate_hz) {
@@ -66,169 +68,22 @@ constexpr int kMaxDelayCycles = 32;
 constexpr double kMinEncoderBits = 8.0;
 constexpr double kMaxEncoderBits = 32.0;
 
-// Allowed values of a number and the message when a value is outside them.
-struct Rule {
-  bool (*ok)(double);
-  const char* text;
-};
-const Rule kAny{[](double) { return true; }, ""};
-const Rule kPositive{[](double v) { return v > 0.0; }, "must be > 0"};
-const Rule kNonNegative{[](double v) { return v >= 0.0; }, "must be >= 0"};
+using yaml_io::kAny;
+using yaml_io::kNonNegative;
+using yaml_io::kPositive;
+using yaml_io::kUnitInterval;
+using yaml_io::load;
+using yaml_io::Reader;
+using yaml_io::Rule;
+
 const Rule kAboveOne{[](double v) { return v > 1.0; }, "must be > 1"};
 const Rule kFraction{[](double v) { return v >= 0.0 && v < 1.0; }, "must be in [0, 1)"};
-const Rule kUnitInterval{[](double v) { return v > 0.0 && v <= 1.0; }, "must be in (0, 1]"};
 const Rule kProbability{[](double v) { return v >= 0.0 && v <= 1.0; }, "must be in [0, 1]"};
 const Rule kEncoderBits{
     [](double v) {
       return v == 0.0 || (v == std::floor(v) && v >= kMinEncoderBits && v <= kMaxEncoderBits);
     },
     "must be 0 or an integer in [8, 32]"};
-
-// One YAML mapping. Each key is looked up once; finish() reports keys never asked for. A
-// missing or non-map node gives a reader whose lookups do nothing, so errors do not cascade.
-class Reader {
- public:
-  Reader(const YAML::Node& node, std::string path, std::vector<std::string>& errors)
-      : node_(node), path_(std::move(path)), errors_(&errors) {}
-
-  void fail(const std::string& key, const std::string& reason) {
-    errors_->push_back(full(key) + ": " + reason);
-  }
-
-  void finish() {
-    if (!node_.IsMap()) {
-      return;
-    }
-    for (const auto& kv : node_) {
-      if (used_.count(kv.first.Scalar()) == 0U) {
-        fail(kv.first.Scalar(), "unknown key");
-      }
-    }
-  }
-
-  // The raw child node (empty after reporting "missing"), for lists the helpers do not cover.
-  YAML::Node node(const std::string& key) { return get(key); }
-
-  // Reader over `n`, an element of a list of this mapping labelled `label`.
-  Reader child(const YAML::Node& n, const std::string& label) {
-    if (!n.IsMap()) {
-      fail(label, "expected a mapping");
-    }
-    return {n.IsMap() ? n : YAML::Node(), full(label), *errors_};
-  }
-
-  // True when `key` is present and not null, for optional sections; reports nothing. A key
-  // present with a null value (`key:` or `key: ~`) counts as absent but is marked as read, so
-  // finish() does not call it unknown.
-  bool has(const std::string& key) {
-    const YAML::Node& map = node_;  // const lookup never inserts the key
-    if (!node_.IsMap() || !map[key].IsDefined()) {
-      return false;
-    }
-    used_.insert(key);
-    return !map[key].IsNull();
-  }
-
-  Reader map(const std::string& key) {
-    const YAML::Node n = get(key);
-    if (n && !n.IsMap()) {
-      fail(key, "expected a mapping");
-    }
-    return {n && n.IsMap() ? n : YAML::Node(), full(key), *errors_};
-  }
-
-  // bool, int, std::uint64_t or non-empty std::string; true when `out` was set.
-  template <typename V>
-  bool scalar(const std::string& key, V& out) {
-    const YAML::Node n = get(key);
-    V v{};
-    if (!n) {
-      return false;
-    }
-    if (!n.IsScalar() || n.Scalar().empty() || !YAML::convert<V>::decode(n, v)) {
-      fail(key, "invalid value '" + YAML::Dump(n) + "'");
-      return false;
-    }
-    out = v;
-    return true;
-  }
-
-  void number(const std::string& key, const Rule& rule, double& out) {
-    const YAML::Node n = get(key);
-    double v = 0.0;
-    if (n && check(key, n, rule, v)) {
-      out = v;
-    }
-  }
-
-  // Exactly M numbers; with `broadcast`, one scalar sets all M entries.
-  template <int M>
-  void vector(const std::string& key, const Rule& rule, bool broadcast, VecN<M>& out) {
-    const YAML::Node n = get(key);
-    double s = 0.0;
-    if (!n) {
-      return;
-    }
-    if (broadcast && n.IsScalar()) {
-      if (check(key, n, rule, s)) {
-        out.setConstant(s);
-      }
-      return;
-    }
-    if (!n.IsSequence() || n.size() != static_cast<std::size_t>(M)) {
-      fail(key,
-           std::string(broadcast ? "expected a scalar or " : "expected ") + std::to_string(M) +
-               " values, got " +
-               (n.IsSequence() ? std::to_string(n.size()) : "'" + YAML::Dump(n) + "'"));
-      return;
-    }
-    VecN<M> v = VecN<M>::Zero();
-    bool ok = true;
-    for (int i = 0; i < M; ++i) {
-      const std::string label = key + "[" + std::to_string(i) + "]";
-      ok = check(label, n[static_cast<std::size_t>(i)], rule, v[i]) && ok;
-    }
-    if (ok) {
-      out = v;
-    }
-  }
-
- private:
-  std::string full(const std::string& key) const { return path_.empty() ? key : path_ + "." + key; }
-
-  // A finite number from a scalar node that satisfies `rule`; reports under `label`.
-  bool check(const std::string& label, const YAML::Node& n, const Rule& rule, double& out) {
-    if (!n.IsScalar() || !YAML::convert<double>::decode(n, out) || !std::isfinite(out)) {
-      fail(label, "expected a number, got '" + YAML::Dump(n) + "'");
-      return false;
-    }
-    if (!rule.ok(out)) {
-      fail(label, std::string(rule.text) + ", got " + n.Scalar());
-      return false;
-    }
-    return true;
-  }
-
-  // The child node, or an empty node (after reporting "missing") when the key is absent.
-  YAML::Node get(const std::string& key) {
-    used_.insert(key);
-    if (!node_.IsMap()) {
-      return {};
-    }
-    const YAML::Node& map = node_;  // const lookup never inserts the key
-    const YAML::Node n = map[key];
-    if (!n.IsDefined() || n.IsNull()) {
-      fail(key, "missing");
-      return {};
-    }
-    return n;
-  }
-
-  YAML::Node node_;
-  std::string path_;
-  std::vector<std::string>* errors_;
-  std::set<std::string> used_;
-};
 
 void delay(Reader& r, const std::string& key, int& out) {
   int v = 0;
@@ -240,47 +95,6 @@ void delay(Reader& r, const std::string& key, int& out) {
   } else {
     out = v;
   }
-}
-
-// No change to the loaded document.
-std::string keep(YAML::Node& /*root*/) {
-  return {};
-}
-
-// Loads the file, applies `edit(root)` (a non-empty return is the error), runs
-// `read(root, value)` and turns all collected problems into one error.
-template <typename T, typename ReadFn, typename EditFn = std::string (*)(YAML::Node&)>
-Result<T> load(const fs::path& yaml, ReadFn read, EditFn edit = keep) {
-  std::error_code ec;
-  if (!fs::is_regular_file(yaml, ec)) {
-    return Result<T>::error("cannot open " + yaml.string() + ": no such file");
-  }
-  std::vector<std::string> errors;
-  T value{};
-  try {
-    // NOLINTNEXTLINE(misc-const-correctness): edit() may change the document
-    YAML::Node node = YAML::LoadFile(yaml.string());
-    if (!node.IsMap()) {
-      return Result<T>::error(yaml.string() + ": expected a mapping at the top level");
-    }
-    const std::string bad = edit(node);
-    if (!bad.empty()) {
-      return Result<T>::error(yaml.string() + ": " + bad);
-    }
-    Reader root(node, "", errors);
-    read(root, value);
-    root.finish();
-  } catch (const YAML::Exception& e) {
-    return Result<T>::error(yaml.string() + ": " + e.what());
-  }
-  if (errors.empty()) {
-    return Result<T>::ok(std::move(value));
-  }
-  std::string msg = yaml.string() + ":";
-  for (const std::string& e : errors) {
-    msg += "\n" + e;
-  }
-  return Result<T>::error(msg);
 }
 
 // R = Rz(yaw) Ry(pitch) Rx(roll) of rpy = (roll, pitch, yaw) in rad.
@@ -557,6 +371,21 @@ void read_drive(Reader& m, Config<N>& c) {
   x.finish();
 }
 
+// `payload: {kg, offset_m, radius_m}` (feature hardware-catalog): optional, kg required inside it,
+// the rules of imperfections.model.payload_*.
+void read_payload(Reader& m, PayloadConfig& p) {
+  if (!m.has("payload")) {
+    return;
+  }
+  Reader x = m.map("payload");
+  x.number("kg", kNonNegative, p.kg);
+  if (x.has("offset_m")) {
+    x.vector<3>("offset_m", kAny, false, p.offset_m);
+  }
+  optional_number(x, "radius_m", kNonNegative, p.radius_m);
+  x.finish();
+}
+
 template <int N>
 void read_config(Reader& root, const fs::path& dir, Config<N>& c) {
   Reader m = root.map("cobot");
@@ -619,6 +448,7 @@ void read_config(Reader& root, const fs::path& dir, Config<N>& c) {
   read_limits<N>(m, c);
   read_deflection_comp<N>(m, c.deflection_comp);
   read_manual<N>(m, c.manual);
+  read_payload(m, c.payload);
   for (Reader* r : {&t, &k, &g, &s, &l, &m}) {
     r->finish();
   }
@@ -1169,6 +999,8 @@ model::Model<N> controller_model(const model::Model<N>& urdf_model, const Config
     double& tau_max = out.joints[static_cast<std::size_t>(j)].tau_max;
     tau_max = std::min(config.limits.peak_torque_nm[j], tau_max);
   }
+  imperfect::merge_payload<N>(
+      out, config.payload.kg, config.payload.offset_m, config.payload.radius_m);
   return out;
 }
 

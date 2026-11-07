@@ -84,6 +84,12 @@ is required when `algorithm` is `pd_gravity` (`cobot.pd_gravity: required when
 cobot.control.algorithm is pd_gravity`) and, with another algorithm, parsed and checked but
 unused, so one file switches law through an override.
 
+Optional section `cobot.payload: {kg, offset_m, radius_m}` (ADR-023): the payload the controller
+is told about, with the meaning and rules of `imperfections.model.payload_*` (`kg` >= 0 and
+required in the section, `offset_m` 3 values in the tip frame, `radius_m` >= 0, a solid sphere). A
+missing section is no payload. `pipeline::controller_model` merges it into the last link
+(`imperfect::merge_payload`, the function the plant uses); `kg` 0 leaves the model untouched.
+
 Algorithm `drive_position` (feature drive-loop, ADR-023): the host sends a position set point,
 a velocity feed-forward and a torque feed-forward (`hal::DriveMode::kPosition`); a simulated
 joint drive (`pipeline::SimDrive`, bench only: `cobot_bench serve` and `cobot_controller`
@@ -275,6 +281,78 @@ The poses are of the TCP; the loader returns tip (`link_7`) poses
 `T_b_tip = T_b_tcp * T_tip_tcp^-1` with `T_tip_tcp` from `cobot.tcp_offset`, and the writer
 stores `T_b_tcp = T_b_tip * T_tip_tcp`. Numbers are written with `%.17g`, so a saved list
 loads back within 1e-9. Errors name the file and the key (`waypoints[2].rpy_deg: ...`).
+
+### Hardware model file
+
+`config/hardware/<model>.yaml` (`pipeline::load_hardware_model`, `cobot/pipeline/hardware_model.hpp`,
+ADR-023): one piece of hardware, independent of the task.
+
+```yaml
+hardware:
+  name: budget_xarm7
+  description: "..."
+  imperfections: ../imperfections/budget_xarm7.yaml   # relative to this file
+  controller: ../budget_xarm7.yaml                    # base controller config, relative to this file
+  limits: {rated_torque_nm: [7 values], peak_torque_nm: [7 values]}   # cobot.limits
+  algorithms:
+    computed_torque: {overrides: {config.computed_torque.omega: 20.0}}
+    pd_gravity: {overrides: {config.pd_gravity.kp: 400.0, config.pd_gravity.kd: 40.0}}
+  provenance:
+    - {key: sensor.encoder_bits, kind: published}
+    - {key: sensor.q_offset_std_rad, kind: assumed, range: [5.0e-4, 5.0e-3]}
+    - {key: friction.coulomb_nm, kind: derived, scale: [0.5, 1.5]}
+```
+
+Every key is required. Names under `algorithms` are those of `cobot.control.algorithm`; an override
+key is a `pipeline::KeyOverride` key and a plain `true`/`false`, a plain number and a list of numbers
+keep their type, anything else is a string. `pipeline::config_for(model, algorithm)` is the base
+controller file plus `config.control.algorithm`, the limits and that algorithm's overrides, through
+`load_config_with`; an algorithm the model does not list is an error naming the model and the listed
+ones. Errors name the file and the full key (`hardware.provenance[3].kind: ...`), and a model loads
+only if its files and all its listed algorithms load.
+
+Provenance rule (a model with an unsourced key does not load): every key of
+`active_imperfection_keys(profile)` has exactly one entry, and no other key has one. A leaf of the
+profile is active unless at its off value (0, every element of a list 0, false, or absent); `seed`,
+`source` and `model.payload_*` are never listed; `sensor.qd_filter_hz` counts only with
+`sensor.qd_from_diff` true, `actuator.ripple_periods_per_rev` only with a non-zero
+`actuator.torque_ripple_frac`, and `sensor.position_source` when it is not `link`. `kind` is
+`published`, `derived` or `assumed`. `derived` and `assumed` need exactly one of `range: [lo, hi]`
+(absolute, for a key the profile writes as a scalar, lo <= the file's value <= hi) and `scale: [lo,
+hi]` (multiplier of every element, for a key the profile writes as a list, 0 <= lo <= 1 <= hi);
+`published` may omit both; bool and choice keys take neither, whatever the kind.
+
+### Task file
+
+`config/tasks/<task>.yaml` (`pipeline::load_task`, `cobot/pipeline/task.hpp`, ADR-023): what to
+move, what is carried and what counts as good enough.
+
+```yaml
+task:
+  name: reference_move
+  trajectory: {goal_position_m: [x, y, z], goal_rpy_deg: [r, p, y], duration_s: 10.0, hold_s: 2.0}
+  # or instead of trajectory: waypoints: <Waypoint file, relative to this file>
+  payload: {kg: 0.0, offset_m: [0, 0, 0], radius_m: 0.0, known: true}
+  requirements:
+    final_pos_err_m: 0.005
+    final_rot_err_deg: 2.0
+    rms_joint_err_rad: 0.02
+    cycle_time_s: 12.0
+    max_hold_rate: 0.05
+    target_pass_rate: 0.95    # optional, default 0.95
+    margin_frac: 0.2          # optional, default 0.2
+```
+
+Exactly one of `trajectory` and `waypoints`; the waypoint file must exist, the run parses it.
+`payload` is optional (0 kg, known); `kg` is required in it, `offset_m`, `radius_m` (0) and `known`
+(true) are optional. Every requirement is > 0, the two rates are in (0, 1] and `margin_frac` in (0,
+1). `cycle_time_s` is the settle time: from the first row until the TCP position and rotation errors
+enter and stay within the final thresholds; the loader only stores it.
+
+`pipeline::run_overrides(model, algorithm, task)` binds the three: `imperfections` gets
+`model.payload_{kg,offset_m,radius_m}` (the plant always carries the payload) and `config` is the
+whole list for `load_config_with(model.controller, ...)`: the model's overrides for the algorithm,
+the trajectory keys, and `config.payload.*` when `known` is true.
 
 ### Studio bridge
 

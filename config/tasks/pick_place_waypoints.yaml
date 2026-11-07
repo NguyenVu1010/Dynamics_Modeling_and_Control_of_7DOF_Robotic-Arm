@@ -1,0 +1,10 @@
+# Waypoints of the task pick_place_3kg (feature hardware-catalog; format in docs/conventions.md
+# "Waypoint file"), the E2E-10 path: four TCP poses in base_link on the straight line from the home
+# tip to the MVP goal, every point away from the joint limits. Waypoint 1 stops (pick), the last
+# one stops (place); auto (0) and user durations alternate.
+frame: base_link
+waypoints:
+  - {position_m: [-0.0730, -0.7449, 0.5424], rpy_deg: [0.0, -63.0, 90.0], duration_s: 0, stop: false}
+  - {position_m: [-0.2255, -0.6931, 0.6701], rpy_deg: [0.0, -40.5, 90.0], duration_s: 3.0, stop: true}
+  - {position_m: [-0.3780, -0.6414, 0.7978], rpy_deg: [0.0, -18.0, 90.0], duration_s: 0, stop: false}
+  - {position_m: [-0.5000, -0.6000, 0.9000], rpy_deg: [0.0, 0.0, 90.0], duration_s: 3.5, stop: true}

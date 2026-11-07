@@ -22,6 +22,30 @@ common::Mat3 point_inertia(double m, const common::Vec3& d) {
 }  // namespace
 
 template <int N>
+void merge_payload(model::Model<N>& model,
+                   double kg,
+                   const common::Vec3& offset_m,
+                   double radius_m) {
+  if (!(kg > 0.0)) {
+    return;
+  }
+  model::LinkInertia& last = model.links[static_cast<std::size_t>(N) - 1];
+  // Payload centre in frame N: the tip origin plus the offset rotated out of the tip frame.
+  // A zero offset adds exact zeros, so the point-mass-at-the-tip case is unchanged bit for bit.
+  const common::Vec3 tip = model.T_last_tip.p + model.T_last_tip.R * offset_m;
+  const double m_new = last.mass_kg + kg;
+  const common::Vec3 com_new = (last.mass_kg * last.com_i + kg * tip) / m_new;
+  last.I_com_i +=
+      point_inertia(last.mass_kg, last.com_i - com_new) + point_inertia(kg, tip - com_new);
+  if (radius_m > 0.0) {
+    // Solid sphere about its own centre; isotropic, so the shift to com_new leaves it as is.
+    last.I_com_i.diagonal().array() += kSphereFactor * kg * radius_m * radius_m;
+  }
+  last.mass_kg = m_new;
+  last.com_i = com_new;
+}
+
+template <int N>
 model::Model<N> perturb_model(const model::Model<N>& nominal,
                               const ModelMismatchConfig<N>& mismatch,
                               std::uint64_t seed) {
@@ -49,24 +73,7 @@ model::Model<N> perturb_model(const model::Model<N>& nominal,
     }
   }
 
-  if (mismatch.payload_kg > 0.0) {
-    model::LinkInertia& last = out.links[static_cast<std::size_t>(N) - 1];
-    // Payload centre in frame N: the tip origin plus the offset rotated out of the tip frame.
-    // A zero offset adds exact zeros, so the point-mass-at-the-tip case is unchanged bit for bit.
-    const common::Vec3 tip =
-        nominal.T_last_tip.p + nominal.T_last_tip.R * mismatch.payload_offset_m;
-    const double m_new = last.mass_kg + mismatch.payload_kg;
-    const common::Vec3 com_new = (last.mass_kg * last.com_i + mismatch.payload_kg * tip) / m_new;
-    last.I_com_i += point_inertia(last.mass_kg, last.com_i - com_new) +
-                    point_inertia(mismatch.payload_kg, tip - com_new);
-    if (mismatch.payload_radius_m > 0.0) {
-      // Solid sphere about its own centre; isotropic, so the shift to com_new leaves it as is.
-      const double r = mismatch.payload_radius_m;
-      last.I_com_i.diagonal().array() += kSphereFactor * mismatch.payload_kg * r * r;
-    }
-    last.mass_kg = m_new;
-    last.com_i = com_new;
-  }
+  merge_payload<N>(out, mismatch.payload_kg, mismatch.payload_offset_m, mismatch.payload_radius_m);
   return out;
 }
 
@@ -96,9 +103,10 @@ dynamics::PlantEffects<N> plant_effects(const ImperfectionConfig<N>& config) {
   return fx;
 }
 
-#define COBOT_PERTURB_INSTANTIATE(N)                                             \
-  template model::Model<(N)> perturb_model<(N)>(                                 \
-      const model::Model<(N)>&, const ModelMismatchConfig<(N)>&, std::uint64_t); \
+#define COBOT_PERTURB_INSTANTIATE(N)                                                         \
+  template void merge_payload<(N)>(model::Model<(N)>&, double, const common::Vec3&, double); \
+  template model::Model<(N)> perturb_model<(N)>(                                             \
+      const model::Model<(N)>&, const ModelMismatchConfig<(N)>&, std::uint64_t);             \
   template dynamics::PlantEffects<(N)> plant_effects<(N)>(const ImperfectionConfig<(N)>&);
 COBOT_INSTANTIATE_DOF(COBOT_PERTURB_INSTANTIATE)
 #undef COBOT_PERTURB_INSTANTIATE
