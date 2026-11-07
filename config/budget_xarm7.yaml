@@ -30,7 +30,7 @@ cobot:
     # Torque commands from the host at servo 250 Hz, with the profile's 1 + 1 cycles of sensor
     # and command delay on elastic Harmonic Drive joints, are unstable at every gain measured
     # (w = 20..80, seeds 1-3: held on every seed with overspeed or state_timeout). w = 20 is
-    # the least aggressive gain measured; a drive-side loop is a later feature.
+    # the least aggressive gain measured. Drive-side loop: config/budget_xarm7_drive.yaml.
     # Sweep numbers: header of tests/unit/loop_profile_stability/test_profile_stability.cpp.
     kp: [400.0, 400.0, 400.0, 400.0, 400.0, 400.0, 400.0]  # 1/s^2
     kd: [40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0]         # 1/s

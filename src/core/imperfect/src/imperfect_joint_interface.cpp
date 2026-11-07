@@ -14,8 +14,7 @@ namespace {
 
 constexpr double kTwoPi = 2.0 * 3.14159265358979323846;
 constexpr int kRingSize = kMaxDelayCycles + 1;
-constexpr double kDriveEfficiency = 0.85;  // electrical -> mechanical power, bus sag model
-constexpr double kServoRatioTol = 1e-9;    // relative, control rate / servo rate is an integer
+constexpr double kServoRatioTol = 1e-9;  // relative, control rate / servo rate is an integer
 
 bool probability(double p) {
   return p >= 0.0 && p <= 1.0;
@@ -53,16 +52,6 @@ double round_to(double x, double step) {
   return step > 0.0 ? std::round(x / step) * step : x;
 }
 
-// Torque ceiling of the torque-speed curve at velocity w for torque tau: `peak` up to `knee`,
-// linear to 0 at `zero` when motoring (tau * w > 0); braking is capped at `peak` only.
-double torque_ceiling(double tau, double w, double peak, double knee, double zero) {
-  const double speed = std::abs(w);
-  if (tau * w <= 0.0 || speed <= knee) {
-    return peak;
-  }
-  return speed < zero ? peak * (zero - speed) / (zero - knee) : 0.0;
-}
-
 }  // namespace
 
 Status check_comm(const CommConfig& comm, double control_period_s) {
@@ -94,8 +83,7 @@ ImperfectJointInterface<N>::ImperfectJointInterface(JointInterface<N>& inner,
       period_s_(control_period_s),
       apply_plant_effects_(apply_plant_effects),
       rng_(config.seed),
-      peak_torque_(peak_torque_nm),
-      bus_voltage_v_(config.actuator.bus.v_nom_v > 0.0 ? config.actuator.bus.v_nom_v : 1.0),
+      stage_(config.actuator, common::VecN<N>::Ones(), peak_torque_nm, control_period_s),
       comm_rng_(config.seed ^ kCommSalt) {
   if (!delay_in_range(config.sensor.sensor_delay_cycles)) {
     throw std::invalid_argument("imperfections.sensor.sensor_delay_cycles outside [0, 32]");
@@ -129,6 +117,7 @@ ImperfectJointInterface<N>::ImperfectJointInterface(JointInterface<N>& inner,
   for (int j = 0; j < N; ++j) {
     torque_scale_[j] = 1.0 + config.actuator.torque_scale_std[j] * unit(rng_);
   }
+  stage_ = ActuatorStage<N>(config.actuator, torque_scale_, peak_torque_nm, control_period_s);
 }
 
 template <int N>
@@ -240,20 +229,13 @@ Status ImperfectJointInterface<N>::read(JointState<N>& out) {
 template <int N>
 Status ImperfectJointInterface<N>::write(const JointCommand<N>& cmd) {
   const ActuatorConfig<N>& act = config_.actuator;
+  // A position command is the set-point packet: no torque shaping.
   JointCommand<N> shaped;
-  for (int j = 0; j < N; ++j) {
-    double tau = cmd.tau[j] * torque_scale_[j];
-    if (act.torque_scale_asym_frac[j] != 0.0 && tau < 0.0) {
-      tau *= 1.0 - act.torque_scale_asym_frac[j];
-    }
-    if (act.torque_ripple_frac[j] != 0.0) {
-      tau *= 1.0 +
-             act.torque_ripple_frac[j] * std::sin(act.ripple_periods_per_rev[j] * q_last_true_[j]);
-    }
-    if (std::abs(tau) < act.deadband_nm[j]) {
-      tau = 0.0;
-    }
-    shaped.tau[j] = round_to(tau, act.torque_cmd_resolution_nm[j]);
+  if (cmd.mode == hal::DriveMode::kPosition) {
+    shaped = cmd;
+  } else {
+    shaped.tau = stage_.shape(cmd.tau, q_last_true_);
+    shaped.seq = cmd.seq;
   }
   // Servo hold: only a received packet forwards the command; otherwise the last one is re-sent.
   if (forward_) {
@@ -271,38 +253,11 @@ Status ImperfectJointInterface<N>::write(const JointCommand<N>& cmd) {
     sent = cmd_ring_[static_cast<std::size_t>(ring_index(cmd_head_, act.command_delay_cycles))];
   }
 
-  // Bus voltage from the previous cycle's output torques (no algebraic loop); off: V = V_nom = 1.
-  const double v_nom = act.bus.v_nom_v > 0.0 ? act.bus.v_nom_v : 1.0;
-  double v_bus = v_nom;
-  if (act.bus.v_nom_v > 0.0) {
-    double power_w = 0.0;
-    for (int j = 0; j < N; ++j) {
-      power_w += std::max(tau_prev_out_[j] * qd_last_true_[j], 0.0);
-    }
-    const double disc = v_nom * v_nom - 4.0 * act.bus.r_source_ohm * power_w / kDriveEfficiency;
-    v_bus =
-        disc < 0.0 ? act.bus.v_min_v : std::max(act.bus.v_min_v, (v_nom + std::sqrt(disc)) / 2.0);
+  if (sent.mode == hal::DriveMode::kPosition) {
+    return inner_.write(sent);  // the drive applies its own actuator chain
   }
-  bus_voltage_v_ = v_bus;
-  for (int j = 0; j < N; ++j) {
-    double tau = sent.tau[j];
-    const double slew = act.torque_slew_nm_s[j];
-    if (slew > 0.0) {
-      const double step = slew * period_s_;
-      tau = tau_prev_out_[j] + std::clamp(tau - tau_prev_out_[j], -step, step);
-    }
-    const double knee = act.knee_speed_rad_s[j];
-    if (knee > 0.0) {
-      const double ceiling = torque_ceiling(tau,
-                                            qd_last_true_[j],
-                                            peak_torque_[j],
-                                            knee * v_bus / v_nom,
-                                            act.zero_torque_speed_rad_s[j] * v_bus / v_nom);
-      tau = std::copysign(std::min(std::abs(tau), ceiling), tau);
-    }
-    sent.tau[j] = tau;
-    tau_prev_out_[j] = tau;
-  }
+  // Slew, bus voltage from the previous cycle's output torques, torque-speed ceiling.
+  sent.tau = stage_.limit(sent.tau, qd_last_true_);
 
   if (apply_plant_effects_) {
     const FrictionConfig<N>& friction = config_.friction;

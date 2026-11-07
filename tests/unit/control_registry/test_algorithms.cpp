@@ -19,7 +19,7 @@ namespace cobot::control {
 namespace {
 
 TEST(Algorithms, TableAndNames) {
-  static_assert(kAlgorithms.size() == 2);
+  static_assert(kAlgorithms.size() == 3);  // computed_torque, pd_gravity, drive_position
   for (std::size_t i = 0; i < kAlgorithms.size(); ++i) {
     EXPECT_EQ(kAlgorithms[i].id, static_cast<Algorithm>(i)) << "entry " << i;
     EXPECT_STRNE(kAlgorithms[i].summary, "") << "entry " << i;
@@ -39,7 +39,8 @@ TEST(Algorithms, TableAndNames) {
   for (const char* bad : {"Computed_Torque", "", "pd", "pd_gravity ", " computed_torque"}) {
     EXPECT_FALSE(algorithm_from_string(bad).has_value()) << "'" << bad << "'";
   }
-  EXPECT_EQ(registered_algorithm_names(), std::string("computed_torque, pd_gravity"));
+  EXPECT_EQ(registered_algorithm_names(),
+            std::string("computed_torque, pd_gravity, drive_position"));
 }
 
 TEST(Algorithms, StaticGuards) {

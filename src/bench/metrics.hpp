@@ -16,12 +16,18 @@
 // cobot_bench run|montecarlo|sweep and the studio, so both give the same numbers and bytes.
 namespace cobot::bench {
 
+// Torque the peak, saturation and rms torque metrics use: the commanded `tau` (torque laws) or
+// the plant's applied `tau_motor` (drive_position, where `tau` is only the feed-forward sent with
+// the set point and the drive's PD output reaches the motor).
+enum class TorqueSource { kCommand, kMotor };
+
 // RunSummary of `rows` (definitions in engine.hpp); t_eval_ns is the evaluation time of the
 // final errors (duration_s + hold_s in ns, absolute row time).
 RunSummary summarize(const std::vector<pipeline::LogRecord<kN>>& rows,
                      const Vec& tau_max,
                      const Vec& rated,
-                     std::int64_t t_eval_ns);
+                     std::int64_t t_eval_ns,
+                     TorqueSource torque = TorqueSource::kCommand);
 
 // The Run CSV of `run` and `<out_csv>.meta.yaml`, the bytes `cobot_bench run` writes.
 common::Status write_run_files(const RunData& run, const std::filesystem::path& out_csv);

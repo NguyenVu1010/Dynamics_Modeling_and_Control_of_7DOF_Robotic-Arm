@@ -6,6 +6,7 @@
 #include <random>
 
 #include "cobot/hal/joint_interface.hpp"
+#include "cobot/imperfect/actuator_stage.hpp"
 #include "cobot/imperfect/config.hpp"
 
 // Decorator that makes any JointInterface imperfect (feature `imperfect-io`, design 11.1).
@@ -20,7 +21,12 @@
 //          sags with the previous cycle's motoring power; realism-2 design 6.1). Friction and motor
 //          lag are plant effects (dynamics::PlantEffects) in bench; on the Gazebo path they are
 //          approximated here (friction from the last measured qd, lag as a first-order filter) when
-//          `apply_plant_effects` is true.
+//          `apply_plant_effects` is true. The shaping and the limits are an ActuatorStage
+//          (shape() before the command delay, limit() after it).
+//          A position command (hal::DriveMode::kPosition, feature drive-loop) is the set-point
+//          packet: only the servo hold and the command delay apply to it, as a whole command; a
+//          delayed position command reaches the inner interface unchanged, a delayed torque
+//          command (the zeros before the delay fills) takes the torque path.
 // Servo bus (comm, realism-2 design 5 and 6.3): a packet on read k (k counted from 0) when
 // k % S == 0, S = control rate / servo_rate_hz (1 when 0); one Bernoulli draw per packet loses
 // both directions. A received packet processes a fresh sample through the sensor chain and
@@ -70,7 +76,10 @@ class ImperfectJointInterface final : public JointInterface<N> {
   const common::VecN<N>& torque_scale() const { return torque_scale_; }
   // Bus voltage used by the last write, V; v_nom_v before the first write. With the bus model
   // off (v_nom_v 0) it is the normalised nominal 1.0 (V = V_nom := 1, no scaling), never 0.
-  double bus_voltage_v() const { return bus_voltage_v_; }
+  // Torque writes only: position commands bypass this stage and do not update it, so in a
+  // drive_position run the modelled bus is the drive's own stage
+  // (pipeline::SimDrive::bus_voltage_v()).
+  double bus_voltage_v() const { return stage_.bus_voltage_v(); }
   // Servo packets lost so far, and the read count of the last lost one (-1 if none).
   std::int64_t packets_lost() const { return packets_lost_; }
   std::int64_t last_lost_cycle() const { return last_lost_cycle_; }
@@ -97,9 +106,7 @@ class ImperfectJointInterface final : public JointInterface<N> {
   common::VecN<N> tau_lagged_ = common::VecN<N>::Zero();
   common::VecN<N> q_last_true_ = common::VecN<N>::Zero();
   common::VecN<N> qd_last_true_ = common::VecN<N>::Zero();  // torque-speed curve and bus
-  common::VecN<N> peak_torque_;
-  common::VecN<N> tau_prev_out_ = common::VecN<N>::Zero();  // slew and bus, before plant
-  double bus_voltage_v_ = 1.0;
+  ActuatorStage<N> stage_;  // built with the drawn torque_scale_ in the constructor body
   common::VecN<N> qd_last_out_ = common::VecN<N>::Zero();  // friction phase, plant effects
   // Comm state.
   std::mt19937_64 comm_rng_;

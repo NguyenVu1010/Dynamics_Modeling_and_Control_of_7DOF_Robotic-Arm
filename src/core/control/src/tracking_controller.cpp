@@ -8,7 +8,8 @@ template <int N>
 TrackingController<N>::TrackingController(const Model<N>& model, const ControllerConfig<N>& config)
     : algorithm_(config.algorithm),
       computed_torque_(model, config.computed_torque),
-      pd_gravity_(model, config.pd_gravity, config.q_inertia) {}
+      pd_gravity_(model, config.pd_gravity, config.q_inertia),
+      drive_position_(model, config.drive_feedforward) {}
 
 // The one place a law is dispatched (with the kAlgorithms entry, the registration).
 template <int N>
@@ -19,6 +20,8 @@ JointCommand<N> TrackingController<N>::compute(const JointState<N>& s,
       return computed_torque_.compute(s, ref);
     case Algorithm::kPdGravity:
       return pd_gravity_.compute(s, ref);
+    case Algorithm::kDrivePosition:
+      return drive_position_.compute(s, ref);
   }
   return JointCommand<N>{};
 }

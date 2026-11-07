@@ -19,7 +19,8 @@ nối các bước qua topic ROS, gây jitter và bốn tần số khác nhau.
   và sai số publish 100 Hz. Sau MVP: topic `~/target_pose` (`geometry_msgs/PoseStamped`) qua
   realtime buffer.
 - **Điểm cắm 2, `hal::JointInterface<N>`:** interface trong lõi (`read(JointState&)`,
-  `write(const JointCommand&)`, trả `Status`). Hiện thực MVP: `pipeline::SimJointInterface`
+  `write(const JointCommand&)`, trả `Status`; lệnh mômen, hoặc gói điểm đặt vị trí `DriveMode::kPosition`
+  cho driver mô phỏng của bench, ADR-023 PR drive-loop). Hiện thực MVP: `pipeline::SimJointInterface`
   (bọc `SimPlant`) cho bench và test.
 - Decorator `imperfect::ImperfectJointInterface<N>` bọc được cả hai đường: bench bọc
   `SimJointInterface`; plugin bọc state/command bằng cùng lớp (ADR-015).

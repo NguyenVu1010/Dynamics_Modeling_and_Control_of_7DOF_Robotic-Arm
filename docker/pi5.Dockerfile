@@ -24,8 +24,11 @@ RUN cmake -S . -B /build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCOBOT_WERROR=ON \
     && cmake --install /build
 
 FROM build AS test
-# Unit/component tests, then the bench e2e scenarios tagged for arm64 (E2E-08).
+# Unit/component tests, then the bench e2e scenarios tagged for arm64 (E2E-08). The drive-loop
+# profile runs (BudgetDrive, DriveProfiles: 12000 elastic cycles x 4 drive sub-steps each) are left
+# out here: under QEMU they push the job past its 150 min timeout. They run in the core job.
 RUN ctest --test-dir /build --output-on-failure --parallel "$(nproc)" \
+      --exclude-regex "BudgetDrive\.BudgetDriveMeetsTheMargin/|^DriveProfiles\." \
     && if ls tests/e2e/scenarios/*.yaml >/dev/null 2>&1; then \
          python3 tools/run_e2e.py --all --tag arm64 --bench /build/src/bench/cobot_bench \
            --out /tmp/e2e --no-report; \
