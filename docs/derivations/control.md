@@ -111,6 +111,37 @@ thật khiến cổ tay nhạy với nhiễu tới mức cần `ω` cao. Sau khi
 không phụ thuộc quán tính, vì computed torque nhân `M(q)` vào luật điều khiển. Nếu muốn giảm
 gain, chạy lại sweep để có số liệu.
 
+## PD cộng bù trọng lực
+
+Thuật toán thứ hai của danh sách đăng ký (`cobot.control.algorithm: pd_gravity`, ADR-023):
+
+    τ = J ⊙ (k_p ⊙ (q_ref − q) + k_d ⊙ (q̇_ref − q̇)) + G(q),   J = diag(M(q_home))
+    τ = clamp(τ + τ_ff, −τ_max, τ_max)
+
+với `k_p`, `k_d` trong `cobot.pd_gravity` (1/s², 1/s) và `τ_ff` là feed-forward ma sát như
+computed torque. `J` là quán tính khớp (gồm armature) của mô hình bộ điều khiển, lấy **một lần**
+tại `home_q` khi dựng bộ điều khiển, không tính lại mỗi chu kỳ.
+
+- **Vì sao nhân `J`.** Với khớp `i` tách riêng, `J_ii ë_i + J_ii k_d ė_i + J_ii k_p e_i ≈ 0`, tức
+  cùng động học sai số `ë + k_d ė + k_p e = 0` như computed torque. Cùng `ω` (`k_p = ω²`,
+  `k_d = 2ω`) nghĩa là cùng băng thông cho cả hai luật, và bước tự chỉnh hệ số (ADR-023) chỉ quét
+  một tham số `ω` cho mỗi luật. Không nhân `J` thì `k_p` có đơn vị Nm/rad, khác nhau hàng trăm
+  lần giữa vai và cổ tay, và phải chỉnh từng khớp.
+- **Vì sao lấy tại `home`.** `J` hằng: một con số mỗi khớp, dễ đọc trong báo cáo, và không cần
+  tính `M(q)` trong bước nóng. Khi tư thế rời xa `home`, `M_ii(q)` thật lệch khỏi `J_ii`, nên băng
+  thông thật của khớp đó lệch theo tỉ số `J_ii / M_ii(q)`.
+- **Thiếu gì so với computed torque.** Không có feed-forward quán tính `M(q) q̈_ref`, không có
+  Coriolis/ly tâm `C(q, q̇) q̇`, không có ghép chéo giữa các khớp (`M` ngoài đường chéo) và không
+  bù giảm chấn URDF. Các phần đó thành nhiễu `d` mà PD phải chống, nên sai số bám tăng theo
+  `q̈_ref` và `q̇` của quỹ đạo: `e_i ≈ d_i / (J_ii k_p,i)`. Trên plant lý tưởng với `ω = 80`, sai số
+  bám RMS lớn hơn computed torque (bài test `ControlLoopRegistry.PdGravityTracksTheIdealPlant`
+  in cả hai số).
+- **Xác lập.** Khi đứng yên (`q̇ = q̇_ref = 0`), `τ = J k_p e + G(q)`; sai số xác lập bằng không chỉ
+  khi `G` của mô hình đúng với plant. Sai lệch khối lượng hay tải để lại `e_i ≈ ΔG_i / (J_ii k_p,i)`
+  (không có thành phần tích phân).
+- Đầu vào không hữu hạn (q, q̇, q_ref, q̇_ref) cho lệnh toàn số không, như computed torque. Hold
+  không đổi: vẫn dùng `HoldController` với hệ số computed torque cho mọi thuật toán.
+
 ## Bù ma sát
 
 Ma sát khớp của plant (profile realistic) là Coulomb cộng nhớt, `τ_f = c ⊙ sign(q̇) + b ⊙ q̇`.

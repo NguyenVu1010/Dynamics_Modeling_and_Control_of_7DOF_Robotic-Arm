@@ -4,9 +4,10 @@
 #include <cstdint>
 #include <optional>
 
-#include "cobot/control/computed_torque.hpp"
+#include "cobot/control/algorithm.hpp"
 #include "cobot/control/friction_compensation.hpp"
 #include "cobot/control/hold.hpp"
+#include "cobot/control/tracking_controller.hpp"
 #include "cobot/hal/joint_interface.hpp"
 #include "cobot/model/model.hpp"
 #include "cobot/pipeline/config.hpp"
@@ -30,8 +31,9 @@
 // -> kHolding (HoldController at the q of that moment; never leaves on its own). A non-finite
 // computed torque -> kFault with zero torque. Output torque is always finite and within tau_max.
 //
-// Tracking torque: clamp(computed_torque(state, ref) + friction feed-forward of ref.qd, tau_max);
-// the hold is not compensated.
+// Tracking torque: clamp(law(state, ref) + friction feed-forward of ref.qd, tau_max);
+// law = cobot.control.algorithm (control::TrackingController, ADR-023). The hold is not
+// compensated and uses the computed-torque gains whatever the algorithm.
 //
 // External command mode (command_source: external, feature `loop-external`, design
 // docs/design/2026-10-29-waypoint-gui-design.md 6.3): start() -> kStandby, which keeps the
@@ -98,6 +100,8 @@ class ControlLoop {
   Status step(const JointState<N>& state, JointCommand<N>& out, const PlantTruth<N>& truth);
 
   LoopMode mode() const { return mode_; }
+  // The tracking law in use (Config::algorithm), for hosts and reports.
+  control::Algorithm algorithm() const { return controller_.algorithm(); }
   // Why the loop entered kHolding; kNone before that and after start() or reset().
   HoldReason hold_reason() const { return hold_reason_; }
   // The record of the last step (the row given to the recorder, also when it dropped the row or
@@ -166,7 +170,7 @@ class ControlLoop {
   model::Model<N> model_;
   Config<N> config_;
   planning::ClikReference<N> clik_;
-  control::ComputedTorque<N> computed_torque_;
+  control::TrackingController<N> controller_;
   control::FrictionCompensation<N> friction_;
   control::HoldController<N> hold_;
   std::optional<planning::CartesianTrajectory> trajectory_;

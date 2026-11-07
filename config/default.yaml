@@ -29,6 +29,8 @@ cobot:
     # wrist inertia is small. w = 80 keeps a 3-cycle loop delay well inside the phase margin.
     kp: [6400.0, 6400.0, 6400.0, 6400.0, 6400.0, 6400.0, 6400.0]  # 1/s^2
     kd: [160.0, 160.0, 160.0, 160.0, 160.0, 160.0, 160.0]         # 1/s
+  control:                             # tracking law (ADR-023), optional: computed_torque
+    algorithm: computed_torque         # computed_torque | pd_gravity
   friction_compensation:               # feed-forward on qd_ref (docs/derivations/control.md)
     # Nominal identified values: deliberately 80 % of the realistic profile's plant friction
     # (config/imperfections/realistic.yaml). Identification is never exact; under-compensation

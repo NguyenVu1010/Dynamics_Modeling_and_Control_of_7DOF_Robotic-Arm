@@ -30,6 +30,8 @@ cobot:
   computed_torque:
     kp: [6400.0, 6400.0, 6400.0, 6400.0, 6400.0, 6400.0, 6400.0]
     kd: [160.0, 160.0, 160.0, 160.0, 160.0, 160.0, 160.0]
+  control:
+    algorithm: computed_torque
   friction_compensation:
     enabled: true
     coulomb_nm: [1.36, 1.36, 1.36, 1.36, 0.192, 0.192, 0.192]

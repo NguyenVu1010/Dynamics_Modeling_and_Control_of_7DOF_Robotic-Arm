@@ -10,6 +10,7 @@
 #include <fstream>
 #include <initializer_list>
 #include <limits>
+#include <optional>
 #include <set>
 #include <string>
 #include <system_error>
@@ -21,6 +22,7 @@
 #include <yaml-cpp/yaml.h>
 
 #include "cobot/common/dof.hpp"
+#include "cobot/control/algorithm.hpp"
 #include "cobot/model/model.hpp"
 #include "cobot/pipeline/overrides.hpp"
 #include "cobot/pipeline/sweep_config.hpp"
@@ -461,6 +463,37 @@ void read_deflection_comp(Reader& m, DeflectionCompConfig<N>& d) {
   x.finish();
 }
 
+// `control: {algorithm}` and `pd_gravity: {kp, kd}` (feature controller-registry, ADR-023): both
+// sections optional, `algorithm` optional (computed_torque); kp and kd required in pd_gravity,
+// > 0, N values or a scalar. pd_gravity is required only when selected.
+template <int N>
+void read_algorithm(Reader& m, Config<N>& c) {
+  if (m.has("control")) {
+    Reader x = m.map("control");
+    if (x.has("algorithm")) {
+      const YAML::Node n = x.node("algorithm");
+      const std::optional<control::Algorithm> a =
+          control::algorithm_from_string(n.IsScalar() ? n.Scalar() : std::string());
+      if (a) {
+        c.algorithm = *a;
+      } else {
+        x.fail("algorithm",
+               "unknown algorithm '" + YAML::Dump(n) +
+                   "' (registered: " + control::registered_algorithm_names() + ")");
+      }
+    }
+    x.finish();
+  }
+  if (m.has("pd_gravity")) {
+    Reader x = m.map("pd_gravity");
+    x.vector<N>("kp", kPositive, true, c.pd_gravity.kp);
+    x.vector<N>("kd", kPositive, true, c.pd_gravity.kd);
+    x.finish();
+  } else if (c.algorithm == control::Algorithm::kPdGravity) {
+    m.fail("pd_gravity", "required when cobot.control.algorithm is pd_gravity");
+  }
+}
+
 template <int N>
 void read_config(Reader& root, const fs::path& dir, Config<N>& c) {
   Reader m = root.map("cobot");
@@ -517,6 +550,7 @@ void read_config(Reader& root, const fs::path& dir, Config<N>& c) {
   l.scalar("output_dir", text);
   c.log_output_dir = (dir / text).lexically_normal();
   read_log_mode(l, c);
+  read_algorithm<N>(m, c);
   read_external<N>(m, c);
   read_limits<N>(m, c);
   read_deflection_comp<N>(m, c.deflection_comp);

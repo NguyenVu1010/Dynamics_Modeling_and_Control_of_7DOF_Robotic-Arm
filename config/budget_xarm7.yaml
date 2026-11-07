@@ -34,6 +34,8 @@ cobot:
     # Sweep numbers: header of tests/unit/loop_profile_stability/test_profile_stability.cpp.
     kp: [400.0, 400.0, 400.0, 400.0, 400.0, 400.0, 400.0]  # 1/s^2
     kd: [40.0, 40.0, 40.0, 40.0, 40.0, 40.0, 40.0]         # 1/s
+  control:                             # tracking law (ADR-023), optional: computed_torque
+    algorithm: computed_torque         # computed_torque | pd_gravity
   friction_compensation:               # feed-forward on qd_ref (docs/derivations/control.md)
     # Nominal identified values: deliberately 80 % of the realistic profile's plant friction
     # (config/imperfections/realistic.yaml). Identification is never exact; under-compensation
