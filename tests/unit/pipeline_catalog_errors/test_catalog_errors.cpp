@@ -61,13 +61,12 @@ TEST(HardwareModelErrors, OverrideOfATaskOwnedKeyIsNamed) {
   int n = 0;
   for (const std::string& key : keys) {
     SCOPED_TRACE(key);
-    const fs::path path =
-        write_fixture(insert_after(hardware_fixture_text(),
-                                   "        config.computed_torque.omega:",
-                                   "        " + key + ": 1.0"),
-                      "case" + std::to_string(n++));
-    expect_load_error(path,
-                      {"hardware.algorithms.computed_torque.overrides." + key, "owned by the task"});
+    const fs::path path = write_fixture(insert_after(hardware_fixture_text(),
+                                                     "        config.computed_torque.omega:",
+                                                     "        " + key + ": 1.0"),
+                                        "case" + std::to_string(n++));
+    expect_load_error(
+        path, {"hardware.algorithms.computed_torque.overrides." + key, "owned by the task"});
   }
 }
 
