@@ -186,6 +186,15 @@ common::Result<TuneResult> tune(const pipeline::HardwareModel& model,
   result.algorithm = algorithm;
   result.key = tuning_key(algorithm);
   result.levels = options.levels.empty() ? default_levels(algorithm) : options.levels;
+  // A repeated level would mark two rows as chosen (rows are matched by level).
+  for (std::size_t a = 0; a < result.levels.size(); ++a) {
+    for (std::size_t b = 0; b < a; ++b) {
+      if (result.levels[a] == result.levels[b]) {
+        return Out::error(model.name + " " + result.key + ": level " +
+                          short_number(result.levels[a]) + " given twice");
+      }
+    }
+  }
   std::vector<std::uint64_t> seeds = options.seeds;
   if (seeds.empty()) {
     for (std::uint64_t s = 1; s <= kDefaultSeeds; ++s) {

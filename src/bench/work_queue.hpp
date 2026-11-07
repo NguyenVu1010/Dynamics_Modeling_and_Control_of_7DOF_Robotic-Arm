@@ -56,8 +56,17 @@ inline common::Status run_queue(std::size_t count,
   const std::size_t threads = std::max<std::size_t>(1, std::min<std::size_t>(jobs, count));
   std::vector<std::thread> pool;
   pool.reserve(threads - 1);
-  for (std::size_t t = 1; t < threads; ++t) {
-    pool.emplace_back(worker);
+  try {
+    for (std::size_t t = 1; t < threads; ++t) {
+      pool.emplace_back(worker);
+    }
+  } catch (const std::exception& e) {
+    // A thread could not start: stop the ones already running and report it, never terminate.
+    failed.store(true, std::memory_order_release);
+    for (std::thread& t : pool) {
+      t.join();
+    }
+    return common::Status::error(std::string("cannot start a worker thread: ") + e.what());
   }
   worker();
   for (std::thread& t : pool) {

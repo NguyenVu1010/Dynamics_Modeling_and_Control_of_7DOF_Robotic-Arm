@@ -11,6 +11,7 @@
 #include <ctime>
 #include <exception>
 #include <filesystem>
+#include <limits>
 #include <map>
 #include <optional>
 #include <set>
@@ -274,7 +275,11 @@ int tune_main(int argc, char** argv) {
       }
     }
     if (f.count("--jobs") > 0) {
-      options.jobs = static_cast<unsigned>(parse_count("--jobs", f.at("--jobs")));
+      const std::uint64_t n = parse_count("--jobs", f.at("--jobs"));
+      if (n > std::numeric_limits<unsigned>::max()) {
+        throw std::invalid_argument("--jobs: out of range: " + f.at("--jobs"));
+      }
+      options.jobs = static_cast<unsigned>(n);
     }
     const auto model = cobot::pipeline::load_hardware_model(f.at("--hardware"));
     if (!model) {
