@@ -11,7 +11,10 @@ tells you which hardware is good enough.
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 [![Demo](docs/media/demo-v1.gif)](docs/media/demo-v1.mp4)
-*[Full-resolution video](docs/media/demo-v1.mp4)*
+*Waypoints placed in the RViz2 panel and previewed, then run from `cobot_studio`: Gazebo, RViz and
+the studio's 3D view follow the arm together under the 1 kHz computed-torque controller, and the
+Tracking tab plots the run. [Full-resolution video](docs/media/demo-v1.mp4); recorded by
+[`tools/demo/record_demo.sh`](tools/demo/record_demo.sh).*
 
 ## Highlights
 
