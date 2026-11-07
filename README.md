@@ -41,10 +41,12 @@ Tracking tab plots the run. [Full-resolution video](docs/media/demo-v1.mp4); rec
   pass ([Monte Carlo](docs/results/realism/montecarlo.md)).
 - **Hardware tiers compared.** Three profiles take the sensor, gearbox and communication
   quality of real arms (Franka FR3, Kassow KR1205, xArm 7). On premium and mid, the final
-  position error stays at least 8x under the threshold. On budget (250 Hz servo, torque sent
-  from the host), every seed trips the safety hold: that class of hardware needs a control loop
-  in the drive
-  ([E2E-12](tests/e2e/scenarios/e2e_12_profiles.yaml),
+  position error stays at least 8x under the threshold. On budget (250 Hz servo), torque sent
+  from the host trips the safety hold on every seed
+  ([E2E-12](tests/e2e/scenarios/e2e_12_profiles.yaml)). A position loop in the simulated drive
+  removes the holds: 0 of 100 seeds hold and 93 of 100 stay within the proposed thresholds. That
+  is not yet a pass, because the final position error reaches 7.38 mm on the worst seed
+  ([E2E-14](tests/e2e/scenarios/e2e_14_budget_drive.yaml), [numbers](https://github.com/NguyenVu1010/Dynamics_Modeling_and_Control_of_7DOF_Robotic-Arm/pull/72),
   [ADR-023](docs/adr/023-hardware-scenario-verification.md)).
 - **The same controller in two hosts.** It runs in Gazebo Harmonic through `ros2_control` and in
   a ROS-free bench. Gazebo with realistic errors ends 0.071 mm from the goal
@@ -52,10 +54,10 @@ Tracking tab plots the run. [Full-resolution video](docs/media/demo-v1.mp4); rec
   `cobot_studio` drive it. If the app freezes, the arm reaches standby at most 0.709 s after its
   last heartbeat (bound: 0.705 s plus 5 ms observer resolution, [stop guarantee](docs/results/studio/README.md#stop-guarantee)).
 - **Engineering process.** Tests are written first and frozen on `main`
-  ([check](tools/ci/check_frozen_tests.sh)). 9 required CI jobs run on every PR: lint, frozen
-  tests, build and test, ASan + UBSan, line coverage ≥ 80 % on `src/core`, Python, bench E2E,
-  Gazebo E2E and an arm64 Raspberry Pi 5 image ([ci.yml](.github/workflows/ci.yml)). Design
-  decisions are recorded in [23 ADRs](docs/adr/).
+  ([check](tools/ci/check_frozen_tests.sh)). 8 required CI jobs run on every PR: lint, frozen
+  tests, build and test, ASan + UBSan, line coverage ≥ 80 % on `src/core`, Python, bench E2E and
+  Gazebo E2E ([ci.yml](.github/workflows/ci.yml)). An arm64 Raspberry Pi 5 image builds and tests
+  nightly ([arm64.yml](.github/workflows/arm64.yml)). Design decisions are recorded in [23 ADRs](docs/adr/).
 
 ## Architecture
 
@@ -104,7 +106,7 @@ Thresholds and full numbers: [tests and results](docs/guides/testing.md#results)
 | PF-01 control step, desktop | p95 < 200 µs | p50 4.8 µs, p95 5.3 µs ([timing](docs/results/realism/timing_desktop.txt)) |
 | PF-02 studio bridge cost per step | – | +0.17 µs at p50 ([studio](docs/results/studio/README.md#pf-02-control-step-with-the-studio-bridge)) |
 | Stop guarantee, frozen studio | 0.705 s + 5 ms observer poll | 0.709 s max over 5 trials ([studio](docs/results/studio/README.md#stop-guarantee)) |
-| E2E-08 arm64 Pi 5 image (QEMU) | ctest + E2E-01..04 | pass in CI |
+| E2E-08 arm64 Pi 5 image (QEMU), nightly | ctest + E2E-01..04 | pass in CI |
 
 ## Quick start
 
