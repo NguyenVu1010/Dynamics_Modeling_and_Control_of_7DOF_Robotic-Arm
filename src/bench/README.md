@@ -8,6 +8,14 @@ when it exists.
 In-memory API (`run_data.hpp`, `metrics.hpp`): `run_in_memory` returns one run's records, meta and
 `RunSummary` without files; `write_run_files` writes the bytes `cobot_bench run` writes from it.
 
+Auto-tune (`tune.hpp`, ADR-023): `bench::tune` sweeps the law's one gain (`tuning_key`, `with_gain`)
+over seeds through `run_with` (a run on a list of controller overrides) and picks the best admissible
+level (`select_gain`); `cobot_bench tune` writes `tune.csv` (docs/conventions.md "Tune CSV"). The
+runs go through `run_queue` (`work_queue.hpp`), a small pool of worker threads whose results are
+stored by item index, so the result does not depend on scheduling. The run path from `run_with`
+down (config and waypoint loaders, URDF parser, Recorder, SimPlant, imperfection RNGs, metrics)
+holds no `static` or global mutable state: every run owns its objects.
+
 Timing: `cobot_bench timing --config <yaml> --steps <n>` prints the PF-01 line
 `p50_us=... p95_us=... max_us=...`. `--paced` steps at the control rate with `clock_nanosleep`
 (absolute deadlines) and `--log-mode off|recorder|recorder_live` overrides `cobot.log.mode`; with

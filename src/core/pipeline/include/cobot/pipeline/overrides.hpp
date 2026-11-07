@@ -25,13 +25,15 @@ namespace cobot::pipeline {
 // optional imperfection group that is absent gets its required keys at their off values) and the
 // strict loader decides, so an unknown key is its usual error naming the full key. The same key
 // twice is an error. The virtual key config.computed_torque.omega (double > 0) sets kp = omega^2
-// and kd = 2 omega on every joint; overriding it together with kp or kd is an error.
+// and kd = 2 omega on every joint; overriding it together with kp or kd is an error. The virtual
+// key config.pd_gravity.omega does the same for config.pd_gravity.kp/kd (feature auto-tune).
 struct KeyOverride {
   std::string key;
   std::variant<double, std::vector<double>, bool, std::string> value;
 };
 
 inline constexpr const char* kOmegaKey = "config.computed_torque.omega";
+inline constexpr const char* kPdOmegaKey = "config.pd_gravity.omega";
 
 // load_config / load_imperfections with the overrides applied before validation. Config keys
 // start with "config."; imperfection keys never do.

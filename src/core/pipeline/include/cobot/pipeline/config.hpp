@@ -194,7 +194,8 @@ Result<Config<N>> load_config(const std::filesystem::path& yaml);
 
 // load_config with the scalar `cobot.<section>.<key>` replaced by `level` before validation; `key`
 // is the sweep param name `config.<section>.<key>` (e.g. config.safety.hal_timeout_ms, in the
-// file's unit). A name that is not a scalar of the file is an error naming it.
+// file's unit). A name that is not a scalar of the file is an error naming it. The virtual keys
+// config.computed_torque.omega and config.pd_gravity.omega go through the override list instead.
 template <int N>
 Result<Config<N>> load_config_with(const std::filesystem::path& yaml,
                                    const std::string& key,

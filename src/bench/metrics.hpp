@@ -29,6 +29,15 @@ RunSummary summarize(const std::vector<pipeline::LogRecord<kN>>& rows,
                      std::int64_t t_eval_ns,
                      TorqueSource torque = TorqueSource::kCommand);
 
+// The same, with the post-goal swing: t_goal_ns is the time the reference reaches the final goal
+// (absolute row time).
+RunSummary summarize(const std::vector<pipeline::LogRecord<kN>>& rows,
+                     const Vec& tau_max,
+                     const Vec& rated,
+                     std::int64_t t_eval_ns,
+                     TorqueSource torque,
+                     std::int64_t t_goal_ns);
+
 // The Run CSV of `run` and `<out_csv>.meta.yaml`, the bytes `cobot_bench run` writes.
 common::Status write_run_files(const RunData& run, const std::filesystem::path& out_csv);
 

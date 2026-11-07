@@ -5,6 +5,7 @@
 #include <cstdio>
 #include <fstream>
 #include <iomanip>
+#include <limits>
 #include <string>
 
 #include "cobot/common/lie.hpp"
@@ -20,6 +21,10 @@ constexpr double kSatFraction = 0.999;  // cobot_eval.metrics.SAT_FRACTION
 constexpr double kG3PosErrM = 0.002;
 constexpr double kG3RotErrRad = 3.14159265358979323846 / 180.0;
 constexpr double kG3RmsJointErrRad = 0.01;
+
+// Post-goal swing windows: 0.5 s after the goal and before the end
+// (tests/unit/loop_drive_profiles).
+constexpr std::int64_t kSwingWindowNs = 500000000;
 
 // RunSummary of the logged rows, fed one record at a time.
 class Metrics {
@@ -80,6 +85,10 @@ class Metrics {
     }
     const std::int64_t sat_ns = sat_ns_ + (prev_sat_ && rows_ > 1 ? last_dt_ns_ : 0);
     s.sat_time_s = static_cast<double>(sat_ns) / static_cast<double>(common::kNanosecondsPerSecond);
+    if (rows_ > 0) {
+      s.run_time_s = static_cast<double>(prev_t_ns_ - first_t_ns_ + last_dt_ns_) /
+                     static_cast<double>(common::kNanosecondsPerSecond);
+    }
     return s;
   }
 
@@ -128,6 +137,42 @@ void write_waypoint_meta(std::ostream& os, const RunMeta& m) {
   os << "]\n";
 }
 
+// Max over joints of the range of q - q_ref over the rows with begin <= t < end; NaN without rows.
+double swing_in(const std::vector<pipeline::LogRecord<kN>>& rows,
+                std::int64_t begin_ns,
+                std::int64_t end_ns) {
+  Vec lo = Vec::Constant(std::numeric_limits<double>::infinity());
+  Vec hi = -lo;
+  bool any = false;
+  for (const pipeline::LogRecord<kN>& r : rows) {
+    if (r.t.ns >= begin_ns && r.t.ns < end_ns) {
+      const Vec e = r.q - r.q_ref;
+      lo = lo.cwiseMin(e);
+      hi = hi.cwiseMax(e);
+      any = true;
+    }
+  }
+  const Vec range = hi - lo;
+  return any ? range.maxCoeff<Eigen::PropagateNaN>() : std::numeric_limits<double>::quiet_NaN();
+}
+
+// swing_first_rad / swing_last_rad of a run that did not hold: the hold is [goal, end), end the
+// last row plus one cycle; windows of 0.5 s, or the two halves of a hold under 1 s.
+void add_swing(const std::vector<pipeline::LogRecord<kN>>& rows,
+               std::int64_t t_goal_ns,
+               RunSummary& s) {
+  if (s.held || rows.empty() || rows.back().t.ns < t_goal_ns) {
+    return;
+  }
+  const std::int64_t last_dt_ns =
+      rows.size() > 1 ? rows.back().t.ns - rows[rows.size() - 2].t.ns : 0;
+  const std::int64_t end_ns = rows.back().t.ns + last_dt_ns;
+  const std::int64_t hold_ns = end_ns - t_goal_ns;
+  const std::int64_t window_ns = hold_ns < 2 * kSwingWindowNs ? hold_ns / 2 : kSwingWindowNs;
+  s.swing_first_rad = swing_in(rows, t_goal_ns, t_goal_ns + window_ns);
+  s.swing_last_rad = swing_in(rows, end_ns - window_ns, end_ns);
+}
+
 std::string number(double v) {
   std::array<char, 32> text{};
   std::snprintf(text.data(), text.size(), "%.17g", v);
@@ -151,6 +196,17 @@ RunSummary summarize(const std::vector<pipeline::LogRecord<kN>>& rows,
     metrics.add(r);
   }
   return metrics.finish();
+}
+
+RunSummary summarize(const std::vector<pipeline::LogRecord<kN>>& rows,
+                     const Vec& tau_max,
+                     const Vec& rated,
+                     std::int64_t t_eval_ns,
+                     TorqueSource torque,
+                     std::int64_t t_goal_ns) {
+  RunSummary s = summarize(rows, tau_max, rated, t_eval_ns, torque);
+  add_swing(rows, t_goal_ns, s);
+  return s;
 }
 
 common::Status write_run_files(const RunData& run, const std::filesystem::path& out_csv) {

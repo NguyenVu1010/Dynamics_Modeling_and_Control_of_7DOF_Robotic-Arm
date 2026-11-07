@@ -780,14 +780,26 @@ std::string set_key(const YAML::Node& section,
   return {};
 }
 
+// Sections of the virtual keys config.<section>.omega (double > 0): kp = omega^2, kd = 2 omega on
+// every joint, as config.computed_torque.omega (kOmegaKey, kPdOmegaKey).
+constexpr std::array<const char*, 2> kOmegaSections{"computed_torque", "pd_gravity"};
+
+// The section whose gains `key` sets when it is a virtual omega key, nullptr otherwise.
+const char* omega_section(const std::string& key) {
+  for (const char* s : kOmegaSections) {
+    if (key == std::string("config.") + s + ".omega") {
+      return s;
+    }
+  }
+  return nullptr;
+}
+
 // Applies every override to the loaded document (`config`: the controller file of `n` joints).
 std::string apply_overrides(YAML::Node& root,
                             const std::vector<KeyOverride>& overrides,
                             bool config,
                             int n) {
   std::set<std::string> seen;
-  bool omega = false;
-  bool gains = false;
   for (const KeyOverride& o : overrides) {
     if (!seen.insert(o.key).second) {
       return o.key + ": overridden twice";
@@ -796,16 +808,22 @@ std::string apply_overrides(YAML::Node& root,
       return o.key + (config ? ": not a key of the controller config (config.<path>)"
                              : ": not a key of the imperfection profile");
     }
-    omega = omega || o.key == kOmegaKey;
-    gains = gains || o.key == "config.computed_torque.kp" || o.key == "config.computed_torque.kd";
   }
-  if (omega && gains) {
-    return std::string(kOmegaKey) + " cannot be set together with config.computed_torque.kp/kd";
+  for (const char* section_name : kOmegaSections) {
+    const std::string prefix = std::string("config.") + section_name + ".";
+    if (seen.count(prefix + "omega") > 0 &&
+        (seen.count(prefix + "kp") > 0 || seen.count(prefix + "kd") > 0)) {
+      std::string text = prefix;
+      text += "omega cannot be set together with ";
+      text += prefix;
+      text += "kp/kd";
+      return text;
+    }
   }
   const YAML::Node section = root[config ? "cobot" : "imperfections"];
   for (const KeyOverride& o : overrides) {
     std::string bad;
-    if (o.key == kOmegaKey) {
+    if (const char* gains = omega_section(o.key)) {
       const double* w = std::get_if<double>(&o.value);
       if (w == nullptr || !std::isfinite(*w) || !(*w > 0.0)) {
         return o.key + ": must be a number > 0";
@@ -813,12 +831,12 @@ std::string apply_overrides(YAML::Node& root,
       const auto count = static_cast<std::size_t>(n);
       bad = set_key(section,
                     true,
-                    "computed_torque.kp",
+                    std::string(gains) + ".kp",
                     KeyOverride{o.key, std::vector<double>(count, *w * *w)});
       if (bad.empty()) {
         bad = set_key(section,
                       true,
-                      "computed_torque.kd",
+                      std::string(gains) + ".kd",
                       KeyOverride{o.key, std::vector<double>(count, 2.0 * *w)});
       }
     } else {
@@ -883,7 +901,7 @@ Result<Config<N>> load_config(const fs::path& yaml) {
 
 template <int N>
 Result<Config<N>> load_config_with(const fs::path& yaml, const std::string& key, double level) {
-  if (key == kOmegaKey) {  // virtual key: kp = omega^2, kd = 2 omega (cobot_bench sweep)
+  if (omega_section(key) != nullptr) {  // virtual key: kp = omega^2, kd = 2 omega (sweep, tune)
     return load_config_with<N>(yaml, std::vector<KeyOverride>{KeyOverride{key, level}});
   }
   const auto edit = [&key, level](YAML::Node& root) -> std::string {
