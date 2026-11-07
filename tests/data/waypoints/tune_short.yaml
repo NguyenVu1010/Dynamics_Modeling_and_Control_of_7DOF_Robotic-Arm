@@ -1,0 +1,7 @@
+# The first two points of config/tasks/pick_place_waypoints.yaml: a path of about 4.9 s, well under the
+# 10 s trajectory.duration_s of the controller files, so a post-goal window placed by that duration
+# instead of the waypoint trajectory's would find no rows (feature auto-tune).
+frame: base_link
+waypoints:
+  - {position_m: [-0.0730, -0.7449, 0.5424], rpy_deg: [0.0, -63.0, 90.0], duration_s: 0, stop: false}
+  - {position_m: [-0.2255, -0.6931, 0.6701], rpy_deg: [0.0, -40.5, 90.0], duration_s: 3.0, stop: true}
