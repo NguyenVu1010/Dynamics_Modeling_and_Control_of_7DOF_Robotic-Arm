@@ -309,7 +309,10 @@ keep their type, anything else is a string. `pipeline::config_for(model, algorit
 controller file plus `config.control.algorithm`, the limits and that algorithm's overrides, through
 `load_config_with`; an algorithm the model does not list is an error naming the model and the listed
 ones. Errors name the file and the full key (`hardware.provenance[3].kind: ...`), and a model loads
-only if its files and all its listed algorithms load.
+only if its files and all its listed algorithms load. The task owns the payload and the trajectory:
+a non-zero `cobot.payload` in the controller file and an override under `config.payload.` or
+`config.trajectory.` are errors. `pipeline::run_overrides` needs an algorithm the model lists; check
+with `config_for` first.
 
 Provenance rule (a model with an unsourced key does not load): every key of
 `active_imperfection_keys(profile)` has exactly one entry, and no other key has one. A leaf of the

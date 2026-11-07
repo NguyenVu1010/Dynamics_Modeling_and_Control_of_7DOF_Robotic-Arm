@@ -43,8 +43,10 @@ struct HardwareModel {
 
 // Errors name the file and the full key (`hardware.provenance[3].kind: ...`), all of them at once.
 // An unknown key, a missing required key, a bad type, an unknown algorithm name, a file that does
-// not load, an override or a limit the controller loader refuses for a listed algorithm, and a
-// provenance list that breaks the rule above or active_imperfection_keys are all errors.
+// not load, an override or a limit the controller loader refuses for a listed algorithm, a key the
+// task owns (a non-zero cobot.payload in the controller file, an override under config.payload. or
+// config.trajectory.), and a provenance list that breaks the rule above or
+// active_imperfection_keys are all errors.
 Result<HardwareModel> load_hardware_model(const std::filesystem::path& yaml);
 
 // What the model applies on its controller file for `algorithm`: config.control.algorithm, the two

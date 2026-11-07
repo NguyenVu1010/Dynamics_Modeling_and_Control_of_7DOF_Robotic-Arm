@@ -60,6 +60,9 @@ Result<Task> load_task(const std::filesystem::path& yaml);
 // (when the task has a trajectory) and config.payload.* (when the payload is known).
 // imperfections is model.payload_{kg,offset_m,radius_m} on model.imperfections: the plant always
 // carries the payload.
+// Precondition: the model lists `algorithm`; callers check with config_for first. An unlisted
+// algorithm is not reported here: config is then the algorithm and the limits with no gains of the
+// model, and load_config_with judges it on the controller file alone.
 struct RunOverrides {
   std::vector<KeyOverride> config;
   std::vector<KeyOverride> imperfections;

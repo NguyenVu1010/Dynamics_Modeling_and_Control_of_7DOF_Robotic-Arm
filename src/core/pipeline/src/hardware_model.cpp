@@ -106,6 +106,7 @@ void read_override(Reader& overrides,
                    const YAML::Node& n,
                    std::vector<KeyOverride>& out) {
   double number = 0.0;
+  const bool quoted = n.Tag() == "!";
   if (n.IsSequence()) {
     std::vector<double> list;
     for (const YAML::Node& e : n) {
@@ -119,11 +120,9 @@ void read_override(Reader& overrides,
   } else if (!n.IsScalar()) {
     overrides.fail(key,
                    "expected a number, a list, a bool or a string, got '" + YAML::Dump(n) + "'");
-  } else if (n.Tag() == "!") {
-    out.push_back({key, n.Scalar()});
-  } else if (YAML::convert<double>::decode(n, number)) {
+  } else if (!quoted && YAML::convert<double>::decode(n, number)) {
     out.push_back({key, number});
-  } else if (n.Scalar() == "true" || n.Scalar() == "false") {
+  } else if (!quoted && (n.Scalar() == "true" || n.Scalar() == "false")) {
     out.push_back({key, n.Scalar() == "true"});
   } else {
     out.push_back({key, n.Scalar()});
@@ -289,6 +288,19 @@ void check_provenance(const HardwareModel& m,
   }
 }
 
+// The task owns the trajectory and the payload (run_overrides): a model that sets them would leave
+// a payload the task did not declare, or fail only later, at the run, on a key given twice.
+void check_task_owned_keys(const std::string& algorithm,
+                           const std::vector<KeyOverride>& overrides,
+                           std::vector<std::string>& errors) {
+  for (const KeyOverride& o : overrides) {
+    if (o.key.rfind("config.payload.", 0) == 0 || o.key.rfind("config.trajectory.", 0) == 0) {
+      errors.push_back("hardware.algorithms." + algorithm + ".overrides." + o.key +
+                       ": owned by the task");
+    }
+  }
+}
+
 std::vector<std::string> check_model(const HardwareModel& m) {
   std::vector<std::string> errors;
   const Result<std::vector<Leaf>> active = active_leaves(m.imperfections);
@@ -302,11 +314,15 @@ std::vector<std::string> check_model(const HardwareModel& m) {
     errors.push_back("hardware.controller: " + base.reason());
     return errors;
   }
+  if (base.value().payload.kg != 0.0) {
+    errors.emplace_back("hardware.controller: cobot.payload is owned by the task");
+  }
   for (const auto& kv : m.algorithms) {
+    const std::string name(control::to_string(kv.first));
+    check_task_owned_keys(name, kv.second, errors);
     const auto config = config_for<kDof>(m, kv.first);
     if (!config) {
-      errors.push_back("hardware.algorithms." + std::string(control::to_string(kv.first)) + ": " +
-                       config.reason());
+      errors.push_back("hardware.algorithms." + name + ": " + config.reason());
     }
   }
   return errors;
