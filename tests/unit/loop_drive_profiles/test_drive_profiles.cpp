@@ -55,6 +55,11 @@ constexpr double kWindowS = 0.5;  // swing windows after the goal and before the
 constexpr double kMaxFinalPosErrM = 4.0e-3;
 constexpr double kMaxFinalRotErrRad = 0.0279;
 constexpr double kMaxRmsJointErrRad = 0.016;
+// Range of the measured q - q_ref over a 0.5 s window when the arm is at rest: budget_xarm7 has
+// q_noise_std_rad 5e-5 and a 17-bit encoder (LSB 4.79e-5 rad); the measured q at rest has a
+// std of up to 9.8e-5 rad per joint, and the range of a 0.5 s window is about 5 std (4.9e-4 rad).
+// A swing at or below this floor is sensor noise, not a residual oscillation.
+constexpr double kSwingNoiseFloorRad = 5.0e-4;
 
 std::optional<imperfect::ImperfectionConfig<kN>> load_profile(const std::string& name,
                                                               std::uint64_t seed) {
@@ -201,7 +206,8 @@ TEST_P(BudgetDrive, BudgetDriveMeetsTheMargin) {
   EXPECT_LE(m.final_pos_err_m, kMaxFinalPosErrM) << c;
   EXPECT_LE(m.final_rot_err_rad, kMaxFinalRotErrRad) << c;
   EXPECT_LE(m.rms_joint_err_rad, kMaxRmsJointErrRad) << c;
-  EXPECT_LT(s.last, s.first) << c << ": post-goal swing does not decay";
+  EXPECT_TRUE(s.last < s.first || s.last <= kSwingNoiseFloorRad)
+      << c << ": post-goal swing does not decay (" << s.first << " -> " << s.last << " rad)";
 }
 
 INSTANTIATE_TEST_SUITE_P(Seeds,
