@@ -101,3 +101,33 @@ trễ, so với profile, và ghi độ lệch vào báo cáo. Đến lúc đó, 
   không nạp được.
 - Phải đo: thời gian bước khi chọn thuật toán qua cấu hình (PF-01 không đổi), độ ổn định của kết
   luận khi đổi dãy hạt giống (100 hạt giống khác cho cùng kết luận trên ba model mốc).
+
+## Bổ sung (2026-11-07): PR controller-registry
+
+- **Danh sách đăng ký đóng.** `cobot/control/algorithm.hpp` có bảng hằng `kAlgorithms` (tên YAML,
+  mô tả một dòng) và `enum class Algorithm : std::uint8_t` (`kComputedTorque = 0`,
+  `kPdGravity = 1`; giá trị cố định, chỉ thêm vào cuối). `TrackingController<N>` giữ mọi luật theo
+  giá trị, `compute()` là một `switch` trên enum, `noexcept`; không hàm ảo, không
+  `std::function`, không cấp phát. "Đăng ký lúc build" = một dòng trong bảng và một nhánh trong
+  `switch`. `ControlLoop` thay `ComputedTorque` bằng `TrackingController` và có thêm
+  `algorithm()`; phần còn lại của bước (feed-forward ma sát, clamp, hold, fault, log) không đổi.
+- **Khoá cấu hình.** `cobot.control.algorithm` (tuỳ chọn, mặc định `computed_torque`; tên lạ báo
+  lỗi kèm danh sách đã đăng ký) và `cobot.pd_gravity: {kp, kd}` (bắt buộc khi chọn `pd_gravity`,
+  ngoài ra vẫn được đọc và kiểm tra). Bốn file cấu hình bộ điều khiển ghi rõ
+  `control: {algorithm: computed_torque}`.
+- **PD cộng bù trọng lực.** `τ = J ⊙ (k_p ⊙ (q_ref − q) + k_d ⊙ (q̇_ref − q̇)) + G(q)`, `k_p` 1/s²,
+  `k_d` 1/s, `J = diag(M(home_q))` của mô hình bộ điều khiển, tính một lần khi dựng (câu hỏi C6):
+  cùng `ω` là cùng băng thông như computed torque, tự chỉnh quét một tham số mỗi luật
+  (docs/derivations/control.md "PD cộng bù trọng lực"). Trên plant lý tưởng, `ω = 80`, sai số bám
+  RMS lớn nhất theo khớp là 8.78e-6 rad với PD+G và 6.66e-7 rad với computed torque.
+- **Hold không đổi.** `HoldController` vẫn ở `ControlLoop` với hệ số computed torque cho cả hai
+  thuật toán, nên đường hold giữ nguyên từng bit.
+- **Kiểm bit-identical.** `tools/run_csv_hashes.sh` chạy năm Run CSV (E2E-01, 02, 03, 04, 10) với
+  bản Release của main 6161dcb và của nhánh trên cùng một máy (WSL Ubuntu 24.04, x86_64): sha256
+  của cả năm file bằng nhau. Không lưu hash vào repo vì arm64 (FMA) và x86_64 khác nhau ở bit cuối.
+  Trong CI, test vàng `test_loop_config_regression` và các test so bit của `TrackingController`
+  và `ControlLoopRegistry` giữ điều này.
+- **PF-01.** `cobot_bench timing --config config/default.yaml --steps 10000`, Release, 5 lần main
+  và 5 lần nhánh xen kẽ; trung vị p50 / p95 / max: main 4.726 / 4.967 / 117.5 µs, nhánh
+  4.733 / 4.992 / 84.3 µs. Chênh +0.007 µs (p50) và +0.025 µs (p95), trong dung sai +0.25 / +0.35
+  µs: đạt. PD+G (cùng lệnh, `algorithm: pd_gravity`, 3 lần, không chặn): p50 4.729 µs, p95 4.995 µs.

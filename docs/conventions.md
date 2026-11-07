@@ -69,6 +69,20 @@ this far inside `safety.soft_margin_deg`); `joint_speed_fraction` (0.9, in (0, 1
 overshoots its target slightly, stays below the `overspeed` hold at qd_max). Errors name the full
 key, such as `cobot.manual.deadman_ms`.
 
+Optional section `cobot.control` (ADR-023) with the single optional key `algorithm`: the tracking
+law, one of the names registered at build time (`computed_torque`, `pd_gravity`; table
+`kAlgorithms` in `cobot/control/algorithm.hpp`). A missing section or key selects
+`computed_torque`; another value is `cobot.control.algorithm: unknown algorithm 'foo' (registered:
+computed_torque, pd_gravity)`. The hold law is the same for every algorithm (computed-torque
+gains). Optional section `cobot.pd_gravity: {kp, kd}` holds the gains of PD plus gravity
+compensation, `tau = J .* (kp .* (q_ref - q) + kd .* (qd_ref - qd)) + G(q)`: both keys required
+in the section, > 0, 7 values or one scalar broadcast, `kp` in 1/s² and `kd` in 1/s, scaled by
+the constant joint inertia `J = diag(M(home_q))` of the controller's model, so the same
+`omega` (`kp = omega²`, `kd = 2 omega`) means the same bandwidth as computed torque. The section
+is required when `algorithm` is `pd_gravity` (`cobot.pd_gravity: required when
+cobot.control.algorithm is pd_gravity`) and, with another algorithm, parsed and checked but
+unused, so one file switches law through an override.
+
 ## Model and fixed-joint merge
 
 `Model<N>` holds `N` revolute joints. For each joint: `T_parent_joint`, axis, limits

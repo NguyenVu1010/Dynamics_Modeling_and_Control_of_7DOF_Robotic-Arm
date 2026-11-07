@@ -102,7 +102,10 @@ ControlLoop<N>::ControlLoop(const model::Model<N>& model,
     : model_(model),
       config_(config),
       clik_(model, config.clik),
-      computed_torque_(model, config.computed_torque),
+      controller_(
+          model,
+          control::ControllerConfig<N>{
+              config.algorithm, config.computed_torque, config.pd_gravity, config.home_q_rad}),
       friction_(config.friction_compensation),
       hold_(model, config.computed_torque),
       recorder_(recorder) {
@@ -254,7 +257,7 @@ Status ControlLoop<N>::step(const JointState<N>& measured,
         jog_.braking = ManualStop::kSoftLimit;
       }
     }
-    out = computed_torque_.compute(state, ref);
+    out = controller_.compute(state, ref);
     add_clamped(model_, friction_.torque(ref.qd), out.tau);
     record.q_ref = ref.q;
     record.qd_ref = ref.qd;

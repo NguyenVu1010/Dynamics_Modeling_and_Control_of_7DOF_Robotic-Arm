@@ -7,8 +7,10 @@
 
 #include "cobot/common/result.hpp"
 #include "cobot/common/types.hpp"
+#include "cobot/control/algorithm.hpp"
 #include "cobot/control/computed_torque.hpp"
 #include "cobot/control/friction_compensation.hpp"
+#include "cobot/control/pd_gravity.hpp"
 #include "cobot/imperfect/config.hpp"
 #include "cobot/model/model.hpp"
 #include "cobot/pipeline/path_validation.hpp"
@@ -125,6 +127,12 @@ struct Config {
   TrajectoryConfig trajectory;
   planning::ClikConfig clik;
   control::ComputedTorqueGains<N> computed_torque;
+  // Tracking law (ADR-023), YAML cobot.control.algorithm (optional, computed_torque); a name
+  // outside control::kAlgorithms is an error listing the registered names.
+  control::Algorithm algorithm = control::Algorithm::kComputedTorque;
+  // YAML cobot.pd_gravity: {kp, kd} (1/s^2, 1/s; N values or a scalar, > 0). Required when the
+  // algorithm is pd_gravity; parsed and checked (unused) otherwise.
+  control::PdGravityGains<N> pd_gravity;
   control::FrictionCompensationConfig<N> friction_compensation;  // optional section: disabled
   SafetyConfig safety;
   std::filesystem::path log_output_dir = "results";
