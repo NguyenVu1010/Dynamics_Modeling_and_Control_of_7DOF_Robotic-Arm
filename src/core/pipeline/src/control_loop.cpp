@@ -102,10 +102,12 @@ ControlLoop<N>::ControlLoop(const model::Model<N>& model,
     : model_(model),
       config_(config),
       clik_(model, config.clik),
-      controller_(
-          model,
-          control::ControllerConfig<N>{
-              config.algorithm, config.computed_torque, config.pd_gravity, config.home_q_rad}),
+      controller_(model,
+                  control::ControllerConfig<N>{config.algorithm,
+                                               config.computed_torque,
+                                               config.pd_gravity,
+                                               config.home_q_rad,
+                                               config.drive.torque_feedforward}),
       friction_(config.friction_compensation),
       hold_(model, config.computed_torque),
       recorder_(recorder) {
@@ -134,6 +136,20 @@ const JointState<N>& ControlLoop<N>::compensated(const JointState<N>& measured) 
                                                             d.torque_t2_nm(j));
   }
   return state_hat_;
+}
+
+template <int N>
+void ControlLoop<N>::shift_set_point(JointCommand<N>& out) const {
+  const DeflectionCompConfig<N>& d = config_.deflection_comp;
+  const common::VecN<N> g = dynamics::gravity_torque(model_, out.q);
+  for (int j = 0; j < N; ++j) {
+    out.q(j) += dynamics::harmonic_spring_deflection(g(j),
+                                                     d.stiffness_k1_nm_rad(j),
+                                                     d.stiffness_k2_nm_rad(j),
+                                                     d.stiffness_k3_nm_rad(j),
+                                                     d.torque_t1_nm(j),
+                                                     d.torque_t2_nm(j));
+  }
 }
 
 template <int N>
@@ -245,6 +261,7 @@ Status ControlLoop<N>::step(const JointState<N>& measured,
     advance_external(dt);
   }
   const planning::CartesianSample& x_d = reference_;
+  const bool drive = controller_.algorithm() == control::Algorithm::kDrivePosition;
   LogRecord<N> record;
   if (mode_ == LoopMode::kTracking || mode_ == LoopMode::kFinished || mode_ == LoopMode::kStandby) {
     const planning::JointReference<N>& ref = joint_row ? joint_ref_ : clik_.step(x_d, dt);
@@ -266,15 +283,23 @@ Status ControlLoop<N>::step(const JointState<N>& measured,
       mode_ = LoopMode::kFinished;
     }
   } else if (mode_ == LoopMode::kHolding) {
-    out = hold_.compute(state);
+    out = drive ? controller_.hold(hold_.q_hold()) : hold_.compute(state);
     record.q_ref = hold_.q_hold();
   }
+  // The drive regulates the motor: shift the set point by the link's static deflection there.
+  if (drive && out.mode == hal::DriveMode::kPosition && config_.deflection_comp.enabled &&
+      measured.q_from_motor && mode_ != LoopMode::kFault) {
+    shift_set_point(out);
+  }
 
-  // 4. Never pass a non-finite torque on.
-  if (mode_ == LoopMode::kFault || !out.tau.allFinite()) {
+  // 4. Never pass a non-finite command on.
+  if (mode_ == LoopMode::kFault || !out.tau.allFinite() || !out.q.allFinite() ||
+      !out.qd.allFinite()) {
     mode_ = LoopMode::kFault;
     out.tau.setZero();
+    out.mode = hal::DriveMode::kTorque;
   }
+  out.seq = ++seq_;
 
   // 5. Log; a full kStopWhenFull recorder drops and counts the record.
   kinematics::FkState<N> fk;

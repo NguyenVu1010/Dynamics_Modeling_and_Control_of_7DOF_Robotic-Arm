@@ -494,6 +494,10 @@ class CobotController final : public ci::ControllerInterface {
       return R::error(config ? imp.reason() : config.reason());
     }
     cobot::pipeline::Config<kN> c = config.value();
+    if (c.algorithm == cobot::control::Algorithm::kDrivePosition) {  // owner question C4
+      return R::error(
+          "cobot.control.algorithm drive_position is bench only (no drive model on this host)");
+    }
     const std::string source = get_node()->get_parameter("command_source").as_string();
     if (source == "config" || source == "external") {
       c.command_source = source == "external" ? cobot::pipeline::CommandSource::kExternal

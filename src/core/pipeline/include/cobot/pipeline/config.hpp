@@ -115,6 +115,25 @@ struct ManualConfig {
   double joint_speed_fraction = 0.9;
 };
 
+// The simulated joint drive of the algorithm drive_position (feature drive-loop, ADR-023), YAML
+// `drive: {rate_hz, omega_rad_s, zeta, velocity_filter_hz, torque_feedforward}`, every key required
+// in the section; the section is required when cobot.control.algorithm is drive_position (parsed
+// and checked, unused, otherwise). Gains computed by the drive (pipeline::SimDrive):
+// kp_j = J_j omega_j^2 (N m/rad), kd_j = 2 zeta J_j omega_j (N m s/rad), J = diag(M(home_q)) of
+// the controller model.
+template <int N>
+struct DriveConfig {
+  double rate_hz = 4000.0;  // > 0, rate_hz / control_rate_hz an integer >= 1 (1e-9 relative)
+  VecN<N> omega_rad_s = VecN<N>::Constant(60.0);  // > 0, N values or a scalar: loop bandwidth
+  double zeta = 1.0;                              // > 0, damping ratio
+  double velocity_filter_hz = 500.0;              // > 0, low-pass of the encoder difference
+  control::DriveFeedForward torque_feedforward = control::DriveFeedForward::kInverseDynamics;
+};
+
+// rate_hz / control_rate_hz when it is an integer >= 1 (1e-9 relative), else 0: the drive
+// sub-steps per control period (rule of cobot.drive.rate_hz).
+int drive_substeps(double rate_hz, double control_rate_hz);
+
 template <int N>
 struct Config {
   std::filesystem::path urdf_path;  // resolved relative to the YAML file's directory
@@ -133,6 +152,7 @@ struct Config {
   // YAML cobot.pd_gravity: {kp, kd} (1/s^2, 1/s; N values or a scalar, > 0). Required when the
   // algorithm is pd_gravity; parsed and checked (unused) otherwise.
   control::PdGravityGains<N> pd_gravity;
+  DriveConfig<N> drive;  // YAML cobot.drive, see DriveConfig
   control::FrictionCompensationConfig<N> friction_compensation;  // optional section: disabled
   SafetyConfig safety;
   std::filesystem::path log_output_dir = "results";

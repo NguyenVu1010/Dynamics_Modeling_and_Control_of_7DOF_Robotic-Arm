@@ -26,11 +26,14 @@
 #include "cobot/bridge/endpoint.hpp"
 #include "cobot/bridge/wire.hpp"
 #include "cobot/common/lie.hpp"
+#include "cobot/control/algorithm.hpp"
+#include "cobot/dynamics/dynamics.hpp"
 #include "cobot/imperfect/imperfect_joint_interface.hpp"
 #include "cobot/imperfect/perturb.hpp"
 #include "cobot/pipeline/control_loop.hpp"
 #include "cobot/pipeline/path_validation.hpp"
 #include "cobot/pipeline/recorder.hpp"
+#include "cobot/pipeline/sim_drive.hpp"
 #include "cobot/pipeline/sim_joint_interface.hpp"
 #include "cobot/pipeline/waypoint_file.hpp"
 
@@ -92,6 +95,28 @@ std::string issue_line(const pipeline::WaypointIssue& w) {
   const std::string joint = w.joint >= 0 ? " joint " + std::to_string(w.joint) : "";
   return "waypoint " + std::to_string(w.waypoint) + ": " + pipeline::to_string(w.issue) + joint +
          numbers.data();
+}
+
+// The simulated drive of drive_position (feature drive-loop), none for the torque laws: J =
+// diag(M(home_q)) of the controller model, the controller's peak torque, the profile's actuator
+// chain with the decorator's torque scale, set points at the servo rate (every period when 0).
+std::optional<pipeline::SimDrive<kN>> make_drive(const Setup& setup,
+                                                 const pipeline::Config<kN>& config,
+                                                 const imperfect::ImperfectionConfig<kN>& profile,
+                                                 const common::VecN<kN>& torque_scale) {
+  if (config.algorithm != control::Algorithm::kDrivePosition) {
+    return std::nullopt;
+  }
+  const double period_s = 1.0 / config.control_rate_hz;
+  const double servo_hz = profile.comm.servo_rate_hz;
+  const common::MatN<kN> m = dynamics::mass_matrix(setup.nominal, config.home_q_rad);
+  return pipeline::SimDrive<kN>(config.drive,
+                                m.diagonal(),
+                                config.limits.peak_torque_nm,
+                                profile,
+                                torque_scale,
+                                period_s,
+                                servo_hz > 0.0 ? 1.0 / servo_hz : period_s);
 }
 
 }  // namespace
@@ -204,6 +229,12 @@ common::Result<RunData> run_engine(const RunRequest& request, bool& path_invalid
     pipeline::SimTruthProbe<kN> probe(plant);
     imperfect::ImperfectJointInterface<kN> io(
         sim, imperfections, period_s, false, config.limits.peak_torque_nm);
+    // drive_position: the drive sits after the decorator, between the bus and the plant.
+    std::optional<pipeline::SimDrive<kN>> drive =
+        make_drive(setup.value(), config, imperfections, io.torque_scale());
+    if (drive) {
+      sim.attach_drive(&*drive);
+    }
     // The loop records into `recorder`, which gets run.records (one row per cycle) once the
     // cycle count is known (after the waypoint check) and before the first step; start()
     // records nothing.
@@ -495,6 +526,12 @@ common::Result<TimingStats> timing(const std::filesystem::path& config_yaml,
   try {
     dynamics::SimPlant<kN> plant(setup.value().urdf, config.home_q_rad);
     pipeline::SimJointInterface<kN> sim(plant, period_s);
+    // drive_position: a drive on the ideal profile (it runs outside the timed window).
+    std::optional<pipeline::SimDrive<kN>> drive = make_drive(
+        setup.value(), config, imperfect::ImperfectionConfig<kN>{}, common::VecN<kN>::Ones());
+    if (drive) {
+      sim.attach_drive(&*drive);
+    }
     pipeline::SimTruthProbe<kN> probe(plant);
     // log.mode off: no recorder; otherwise one row per step (the copy is part of the step time).
     std::optional<pipeline::HeapStorage<kN>> storage;

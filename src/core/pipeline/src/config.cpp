@@ -494,6 +494,50 @@ void read_algorithm(Reader& m, Config<N>& c) {
   }
 }
 
+// `drive: {rate_hz, omega_rad_s, zeta, velocity_filter_hz, torque_feedforward}` (feature
+// drive-loop): optional, every key required inside it; required when the algorithm is
+// drive_position. Read after control_rate_hz and the algorithm.
+template <int N>
+void read_drive(Reader& m, Config<N>& c) {
+  if (!m.has("drive")) {
+    if (c.algorithm == control::Algorithm::kDrivePosition) {
+      m.fail("drive", "required when cobot.control.algorithm is drive_position");
+    }
+    return;
+  }
+  Reader x = m.map("drive");
+  DriveConfig<N>& d = c.drive;
+  double rate = 0.0;
+  x.number("rate_hz", kPositive, rate);
+  if (rate > 0.0 && drive_substeps(rate, c.control_rate_hz) == 0) {
+    std::array<char, 96> text{};
+    std::snprintf(text.data(),
+                  text.size(),
+                  "must be an integer multiple of control_rate_hz (%g), got %g",
+                  c.control_rate_hz,
+                  rate);
+    x.fail("rate_hz", text.data());
+  } else if (rate > 0.0) {
+    d.rate_hz = rate;
+  }
+  x.vector<N>("omega_rad_s", kPositive, true, d.omega_rad_s);
+  x.number("zeta", kPositive, d.zeta);
+  x.number("velocity_filter_hz", kPositive, d.velocity_filter_hz);
+  std::string ff;
+  if (x.scalar("torque_feedforward", ff)) {
+    if (ff == "none") {
+      d.torque_feedforward = control::DriveFeedForward::kNone;
+    } else if (ff == "gravity") {
+      d.torque_feedforward = control::DriveFeedForward::kGravity;
+    } else if (ff == "inverse_dynamics") {
+      d.torque_feedforward = control::DriveFeedForward::kInverseDynamics;
+    } else {
+      x.fail("torque_feedforward", "expected none, gravity or inverse_dynamics, got '" + ff + "'");
+    }
+  }
+  x.finish();
+}
+
 template <int N>
 void read_config(Reader& root, const fs::path& dir, Config<N>& c) {
   Reader m = root.map("cobot");
@@ -551,6 +595,7 @@ void read_config(Reader& root, const fs::path& dir, Config<N>& c) {
   c.log_output_dir = (dir / text).lexically_normal();
   read_log_mode(l, c);
   read_algorithm<N>(m, c);
+  read_drive<N>(m, c);
   read_external<N>(m, c);
   read_limits<N>(m, c);
   read_deflection_comp<N>(m, c.deflection_comp);

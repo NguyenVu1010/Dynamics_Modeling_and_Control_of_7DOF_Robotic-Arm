@@ -70,10 +70,10 @@ overshoots its target slightly, stays below the `overspeed` hold at qd_max). Err
 key, such as `cobot.manual.deadman_ms`.
 
 Optional section `cobot.control` (ADR-023) with the single optional key `algorithm`: the tracking
-law, one of the names registered at build time (`computed_torque`, `pd_gravity`; table
+law, one of the names registered at build time (`computed_torque`, `pd_gravity`, `drive_position`; table
 `kAlgorithms` in `cobot/control/algorithm.hpp`). A missing section or key selects
 `computed_torque`; another value is `cobot.control.algorithm: unknown algorithm 'foo' (registered:
-computed_torque, pd_gravity)`. The hold law is the same for every algorithm (computed-torque
+computed_torque, pd_gravity, drive_position)`. The hold law of the torque laws is the same (computed-torque
 gains). Optional section `cobot.pd_gravity: {kp, kd}` holds the gains of PD plus gravity
 compensation, `tau = J .* (kp .* (q_ref - q) + kd .* (qd_ref - qd)) + G(q)`: both keys required
 in the section, > 0, 7 values or one scalar broadcast (a wrong count is `cobot.pd_gravity.kp:
@@ -83,6 +83,20 @@ expected a scalar or 7 values, got 6`, the wording of `coulomb_nm`), `kp` in 1/s
 is required when `algorithm` is `pd_gravity` (`cobot.pd_gravity: required when
 cobot.control.algorithm is pd_gravity`) and, with another algorithm, parsed and checked but
 unused, so one file switches law through an override.
+
+Algorithm `drive_position` (feature drive-loop, ADR-023): the host sends a position set point,
+a velocity feed-forward and a torque feed-forward (`hal::DriveMode::kPosition`); a simulated
+joint drive (`pipeline::SimDrive`, bench only: `cobot_bench serve` and `cobot_controller`
+reject it with `cobot.control.algorithm drive_position is bench only (no drive model on this
+host)`) closes the position loop on its motor encoder. Section `cobot.drive: {rate_hz,
+omega_rad_s, zeta, velocity_filter_hz, torque_feedforward}`, every key required in it, required
+when the algorithm is `drive_position` (`cobot.drive: required when cobot.control.algorithm is
+drive_position`): `rate_hz` > 0 and an integer multiple of `control_rate_hz` (`cobot.drive.rate_hz:
+must be an integer multiple of control_rate_hz (1000), got 2500`); `omega_rad_s` > 0, 7 values
+or a scalar (position-loop bandwidth, `kp = J omega²` N·m/rad, `kd = 2 zeta J omega` N·m·s/rad,
+`J = diag(M(home_q))` of the controller model); `zeta` > 0; `velocity_filter_hz` > 0 (low-pass
+of the drive's encoder difference); `torque_feedforward` `none`, `gravity` (`G(q_ref)`) or
+`inverse_dynamics` (`rnea(q_ref, qd_ref, qdd_ref) + D qd_ref`).
 
 ## Model and fixed-joint merge
 
@@ -122,6 +136,8 @@ into `link_6`, and the origin of `joint_7` becomes `T_link6_link62 * T_link62_jo
 | `Vec3`, `Mat3`, `Vec6`, `Mat6` | fixed-size double |
 | `Pose` | `{Mat3 R; Vec3 p;}` |
 | `Timestamp` | `std::int64_t`, nanoseconds |
+| `hal::DriveMode` | `std::uint8_t`: `kTorque = 0` (apply `tau`), `kPosition = 1` (set-point packet) |
+| `hal::JointCommand<N>` | `{tau, mode, q, qd, seq}`: torque mode uses `tau`; position mode sends the set point `q` (rad, motor encoder in link units), the velocity feed-forward `qd` (rad/s) and the torque feed-forward `tau` (N·m); `seq` is the set-point number (`ControlLoop` counts 1, 2, 3, ... every step) |
 
 The project instantiates `N = 7` (`kArmDof`, `Arm7 = Model<7>`). Dynamic-size Eigen types
 are not used in core.
@@ -159,7 +175,7 @@ feature log-channels, such as those in `docs/results/`), is still accepted by `c
 | `mode` | one of `idle`, `tracking`, `holding`, `finished`, `fault`, `standby` (external command mode: holding a fixed Cartesian reference through CLIK and computed torque, waiting for a trajectory; not counted as tracking error) |
 | `q*`, `qd*` | the controller's working joint position (rad) and the measured velocity (rad/s). `q` is the raw reading, except when `cobot.deflection_comp.enabled` is true and the state comes from the motor encoder (`JointState::q_from_motor`): then it is `q_hat = q - deflection(g(q))`, the static spring deflection of the controller model's gravity torque removed. `qd` is always the raw reading |
 | `qref*`, `qdref*` | CLIK reference `q_d`, `q̇_d` |
-| `tau*` | commanded torque (N·m), after clamping |
+| `tau*` | commanded torque (N·m), after clamping; in a `drive_position` run the torque feed-forward sent with the set point (`qref*` is then the set point before the deflection shift) |
 | `px..pz`, `rx..rz` | position (m) and `so3_log(R_b_e)` (rad) of `T_b_e`, the forward kinematics of the logged `q*` (so of `q_hat` when the deflection compensation is active) |
 | `pdx..pdz`, `rdx..rdz` | same for `T_b_d` |
 | `e1..e6` | CLIK `task_error`, order `[v; ω]`; 0 in `holding` rows (CLIK is not stepped there, `qref*` is the hold target and `qdref*` is 0) |
@@ -170,7 +186,7 @@ feature log-channels, such as those in `docs/results/`), is still accepted by `c
 | `qt*`, `qdt*` | plant link position (rad) and velocity (rad/s) at the row's instant, before the sensor decorator |
 | `qddt*` | mean plant link acceleration (rad/s²) over the plant interval ending at `t_ns` (velocity difference over the plant clock; 0 in the first row) |
 | `qmt*` | plant motor-side position in link units (rad); equal to `qt*` on a rigid joint |
-| `taum*` | torque the plant applied (N·m) over the interval ending at `t_ns`, after the decorator, motor lag and the drive cap |
+| `taum*` | torque the plant applied (N·m) over the interval ending at `t_ns`, after the decorator, motor lag and the drive cap; in a `drive_position` run the torque of the last drive sub-step |
 | `tauf*` | plant friction torque (N·m) over that interval: Coulomb + profile viscous (URDF `<dynamics damping>` excluded), opposing the motion; on an elastic joint the motor-side friction |
 | `cmd` | command mode (`ControlLoop::command_mode()`): `config` in every row of `command_source: config`; in external mode the mode of the command running (`waypoints` for `load`, `move_tcp` for `load(..., kMoveTcp)`, `jog_joint`, `jog_tcp`, `move_joint`), `waypoints` before any command; `standby` and `holding` rows keep the mode of the last accepted command |
 

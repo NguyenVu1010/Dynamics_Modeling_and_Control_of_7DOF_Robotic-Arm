@@ -1,5 +1,7 @@
 #pragma once
 
+#include <cstdint>
+
 #include "cobot/common/result.hpp"
 #include "cobot/common/timestamp.hpp"
 #include "cobot/common/types.hpp"
@@ -29,9 +31,18 @@ struct JointState {
   bool q_from_motor = false;
 };
 
+// What a command asks of the joint drives (owner question C5, feature drive-loop). kTorque: the
+// drive applies `tau`. kPosition: a set-point packet for a drive that closes the position loop on
+// its own motor encoder (pipeline::SimDrive in the bench); `tau` is then a torque feed-forward.
+enum class DriveMode : std::uint8_t { kTorque = 0, kPosition = 1 };
+
 template <int N>
 struct JointCommand {
-  VecN<N> tau = VecN<N>::Zero();  // N m
+  VecN<N> tau = VecN<N>::Zero();  // kTorque: torque (N m); kPosition: torque feed-forward (N m)
+  DriveMode mode = DriveMode::kTorque;
+  VecN<N> q = VecN<N>::Zero();   // kPosition: position set point (rad, motor encoder, link units)
+  VecN<N> qd = VecN<N>::Zero();  // kPosition: velocity feed-forward (rad/s)
+  std::uint32_t seq = 0;         // set point number: ControlLoop increments it every step
 };
 
 template <int N>

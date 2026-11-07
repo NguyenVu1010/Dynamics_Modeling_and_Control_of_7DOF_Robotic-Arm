@@ -20,6 +20,7 @@
 #include "cobot/bridge/endpoint.hpp"
 #include "cobot/bridge/loop_port.hpp"
 #include "cobot/bridge/wire.hpp"
+#include "cobot/control/algorithm.hpp"
 #include "cobot/imperfect/imperfect_joint_interface.hpp"
 #include "cobot/imperfect/perturb.hpp"
 #include "cobot/pipeline/control_loop.hpp"
@@ -61,6 +62,10 @@ common::Result<Arm> load_arm(const fs::path& yaml) {
     return Out::error(loaded.reason());
   }
   pipeline::Config<kN> config = loaded.value();
+  if (config.algorithm == control::Algorithm::kDrivePosition) {  // owner question C4
+    return Out::error(
+        "cobot.control.algorithm drive_position is bench only (no drive model on this host)");
+  }
   config.command_source = pipeline::CommandSource::kExternal;
   config.log_mode = pipeline::LogMode::kRecorderLive;
   const common::Result<model::UrdfChain> chain =
