@@ -1,0 +1,28 @@
+# E2E-14 (feature drive-loop, ADR-023 prerequisite, cobot_studio design 10.2 G11): the E2E-01
+# trajectory on the budget_xarm7 profile with the position loop in the joint drive
+# (cobot.control.algorithm drive_position, config/budget_xarm7_drive.yaml: the host sends position
+# set points, velocity and torque feed-forward at the 250 Hz servo rate; a simulated drive closes
+# the position loop on its motor encoder at 4 kHz), seeds 1, 2, 3 (seed = first seed, runs = seeds).
+# kind profiles as E2E-12 (tools/run_e2e.py): `cobot_bench montecarlo --config <config>
+# --imperfections <imperfections> --runs <runs> --seed0 <seed> --out <out>/E2E-14/<name>`; every run
+# judged from the metric columns. hold: fail -> any held run fails the scenario. E2E-12 keeps the
+# budget torque-from-host finding (hold: report); this scenario is the same profile with the
+# drive-side loop. Tag realism2: run with --tag realism2 or --scenario; a plain --all skips it.
+#
+# Thresholds: the E2E-12 levels, proposed, awaiting owner approval (design 10).
+id: E2E-14
+tags: [realism2]
+runner: bench
+kind: profiles
+config: config/budget_xarm7_drive.yaml
+seed: 1
+runs: 3
+profiles:
+  budget_xarm7:
+    config: config/budget_xarm7_drive.yaml
+    imperfections: config/imperfections/budget_xarm7.yaml
+    hold: fail
+    thresholds:  # proposed, awaiting owner approval
+      final_pos_err_m: 0.005
+      final_rot_err_deg: 2.0
+      rms_joint_err_rad: 0.02
