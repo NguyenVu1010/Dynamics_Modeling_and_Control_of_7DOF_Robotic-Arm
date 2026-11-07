@@ -156,9 +156,16 @@ def test_only_tag_realism2_selects_it_in_all(tmp_path, bench):
     # --all --tag realism2 runs E2E-12 (the real file) on the fake bench.
     code, out, calls = run_e2e(tmp_path, bench, ["--all", "--tag", "realism2"])
     assert "E2E-12" in out, out
+    # E2E-14 (budget_xarm7 with the drive loop) carries the tag too; its calls are pinned in
+    # test_run_e2e_budget_drive.py.
+    calls = [c for c in calls if Path(flag(c, "--config")).name != "budget_xarm7_drive.yaml"]
     assert [Path(flag(c, "--imperfections")).stem for c in calls] == NAMES
     assert [Path(flag(c, "--config")).name for c in calls] == [f"{n}.yaml" for n in NAMES]
-    assert code == 0, out
+    # The fake bench holds every budget run, which fails E2E-14 (no hold allowed) and so the
+    # exit code; E2E-12 itself allows the hold and passes.
+    row = next(line for line in out.splitlines() if line.startswith("E2E-12"))
+    assert row.split()[2] == "PASS", out
+    assert code == 1, out  # E2E-14 FAIL on the fake
 
 
 @pytest.mark.parametrize("tag", [None, "pr", "nightly", "arm64"])
