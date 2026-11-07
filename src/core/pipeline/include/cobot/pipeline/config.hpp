@@ -130,6 +130,16 @@ struct DriveConfig {
   control::DriveFeedForward torque_feedforward = control::DriveFeedForward::kInverseDynamics;
 };
 
+// The payload the controller is told about (feature hardware-catalog, ADR-023 ambiguity 12), YAML
+// `payload: {kg, offset_m, radius_m}`: optional section, kg required in it, the other two optional.
+// Same meaning and rules as imperfections.model.payload_*. controller_model merges it into the last
+// link; kg 0 leaves the model untouched whatever the other two say.
+struct PayloadConfig {
+  double kg = 0.0;               // >= 0
+  Vec3 offset_m = Vec3::Zero();  // centre of mass in the tip frame, from the tip origin
+  double radius_m = 0.0;         // >= 0, solid sphere
+};
+
 // rate_hz / control_rate_hz when it is an integer >= 1 (1e-9 relative), else 0: the drive
 // sub-steps per control period (rule of cobot.drive.rate_hz).
 int drive_substeps(double rate_hz, double control_rate_hz);
@@ -176,6 +186,7 @@ struct Config {
   JointLimitsConfig<N> limits;
   DeflectionCompConfig<N> deflection_comp;  // optional section: disabled
   ManualConfig<N> manual;                   // optional section (feature manual-commands)
+  PayloadConfig payload;                    // optional section: no payload
 };
 
 template <int N>
@@ -191,7 +202,8 @@ Result<Config<N>> load_config_with(const std::filesystem::path& yaml,
 
 // The controller's model: `urdf_model` with tau_max_i = min(config.limits.peak_torque_nm_i,
 // urdf tau_max_i), which is the peak torque P for a config from load_config (P <= M is checked
-// there). Everything else is copied. Every place that builds the controller's model (the bench,
+// there), and config.payload merged into the last link (imperfect::merge_payload; kg 0: nothing).
+// Everything else is copied. Every place that builds the controller's model (the bench,
 // the ros2_control plugin, path validation) uses it; the plant keeps the URDF model (M).
 template <int N>
 model::Model<N> controller_model(const model::Model<N>& urdf_model, const Config<N>& config);

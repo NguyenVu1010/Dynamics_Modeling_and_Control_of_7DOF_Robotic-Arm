@@ -1,0 +1,61 @@
+# Hardware model mid_kr1205 (feature hardware-catalog, ADR-023; schema in docs/conventions.md "Hardware
+# model file"; loaded by pipeline::load_hardware_model). Paths are relative to this file. The kinds
+# come from the `source` texts of the profile and ADR-019; a key its text does not name is assumed.
+# The range and scale bounds are engineering judgement, drafted for the owner's review (question C8).
+hardware:
+  name: mid_kr1205
+  description: "Mid tier, reference robot Kassow KR1205: torque from the host at 1 kHz"
+  imperfections: ../imperfections/mid_kr1205.yaml
+  controller: ../mid_kr1205.yaml
+  limits:
+    rated_torque_nm: [87, 87, 52, 52, 10, 10, 10]        # N m, cobot.limits of the controller file
+    peak_torque_nm: [204, 204, 107, 107, 36, 36, 36]     # N m
+  algorithms:
+    computed_torque:
+      overrides:
+        config.computed_torque.omega: 40.0
+    pd_gravity:                          # the same omega: kp = w^2, kd = 2 w
+      overrides:
+        config.pd_gravity.kp: 1600.0
+        config.pd_gravity.kd: 80.0
+  provenance:
+    - {key: sensor.encoder_bits, kind: published}
+    - {key: sensor.q_noise_std_rad, kind: derived, range: [5.0e-6, 2.0e-5]}
+    - {key: sensor.q_offset_std_rad, kind: assumed, range: [2.0e-4, 3.0e-3]}
+    - {key: sensor.qd_from_diff, kind: assumed}
+    - {key: sensor.qd_filter_hz, kind: assumed, range: [50.0, 200.0]}
+    - {key: sensor.sensor_delay_cycles, kind: assumed, range: [0, 3]}
+    - {key: sensor.position_source, kind: assumed}
+    - {key: actuator.torque_scale_std, kind: assumed, range: [0.02, 0.10]}
+    - {key: actuator.torque_scale_asym_frac, kind: assumed, range: [0.0, 0.03]}
+    - {key: actuator.torque_ripple_frac, kind: assumed, range: [0.005, 0.05]}
+    - {key: actuator.ripple_periods_per_rev, kind: assumed, range: [2.0, 12.0]}
+    - {key: actuator.deadband_nm, kind: assumed, scale: [0.2, 3.0]}
+    - {key: actuator.torque_cmd_resolution_nm, kind: published}
+    - {key: actuator.motor_time_constant_s, kind: assumed, range: [3.0e-4, 3.0e-3]}
+    - {key: actuator.command_delay_cycles, kind: assumed, range: [0, 3]}
+    - {key: actuator.torque_slew_nm_s, kind: assumed, scale: [0.5, 2.0]}
+    - {key: actuator.knee_speed_rad_s, kind: derived, scale: [0.8, 1.25]}
+    - {key: actuator.zero_torque_speed_rad_s, kind: derived, scale: [0.8, 1.25]}
+    - {key: actuator.bus.v_nom_v, kind: published}
+    - {key: actuator.bus.r_source_ohm, kind: assumed, range: [0.02, 0.25]}
+    - {key: actuator.bus.v_min_v, kind: assumed, range: [36.0, 43.2]}
+    - {key: friction.coulomb_nm, kind: derived, scale: [0.5, 1.5]}
+    - {key: friction.viscous_nm_s_rad, kind: assumed, scale: [0.5, 2.0]}
+    - {key: model.link_mass_scale_std, kind: assumed, range: [0.01, 0.10]}
+    - {key: model.com_shift_std_m, kind: assumed, range: [1.0e-3, 1.0e-2]}
+    - {key: timing.period_jitter_std_us, kind: assumed, range: [5.0, 50.0]}
+    - {key: timing.overrun_prob, kind: assumed, range: [1.0e-5, 1.0e-3]}
+    - {key: timing.overrun_cycles, kind: assumed, range: [1, 3]}
+    - {key: comm.packet_loss_prob, kind: assumed, range: [1.0e-5, 1.0e-3]}
+    - {key: comm.latency_burst_prob, kind: assumed, range: [1.0e-5, 1.0e-3]}
+    - {key: comm.burst_cycles, kind: assumed, range: [1, 5]}
+    - {key: transmission.stiffness_k1_nm_rad, kind: published}
+    - {key: transmission.stiffness_k2_nm_rad, kind: published}
+    - {key: transmission.stiffness_k3_nm_rad, kind: published}
+    - {key: transmission.torque_t1_nm, kind: published}
+    - {key: transmission.torque_t2_nm, kind: published}
+    - {key: transmission.damping_ratio, kind: assumed, range: [0.005, 0.05]}
+    - {key: transmission.error_amp_rad, kind: published}
+    - {key: transmission.lost_motion_rad, kind: published}
+    - {key: transmission.ratio, kind: published}
