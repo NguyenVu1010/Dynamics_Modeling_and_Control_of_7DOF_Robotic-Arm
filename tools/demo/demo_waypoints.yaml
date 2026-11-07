@@ -1,0 +1,8 @@
+# Waypoints of the demo video (tools/demo/record_demo.sh): a loop around the home TCP of
+# config/default.yaml, (0.110, -0.807, 0.389) m, rpy (0, -90, 90) deg, back to home.
+frame: base_link
+waypoints:
+  - {position_m: [0.2500, -0.7000, 0.5500], rpy_deg: [0.0, -90.0, 90.0], duration_s: 0, stop: false}
+  - {position_m: [-0.0500, -0.7000, 0.7000], rpy_deg: [0.0, -90.0, 90.0], duration_s: 0, stop: false}
+  - {position_m: [-0.3000, -0.6500, 0.5000], rpy_deg: [0.0, -90.0, 90.0], duration_s: 0, stop: true}
+  - {position_m: [0.1100, -0.8070, 0.3891], rpy_deg: [0.0, -90.0, 90.0], duration_s: 0, stop: true}
