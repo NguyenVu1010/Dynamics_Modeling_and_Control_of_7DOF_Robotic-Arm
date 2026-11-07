@@ -76,6 +76,9 @@ class ImperfectJointInterface final : public JointInterface<N> {
   const common::VecN<N>& torque_scale() const { return torque_scale_; }
   // Bus voltage used by the last write, V; v_nom_v before the first write. With the bus model
   // off (v_nom_v 0) it is the normalised nominal 1.0 (V = V_nom := 1, no scaling), never 0.
+  // Torque writes only: position commands bypass this stage and do not update it, so in a
+  // drive_position run the modelled bus is the drive's own stage
+  // (pipeline::SimDrive::bus_voltage_v()).
   double bus_voltage_v() const { return stage_.bus_voltage_v(); }
   // Servo packets lost so far, and the read count of the last lost one (-1 if none).
   std::int64_t packets_lost() const { return packets_lost_; }

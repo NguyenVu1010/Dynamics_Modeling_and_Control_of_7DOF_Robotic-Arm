@@ -49,7 +49,8 @@ class SimDrive {
   std::int64_t substeps_run() const { return substeps_run_; }
   const common::VecN<N>& kp() const { return kp_; }
   const common::VecN<N>& kd() const { return kd_; }
-  const common::VecN<N>& target_q() const { return target_q_; }  // q_t of the last sub-step
+  const common::VecN<N>& target_q() const { return target_q_; }    // q_t of the last sub-step
+  double bus_voltage_v() const { return stage_.bus_voltage_v(); }  // drive stage, last sub-step
 
  private:
   int substeps_ = 1;
@@ -57,7 +58,7 @@ class SimDrive {
   common::VecN<N> kp_;
   common::VecN<N> kd_;
   common::VecN<N> peak_;
-  common::VecN<N> encoder_bits_;
+  common::VecN<N> encoder_step_;  // 2 pi / 2^encoder_bits, 0 for bits 0
   double filter_hz_;
   double setpoint_period_s_;
   imperfect::ActuatorStage<N> stage_;

@@ -1,10 +1,8 @@
 #include "cobot/pipeline/sim_drive.hpp"
 
 #include <algorithm>
-#include <array>
 #include <cmath>
 #include <cstdint>
-#include <cstdio>
 #include <stdexcept>
 #include <string>
 
@@ -14,38 +12,30 @@ namespace cobot::pipeline {
 namespace {
 
 constexpr double kTwoPi = 2.0 * 3.14159265358979323846;
-constexpr double kRatioTol = 1e-9;    // relative, drive rate / control rate is an integer
-constexpr double kMaxSubsteps = 1e6;  // keeps the count an int
 
 int checked_substeps(double rate_hz, double control_period_s) {
   const double control_rate_hz = 1.0 / control_period_s;
   const int s = drive_substeps(rate_hz, control_rate_hz);
   if (s == 0) {
-    std::array<char, 128> text{};
-    std::snprintf(
-        text.data(),
-        text.size(),
-        "cobot.drive.rate_hz: must be an integer multiple of control_rate_hz (%g), got %g",
-        control_rate_hz,
-        rate_hz);
-    throw std::invalid_argument(text.data());
+    throw std::invalid_argument("cobot.drive.rate_hz: " +
+                                drive_rate_reason(rate_hz, control_rate_hz));
   }
   return s;
 }
 
-}  // namespace
-
-int drive_substeps(double rate_hz, double control_rate_hz) {
-  const double ratio = rate_hz / control_rate_hz;
-  if (!(rate_hz > 0.0) || !(control_rate_hz > 0.0) || !std::isfinite(ratio)) {
-    return 0;
+// Encoder LSB per joint, 2 pi / 2^bits, or 0 for bits 0 (raw reading).
+template <int N>
+common::VecN<N> encoder_steps(const common::VecN<N>& bits) {
+  common::VecN<N> step = common::VecN<N>::Zero();
+  for (int j = 0; j < N; ++j) {
+    if (bits[j] > 0.0) {
+      step[j] = kTwoPi / std::exp2(bits[j]);
+    }
   }
-  const double s = std::round(ratio);
-  if (s < 1.0 || std::abs(ratio - s) > kRatioTol * ratio || s > kMaxSubsteps) {
-    return 0;
-  }
-  return static_cast<int>(s);
+  return step;
 }
+
+}  // namespace
 
 template <int N>
 SimDrive<N>::SimDrive(const DriveConfig<N>& drive,
@@ -59,7 +49,7 @@ SimDrive<N>::SimDrive(const DriveConfig<N>& drive,
       kp_(inertia_kg_m2.cwiseProduct(drive.omega_rad_s.cwiseProduct(drive.omega_rad_s))),
       kd_(2.0 * drive.zeta * inertia_kg_m2.cwiseProduct(drive.omega_rad_s)),
       peak_(peak_torque_nm),
-      encoder_bits_(profile.sensor.encoder_bits),
+      encoder_step_(encoder_steps<N>(profile.sensor.encoder_bits)),
       filter_hz_(drive.velocity_filter_hz),
       setpoint_period_s_(setpoint_period_s),
       stage_(profile.actuator,
@@ -92,9 +82,8 @@ void SimDrive<N>::advance(dynamics::SimPlant<N>& plant,
     }
     common::VecN<N> q_m = plant.q_motor();
     for (int j = 0; j < N; ++j) {
-      if (encoder_bits_[j] > 0.0) {
-        const double step = kTwoPi / std::exp2(encoder_bits_[j]);
-        q_m[j] = std::round(q_m[j] / step) * step;
+      if (encoder_step_[j] > 0.0) {
+        q_m[j] = std::round(q_m[j] / encoder_step_[j]) * encoder_step_[j];
       }
     }
     if (encoder_ready_) {

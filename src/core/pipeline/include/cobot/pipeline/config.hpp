@@ -133,6 +133,9 @@ struct DriveConfig {
 // rate_hz / control_rate_hz when it is an integer >= 1 (1e-9 relative), else 0: the drive
 // sub-steps per control period (rule of cobot.drive.rate_hz).
 int drive_substeps(double rate_hz, double control_rate_hz);
+// Reason text when drive_substeps is 0, without the key prefix: "must be an integer multiple of
+// control_rate_hz (<c>), got <r>". The loader and pipeline::SimDrive both report it.
+std::string drive_rate_reason(double rate_hz, double control_rate_hz);
 
 template <int N>
 struct Config {
