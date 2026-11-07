@@ -55,7 +55,7 @@ order in a comment at every construction site.
 `config/imperfections/*.yaml` describe the environment (sensors, motors, friction, model
 mismatch, timing, seed). Which file holds what, how to pick a profile for bench
 (`--imperfections`) and Gazebo (`imperfections_path:=`, default `realistic.yaml`) and how to
-make a custom one: README, section "Environment configuration". On the Gazebo path the profile's
+make a custom one: [docs/guides/configuration.md](guides/configuration.md). On the Gazebo path the profile's
 friction is written into each arm joint's `<dynamics friction damping>` (ADR-011).
 
 Optional section `cobot.manual` (studio jog and move commands, ADR-022; a missing section or key
