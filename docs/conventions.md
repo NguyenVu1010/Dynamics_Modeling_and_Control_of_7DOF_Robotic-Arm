@@ -79,7 +79,9 @@ compensation, `tau = J .* (kp .* (q_ref - q) + kd .* (qd_ref - qd)) + G(q)`: bot
 in the section, > 0, 7 values or one scalar broadcast (a wrong count is `cobot.pd_gravity.kp:
 expected a scalar or 7 values, got 6`, the wording of `coulomb_nm`), `kp` in 1/s² and `kd` in
 1/s, scaled by the constant joint inertia `J = diag(M(home_q))` of the controller's model, so the same
-`omega` (`kp = omega²`, `kd = 2 omega`) means the same bandwidth as computed torque. The section
+`omega` (`kp = omega²`, `kd = 2 omega`) means the same bandwidth as computed torque; the virtual
+override key `config.pd_gravity.omega` (> 0) sets both, as `config.computed_torque.omega` does for
+computed torque, and is an error together with `config.pd_gravity.kp` or `kd`. The section
 is required when `algorithm` is `pd_gravity` (`cobot.pd_gravity: required when
 cobot.control.algorithm is pd_gravity`) and, with another algorithm, parsed and checked but
 unused, so one file switches law through an override.
@@ -230,6 +232,30 @@ In a `drive_position` run the three torque metrics of the C++ summary (`cobot_be
 `montecarlo`, `sweep`, `run_in_memory`) use the applied torque `taum` (the drive's PD output plus
 the feed-forward, after the actuator chain), since `tau` is only the feed-forward sent with the
 set point; `cobot_eval` on the Run CSV still reads `tau`.
+
+### Tune CSV
+
+`cobot_bench tune --hardware <model.yaml> --algorithm <name> --task <task.yaml> [--levels a,b,c]
+[--seeds n] [--jobs n] --out <dir>` (feature auto-tune, ADR-023) writes `<dir>/tune.csv`, one row per
+level of the law's one gain (`config.computed_torque.omega`, `config.pd_gravity.omega`,
+`config.drive.omega_rad_s`; default levels 20..150 by 10, 20..200 by 10 for the drive), each over
+seeds 1..n (default 10):
+
+```
+level,seeds,held,sat_frac_max,decays_all,rms_joint_err_median,final_pos_err_max,chosen
+```
+
+Numbers `%.17g`, `decays_all` and `chosen` `0`/`1`. `held` counts the seeds that held;
+`sat_frac_max` is the max over seeds of `sat_time_s / run_time_s` (simulated time of the run);
+`decays_all` says every seed's post-goal swing decays (`swing_last <= swing_first` or
+`swing_last <= 5e-4` rad, the noise floor; the swing is the max over joints of the range of
+`q - qref` over the first and the last 0.5 s of the hold after the goal time, the two halves of a
+hold under 1 s; a held seed does not decay). The error columns are the median `rms_joint_err_rad`
+and the max `final_pos_err_m` over the seeds that did not hold, `nan` when all held. A level is
+admissible with `held` 0, `sat_frac_max < 0.05` and `decays_all`; the chosen one has the lowest
+median rms (an exact tie goes to the lower level). The command prints the table, the chosen level
+and a one-line reason, and exits 0 also when no level is admissible; bad input exits 1 and writes
+no file.
 
 ### Studio file
 

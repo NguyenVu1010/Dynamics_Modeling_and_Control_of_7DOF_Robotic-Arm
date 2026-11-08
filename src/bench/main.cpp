@@ -2,7 +2,8 @@
 // Exit 0 on a completed run (tools/run_e2e.py judges it), 2 on bad arguments or configuration
 // (a bad waypoint file included) with the reason on stderr, 1 when `run --waypoints` rejects the
 // list (one line per issue on stderr, no Run CSV written). `serve` (feature controller-bridge)
-// prints "serving /cobot_<name>" and runs until SIGINT / SIGTERM or --duration-s.
+// prints "serving /cobot_<name>" and runs until SIGINT / SIGTERM or --duration-s. `tune` (feature
+// auto-tune) exits 0 with a result (also when no level is admissible) and 1 on bad input.
 #include <atomic>
 #include <csignal>
 #include <cstdint>
@@ -10,18 +11,24 @@
 #include <ctime>
 #include <exception>
 #include <filesystem>
+#include <limits>
 #include <map>
 #include <optional>
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <vector>
 
+#include "cobot/control/algorithm.hpp"
 #include "cobot/pipeline/config.hpp"
+#include "cobot/pipeline/hardware_model.hpp"
+#include "cobot/pipeline/task.hpp"
 
 #include "engine.hpp"
 #include "run.hpp"
 #include "run_data.hpp"
 #include "serve.hpp"
+#include "tune.hpp"
 
 namespace {
 
@@ -37,7 +44,9 @@ const char* const kUsage =
     "       cobot_bench timing --config <yaml> --steps <n> [--paced] "
     "[--log-mode off|recorder|recorder_live]\n"
     "       cobot_bench serve --config <yaml> --imperfections <yaml> [--seed <u64>] "
-    "[--name <name>] [--out <dir>] [--duration-s <s>]\n";
+    "[--name <name>] [--out <dir>] [--duration-s <s>]\n"
+    "       cobot_bench tune --hardware <model.yaml> --algorithm <name> --task <task.yaml> "
+    "[--levels a,b,c] [--seeds <n>] [--jobs <n>] --out <dir>\n";
 
 const char* const kKeepRuns = "--keep-runs";
 const char* const kPaced = "--paced";
@@ -173,6 +182,133 @@ int serve_main(int argc, char** argv) {
   return report("serve", st);
 }
 
+// `text` as a whole-string number of `flag` (std::invalid_argument naming the flag otherwise).
+std::uint64_t parse_count(const std::string& flag, const std::string& text) {
+  try {
+    return parse_u64(text);
+  } catch (const std::exception&) {
+    throw std::invalid_argument(flag + ": not an unsigned integer: " + text);
+  }
+}
+
+// "a,b,c": every element a whole-string number.
+std::vector<double> parse_levels(const std::string& text) {
+  std::vector<double> levels;
+  std::size_t begin = 0;
+  for (;;) {
+    const std::size_t comma = text.find(',', begin);
+    const std::string item = text.substr(begin, comma - begin);
+    std::size_t used = 0;
+    double v = 0.0;
+    try {
+      v = std::stod(item, &used);
+    } catch (const std::exception&) {
+      used = 0;
+    }
+    if (item.empty() || used != item.size()) {
+      throw std::invalid_argument("--levels: expected numbers separated by commas, got " + text);
+    }
+    levels.push_back(v);
+    if (comma == std::string::npos) {
+      return levels;
+    }
+    begin = comma + 1;
+  }
+}
+
+void print_tune(const cobot::bench::TuneResult& t) {
+  std::printf("%s (%s)\n%8s %5s %4s %12s %6s %12s %12s %6s\n",
+              t.key.c_str(),
+              cobot::control::to_string(t.algorithm),
+              "level",
+              "seeds",
+              "held",
+              "sat_frac_max",
+              "decays",
+              "rms_median",
+              "final_max",
+              "chosen");
+  for (const cobot::bench::TuneRow& r : t.rows) {
+    const bool chosen = t.chosen && *t.chosen == r.level;
+    std::printf("%8g %5zu %4zu %12.4g %6d %12.4g %12.4g %6d\n",
+                r.level,
+                r.seeds,
+                r.held,
+                r.sat_frac_max,
+                r.decays_all ? 1 : 0,
+                r.rms_joint_err_median,
+                r.final_pos_err_max,
+                chosen ? 1 : 0);
+  }
+  if (t.chosen) {
+    std::printf("chosen: %g\n", *t.chosen);
+  } else {
+    std::printf("chosen: none\n");
+  }
+  std::printf("reason: %s\n", t.reason.c_str());
+}
+
+int tune_main(int argc, char** argv) {
+  constexpr int kExitTuneBadInput = 1;
+  try {
+    const auto f = parse_flags(
+        argc,
+        argv,
+        {"--hardware", "--algorithm", "--task", "--levels", "--seeds", "--jobs", "--out"},
+        {"--hardware", "--algorithm", "--task", "--out"});
+    const auto algorithm = cobot::control::algorithm_from_string(f.at("--algorithm"));
+    if (!algorithm) {
+      throw std::invalid_argument("--algorithm: unknown " + f.at("--algorithm") + " (registered: " +
+                                  cobot::control::registered_algorithm_names() + ")");
+    }
+    cobot::bench::TuneOptions options;
+    if (f.count("--levels") > 0) {
+      options.levels = parse_levels(f.at("--levels"));
+    }
+    if (f.count("--seeds") > 0) {
+      const std::uint64_t n = parse_count("--seeds", f.at("--seeds"));
+      if (n == 0) {
+        throw std::invalid_argument("--seeds must be >= 1");
+      }
+      for (std::uint64_t s = 1; s <= n; ++s) {
+        options.seeds.push_back(s);
+      }
+    }
+    if (f.count("--jobs") > 0) {
+      const std::uint64_t n = parse_count("--jobs", f.at("--jobs"));
+      if (n > std::numeric_limits<unsigned>::max()) {
+        throw std::invalid_argument("--jobs: out of range: " + f.at("--jobs"));
+      }
+      options.jobs = static_cast<unsigned>(n);
+    }
+    const auto model = cobot::pipeline::load_hardware_model(f.at("--hardware"));
+    if (!model) {
+      throw std::invalid_argument(model.reason());
+    }
+    const auto task = cobot::pipeline::load_task(f.at("--task"));
+    if (!task) {
+      throw std::invalid_argument(task.reason());
+    }
+    const auto result = cobot::bench::tune(model.value(), *algorithm, task.value(), options);
+    if (!result) {
+      throw std::invalid_argument(result.reason());
+    }
+    const std::filesystem::path out_dir = f.at("--out");
+    std::error_code ec;
+    std::filesystem::create_directories(out_dir, ec);
+    const cobot::common::Status written =
+        cobot::bench::write_tune_csv(out_dir / "tune.csv", result.value());
+    if (!written) {
+      throw std::invalid_argument(written.reason());
+    }
+    print_tune(result.value());
+    return 0;
+  } catch (const std::exception& e) {
+    std::fprintf(stderr, "cobot_bench tune: %s\n%s", e.what(), kUsage);
+    return kExitTuneBadInput;
+  }
+}
+
 int main_impl(int argc, char** argv) {
   const std::string mode = argc > 1 ? argv[1] : "";
   if (mode == "run") {
@@ -202,6 +338,9 @@ int main_impl(int argc, char** argv) {
   }
   if (mode == "serve") {
     return serve_main(argc, argv);
+  }
+  if (mode == "tune") {
+    return tune_main(argc, argv);
   }
   if (mode == "montecarlo") {
     const auto f = parse_flags(

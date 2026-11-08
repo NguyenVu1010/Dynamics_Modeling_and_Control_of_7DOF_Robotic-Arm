@@ -2,14 +2,17 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <limits>
 #include <optional>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "cobot/common/result.hpp"
 #include "cobot/imperfect/config.hpp"
 #include "cobot/model/model.hpp"
 #include "cobot/pipeline/log_record.hpp"
+#include "cobot/pipeline/overrides.hpp"
 
 // Internal run engine shared by the run, montecarlo and sweep modes (bench/run.cpp). A run records
 // into a pipeline::Recorder (one row per cycle, no writer thread); the summary and the Run CSV come
@@ -31,6 +34,13 @@ struct RunSummary {
   // t of the first holding row minus t of the first row, s; meaningful only when held.
   double hold_time_s = 0.0;
   pipeline::HoldReason hold_reason = pipeline::HoldReason::kNone;  // of the first holding row
+  // Not in the Summary CSV (feature auto-tune):
+  double run_time_s = 0.0;  // simulated time: last row minus first row plus one cycle
+  // Post-goal swing: max over joints of the range of q - q_ref over the first and over the last
+  // 0.5 s of the hold [goal, end) (its two halves when the hold is under 1 s). NaN for a run that
+  // held, without hold rows or without a goal time.
+  double swing_first_rad = std::numeric_limits<double>::quiet_NaN();
+  double swing_last_rad = std::numeric_limits<double>::quiet_NaN();
 };
 
 // A sweep param `config.<section>.<key>` and its level (pipeline::load_config_with).
@@ -56,6 +66,15 @@ common::Result<RunSummary> run_profile(
     std::optional<double> duration_s,
     WaypointInput* waypoints = nullptr,
     const std::optional<ConfigOverride>& config_override = std::nullopt);
+
+// run_profile on a list of controller overrides (pipeline::load_config_with) instead of one
+// scalar, with no file written (feature auto-tune).
+common::Result<RunSummary> run_with(
+    const std::filesystem::path& config_yaml,
+    const std::vector<pipeline::KeyOverride>& config_overrides,
+    const imperfect::ImperfectionConfig<model::kArmDof>& imperfections,
+    const std::filesystem::path& label,
+    WaypointInput* waypoints = nullptr);
 
 // bench::run, with `path_invalid` telling a rejected waypoint list from bad input.
 common::Status run_checked(const std::filesystem::path& config_yaml,

@@ -195,3 +195,34 @@ trễ, so với profile, và ghi độ lệch vào báo cáo. Đến lúc đó, 
   dùng chung với `perturb_model`. 0 kg không đi qua phép nhập nên mô hình giữ nguyên từng bit.
 - **Không đổi bước nóng.** Không đổi `control_loop`, không thêm cột Run CSV. Sha256 của năm Run CSV
   (E2E-01, 02, 03, 04, 10) bằng nhau giữa main và nhánh trên cùng một máy.
+
+## Bổ sung (2026-11-08): PR auto-tune (tự chỉnh hệ số)
+
+- **Một hệ số cho mỗi luật.** `computed_torque`: `config.computed_torque.omega`; `pd_gravity`: khoá ảo
+  mới `config.pd_gravity.omega` (`kp = ω²`, `kd = 2ω`, > 0, đặt cùng `kp` hoặc `kd` của mục đó là lỗi),
+  xử lý ở đúng chỗ của khoá ảo cũ; `drive_position`: `config.drive.omega_rad_s`. Mức mặc định 20..150
+  bước 10 (luật mômen), 20..200 bước 10 (driver); hạt giống mặc định 1..10. `with_gain` bỏ những gì
+  model đã đặt cho hệ số đó (cùng khoá, và `kp`/`kd` của mục khi là khoá ảo) rồi thêm mức cần chạy.
+- **Dao động sau đích.** Lấy đúng đại lượng của `tests/unit/loop_drive_profiles`: max theo khớp của
+  biên độ đỉnh-đỉnh của `q - q_ref` trong 0,5 s đầu và 0,5 s cuối của đoạn giữ `[đích, hết]`, đích là
+  thời lượng quỹ đạo (cả quỹ đạo waypoint); đoạn giữ dưới 1 s thì dùng hai nửa. Lần chạy bị giữ
+  (holding) hoặc không có dòng sau đích cho NaN. "Tắt dần": cuối <= đầu, hoặc cuối <= sàn nhiễu
+  `5e-4` rad (lượng tử encoder và nhiễu lúc đứng yên, đo được 2,9e-4 đến 4,1e-4 rad ở PR drive-loop);
+  NaN không tắt dần. Các trường mới (`run_time_s`, `swing_first_rad`, `swing_last_rad`) chỉ nằm trong
+  `RunSummary`, không thêm cột Summary CSV hay Run CSV.
+- **Chấp nhận được và chọn.** Một mức chấp nhận được khi không seed nào bị giữ, `sat_time_s / run_time_s`
+  lớn nhất < 0,05 và mọi seed tắt dần; chọn mức có trung vị `rms_joint_err_rad` nhỏ nhất, bằng nhau
+  thì lấy mức thấp hơn. Không có mức nào thì không chọn, và lý do đếm số mức trượt từng tiêu chí.
+- **Bão hoà của lần chạy driver (điểm chưa rõ 7).** `summarize` đã tính `sat_time_s` trên `taum` so
+  với P cho `drive_position` từ PR drive-loop (`TorqueSource::kMotor`), nên PR này không đổi gì; giá
+  trị của computed torque giữ nguyên.
+- **Chạy song song.** Các lần chạy đi qua một hàng đợi nhỏ (`bench/work_queue.hpp`), kết quả lưu theo
+  (chỉ số mức, chỉ số seed), nên `--jobs 1` và `--jobs 2` cho cùng từng byte `tune.csv`. Đã đọc đường
+  chạy từ `run_profile` xuống (nạp YAML và waypoint, URDF, Recorder, SimPlant, các RNG của
+  imperfection, metrics): không có biến `static` hay toàn cục thay đổi được; mỗi lần chạy sở hữu
+  đối tượng của nó.
+- **Thời gian và bộ nhớ đo được** (WSL Ubuntu 24.04, x86_64, 12 CPU, Release, `jobs` mặc định 8,
+  `reference_move`, 10 seed): premium_fr3 CT 14 mức 97 s, mid_kr1205 CT 97 s, budget_xarm7 CT 97 s,
+  budget_xarm7 drive 19 mức 244 s; RSS đỉnh 104 MB mỗi lần tune (dòng của một lần chạy bỏ đi ngay khi
+  đã tóm tắt). Mức được chọn: premium CT 50, mid CT 40, budget CT không có (mọi mức bị giữ), budget
+  drive 50.

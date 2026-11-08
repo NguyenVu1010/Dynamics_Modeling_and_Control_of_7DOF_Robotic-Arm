@@ -66,12 +66,14 @@ struct Setup {
 };
 
 common::Result<Setup> load_setup(const std::filesystem::path& config_yaml,
-                                 const std::optional<ConfigOverride>& config_override) {
+                                 const std::optional<ConfigOverride>& config_override,
+                                 const std::vector<pipeline::KeyOverride>& config_overrides = {}) {
   using Out = common::Result<Setup>;
   const common::Result<pipeline::Config<kN>> config =
       config_override ? pipeline::load_config_with<kN>(
                             config_yaml, config_override->first, config_override->second)
-                      : pipeline::load_config<kN>(config_yaml);
+      : !config_overrides.empty() ? pipeline::load_config_with<kN>(config_yaml, config_overrides)
+                                  : pipeline::load_config<kN>(config_yaml);
   if (!config) {
     return Out::error(config.reason());
   }
@@ -174,11 +176,17 @@ Status run(const std::filesystem::path& config_yaml,
 namespace {
 
 // One run of `request`; `path_invalid` is set when validate_path rejects the waypoint list.
-common::Result<RunData> run_engine(const RunRequest& request, bool& path_invalid) {
+// `config_overrides`, when not empty, is applied to the controller file instead of
+// request.config_override (run_with).
+common::Result<RunData> run_engine(
+    const RunRequest& request,
+    bool& path_invalid,
+    const std::vector<pipeline::KeyOverride>& config_overrides = {}) {
   using Out = common::Result<RunData>;
   const imperfect::ImperfectionConfig<kN>& imperfections = request.imperfections;
   const std::filesystem::path& label = request.label;
-  const common::Result<Setup> setup = load_setup(request.config_yaml, request.config_override);
+  const common::Result<Setup> setup =
+      load_setup(request.config_yaml, request.config_override, config_overrides);
   if (!setup) {
     return Out::error(setup.reason());
   }
@@ -332,13 +340,15 @@ common::Result<RunData> run_engine(const RunRequest& request, bool& path_invalid
     return Out::error(label.string() + ": " + e.what());
   }
   // After the loop: the summary from the recorded rows; a drive run rates the motor torque.
-  run.summary = summarize(
-      run.records,
-      meta.tau_max,
-      meta.rated,
-      std::llround(meta.window_end_s * static_cast<double>(common::kNanosecondsPerSecond)),
-      config.algorithm == control::Algorithm::kDrivePosition ? TorqueSource::kMotor
-                                                             : TorqueSource::kCommand);
+  const auto ns_per_s = static_cast<double>(common::kNanosecondsPerSecond);
+  run.summary =
+      summarize(run.records,
+                meta.tau_max,
+                meta.rated,
+                std::llround(meta.window_end_s * ns_per_s),
+                config.algorithm == control::Algorithm::kDrivePosition ? TorqueSource::kMotor
+                                                                       : TorqueSource::kCommand,
+                std::llround(meta.goal_time_s * ns_per_s));
   return Out::ok(std::move(run));
 }
 
@@ -376,6 +386,27 @@ common::Result<RunSummary> run_profile(const std::filesystem::path& config_yaml,
     }
   }
   return Out::ok(run.value().summary);
+}
+
+common::Result<RunSummary> run_with(const std::filesystem::path& config_yaml,
+                                    const std::vector<pipeline::KeyOverride>& config_overrides,
+                                    const imperfect::ImperfectionConfig<kN>& imperfections,
+                                    const std::filesystem::path& label,
+                                    WaypointInput* waypoints) {
+  using Out = common::Result<RunSummary>;
+  RunRequest request;
+  request.config_yaml = config_yaml;
+  request.imperfections = imperfections;
+  request.label = label;
+  if (waypoints != nullptr) {
+    request.waypoints_yaml = waypoints->yaml;
+  }
+  bool path_invalid = false;
+  common::Result<RunData> run = run_engine(request, path_invalid, config_overrides);
+  if (waypoints != nullptr) {
+    waypoints->path_invalid = path_invalid;
+  }
+  return run ? Out::ok(run.value().summary) : Out::error(run.reason());
 }
 
 namespace {
