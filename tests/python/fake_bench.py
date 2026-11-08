@@ -9,9 +9,12 @@ waypoints lie 6 mm from the tip).
 With --waypoints FILE (exit 2 when FILE is missing) the meta file gets the waypoint keys of
 `cobot_bench run --waypoints`: four nodes at 10..40 ms, waypoints 1 and 3 stop, every position at
 the fake tip (0.4, 0.1, 0.5), so stop_pos_err_m equals the final tip error.
+`verify` (E2E-15 under --all --tag pr) writes <--out>/report.json and report.md: every key of the
+Verify report, verdict marginal, quick true, the --hardware and --task files with their sha256.
 """
 
 import argparse
+import hashlib
 import json
 import os
 import sys
@@ -49,6 +52,27 @@ def write_run(args: argparse.Namespace, flags: set[str], calls: int) -> None:
     Path(args.out + ".meta.yaml").write_text(meta, encoding="utf-8")
 
 
+def write_verify(args: argparse.Namespace) -> None:
+    inputs = [
+        {"path": p, "sha256": hashlib.sha256(Path(p).read_bytes()).hexdigest()}
+        for p in (args.hardware, args.task)
+    ]
+    limits = {"value": 1e-4, "threshold": 0.005, "margin_limit": 0.004}
+    names = ("final_pos_err_m", "final_rot_err_deg", "rms_joint_err_rad", "cycle_time_s")
+    tuning = {"key": "config.computed_torque.omega", "gain_used": 50.0, "gain_source": "tuned"}
+    tuning |= {"levels": [], "rows": [], "chosen": 50.0, "reason": "fake"}
+    report = {"schema": 1, "disclaimer": "fake", "verdict": "marginal", "quick": True}
+    report |= {"runs": int(args.runs), "seeds": [1, int(args.runs)], "pass_count": int(args.runs)}
+    report |= {"pass_rate": 1.0, "wilson": [0.7, 1.0], "hold_rate": 0.0}
+    report |= {"worst": {n: dict(limits) for n in names}, "tuning": tuning, "assumptions": []}
+    report |= {"causes": [], "suggestions": [], "versions": {"git": "fake", "inputs": inputs}}
+    report |= {"model": "fake", "algorithm": args.algorithm, "task": "fake"}
+    out = Path(args.out)
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "report.json").write_text(json.dumps(report) + "\n", encoding="utf-8")
+    (out / "report.md").write_text("fake\n", encoding="utf-8")
+
+
 def main() -> int:
     flags = set(filter(None, os.environ.get("FAKE_BENCH_MODE", "").split(",")))
     log = Path(os.environ["FAKE_BENCH_LOG"])
@@ -65,7 +89,18 @@ def main() -> int:
     timing = sub.add_parser("timing")
     timing.add_argument("--config", required=True)
     timing.add_argument("--steps", required=True, type=int)
+    verify = sub.add_parser("verify")
+    for name in ("--hardware", "--algorithm", "--task", "--runs", "--out"):
+        verify.add_argument(name, required=True)
+    verify.add_argument("--quick", action="store_true")
+    verify.add_argument("--levels")
+    verify.add_argument("--tune-seeds")
     args = parser.parse_args()
+    if args.cmd == "verify":
+        if "crash" in flags:
+            return 3
+        write_verify(args)
+        return 0
     if not Path(args.config).is_file():
         print(f"{args.config}: no such file", file=sys.stderr)
         return 2
