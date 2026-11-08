@@ -1,11 +1,14 @@
 #include "studio_worker.hpp"
 
+#include <cstddef>
+#include <string_view>
 #include <utility>
 
 namespace cobot::studio {
 
 StudioWorker::StudioWorker(std::filesystem::path work_dir) : work_dir_(std::move(work_dir)) {
   qRegisterMetaType<EntryHandle>();
+  qRegisterMetaType<VerifyHandle>();
 }
 
 void StudioWorker::run(const StudioConfig& config) {
@@ -38,6 +41,29 @@ void StudioWorker::load_live(const SegmentReady& s, const bridge::SessionInfo<be
   }
   ++live_runs_;
   emit result(EntryHandle{std::make_shared<RunEntry>(std::move(e.value()))});
+}
+
+void StudioWorker::verify(const VerifyRequest& request) {
+  common::Result<VerifyOutcome> out = run_verify_job(
+      request,
+      verify_cancel_,
+      [this](std::string_view phase,
+             std::size_t pair,
+             std::size_t pairs,
+             std::size_t done,
+             std::size_t total) {
+        emit verify_progress(QString::fromUtf8(phase.data(), static_cast<int>(phase.size())),
+                             static_cast<int>(pair),
+                             static_cast<int>(pairs),
+                             static_cast<int>(done),
+                             static_cast<int>(total));
+      });
+  if (!out) {
+    emit verify_finished(VerifyHandle{}, QString::fromStdString(out.reason()));
+    return;
+  }
+  emit verify_finished(VerifyHandle{std::make_shared<VerifyOutcome>(std::move(out.value()))},
+                       QString());
 }
 
 }  // namespace cobot::studio

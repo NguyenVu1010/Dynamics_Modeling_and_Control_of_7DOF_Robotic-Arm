@@ -2,9 +2,9 @@
 
 A Qt5 desktop app over `cobot_studio_core` ([ADR-021](../adr/021-cobot-studio-app.md)): a
 Configuration tab (base pair, parameter overrides, controller gains, tolerances, studio file,
-export for `cobot_bench`) and a Tracking tab (bench runs and sweeps on a worker thread, overlaid
-charts, an error table that recomputes on tolerance edits, Run CSV and Summary CSV export). It is
-off by default:
+export for `cobot_bench`), a Tracking tab (bench runs and sweeps on a worker thread, overlaid
+charts, an error table that recomputes on tolerance edits, Run CSV and Summary CSV export) and a
+Verification tab (`cobot_bench verify` in process). It is off by default:
 
 ```bash
 sudo apt install qtbase5-dev libqt5charts5-dev qt3d5-dev
@@ -89,6 +89,48 @@ build/src/studio/app/cobot_studio   # --bridge cobot_controller
 To drive a host headless (CI, scripts), use one line per session, for example:
 `cobot_bridge_cli cobot_bench claim move-joint:0,30,0,-90,0,60,0 release`. On Gazebo, use `ros2
 run cobot_ros2 cobot_bridge_cli cobot_controller ...`.
+
+## Verification tab
+
+The Verification tab (the fourth tab) runs `cobot_bench verify` in process
+([ADR-023](../adr/023-hardware-scenario-verification.md)): the same loading, checks and messages,
+the same engine (`bench::compare`) and the same writer (`bench::write_verify_outputs`), so a job
+writes the bytes the CLI writes for the same arguments. Inputs, on the left:
+
+- **Hardware models** (`hardwareList`): one checkable row per `config/hardware/*.yaml`.
+- **Algorithms** (`algorithmList`): the registered algorithms (`computed_torque`, `pd_gravity`,
+  `drive_position`).
+- **Task** (`taskCombo`): the `config/tasks/*.yaml` files that load as a task (a waypoint file
+  does not).
+- **Runs** (default 100), **Jobs** (0 = auto), **Quick**, **Tune the gain first** and
+  **Sensitivity of the assumptions** (both on): the CLI's `--runs`, `--jobs`, `--quick`,
+  `--no-tune` and `--no-sensitivity`.
+- **Pairs**: the cross product of the checked models and algorithms. A pair the model does not
+  list is greyed: it is a "not listed" comparison row, not an error.
+
+**Run** starts the job on the studio's worker thread. The phase line shows "tune", "Monte
+Carlo", "sensitivity" or "ablation" with the pair (i of n) and the progress bar the runs of that
+phase. **Cancel** stops before the next run; the tab goes back to idle with "cancelled" and no
+file is written. A job writes into `<work-dir>/verify_NNNN/` (the first free number), never into
+the repository; an input error (unknown file, no listed pair) shows the CLI's message and writes
+nothing.
+
+The result area shows the selected pair (**pairCombo** when several pairs ran). Nothing in it is
+editable: labels and read-only tables only.
+
+- The verdict badge: PASS (green), FAIL (red) or MARGINAL (amber), with "(quick)" after a quick
+  job, and the disclaimer under it.
+- The pass count over the runs, the pass rate, the Wilson 95 % interval and the hold count.
+- Worst values: metric, worst value over the failed runs, threshold, margin limit and a bar of
+  the value against the threshold.
+- Assumptions: key, kind, range or scale, sensitivity and the pass counts at base, low and high.
+- The gain line (key, value used, source) and the tune table, the chosen level highlighted.
+- Causes (ablation) and suggestions, on a FAIL only.
+- The comparison table, when more than one pair: one row per pair, "not listed" included.
+
+**Open report** opens the pair's `report.md`; **Export...** copies the job's directory into an
+empty or new folder. The tab reads its numbers from the same `ComparisonRow` structs the reports
+are written from.
 
 ## Safety
 

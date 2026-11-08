@@ -291,3 +291,20 @@ trễ, so với profile, và ghi độ lệch vào báo cáo. Đến lúc đó, 
   120 phút. E2E-16 chạy độ nhạy với 10 hạt giống (`sensitivity_seeds: 10`), E2E-17 chỉ so kết luận
   nên tắt độ nhạy (`no_sensitivity: true`). Tag `nightly` vẫn chỉ gồm Monte Carlo và quét như test
   của nó quy định.
+
+## Bổ sung (2026-11-08): PR studio-verify (tab Kiểm nghiệm của cobot_studio)
+
+- **Một bộ ghi cho CLI và studio.** Bước nạp và kiểm đầu vào (`bench::load_verify_inputs`: task,
+  từng model và file đầu vào, cặp) và bước ghi "tất cả hoặc không" (`bench::write_verify_outputs`:
+  `report.{json,md}`, `tune.csv`, `comparison.{json,md}` qua file tạm rồi đổi tên; một cặp thì
+  ghi thẳng vào `--out`) chuyển từ `main.cpp` vào thư viện bench (`src/bench/verify_outputs.hpp`).
+  `cobot_bench verify` và job của studio (`cobot/studio/verify_job.hpp`, `run_verify_job`) gọi
+  cùng hai hàm và cùng `bench::compare`, nên cùng thông báo lỗi và cùng từng byte; các test CLI
+  của #81/#82 giữ nguyên và vẫn qua.
+- **Hủy.** Job truyền cờ hủy của mình vào `VerifyOptions::cancel`; bộ ghi chỉ chạy sau mọi lượt
+  chạy, nên hủy ở bất kỳ lúc nào trả "cancelled" và không có file nào. Thư mục mặc định là
+  `<work_dir>/verify_NNNN/` (số trống đầu tiên), không bao giờ là repo.
+- **Kết quả chỉ đọc.** Theo phản hồi của chủ dự án (2026-11-07: ô hiển thị trông như ô nhập), vùng
+  kết quả của tab chỉ có QLabel, bảng `NoEditTriggers` không khung focus và một nhãn kết luận tô
+  màu (xanh PASS, đỏ FAIL, hổ phách MARGINAL); không QLineEdit hay QSpinBox. Tab đọc số từ các
+  `ComparisonRow`, không đọc lại file MD.

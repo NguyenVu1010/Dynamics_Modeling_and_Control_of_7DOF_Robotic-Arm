@@ -44,8 +44,8 @@ class QValueAxis;
 }  // namespace QtCharts
 
 // The cobot_studio window (feature studio-app, cobot_studio design 6.7, 6.9, ADR-021): a thin view
-// over cobot_studio_core with the Configuration and Tracking tabs. Widgets carry the object names
-// of the UI contract.
+// over cobot_studio_core with the Configuration, Control, Tracking and Verification tabs. Widgets
+// carry the object names of the UI contract.
 namespace cobot::studio {
 
 class ControlTab;

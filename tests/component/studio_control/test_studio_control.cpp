@@ -455,13 +455,16 @@ class StudioControl : public ::testing::Test {
 
 TEST_F(StudioControl, ThreeTabsInDesignOrderAndTheContractWidgets) {
   const auto& tabs = get<QTabWidget>("tabs");
-  ASSERT_EQ(tabs.count(), 3);
+  // Feature studio-verify (design 10) adds Verification as the fourth tab.
+  ASSERT_EQ(tabs.count(), 4);
   EXPECT_EQ(tabs.widget(0)->objectName(), QStringLiteral("configTab"));
   EXPECT_EQ(tabs.widget(1)->objectName(), QStringLiteral("controlTab"));
   EXPECT_EQ(tabs.widget(2)->objectName(), QStringLiteral("trackingTab"));
+  EXPECT_EQ(tabs.widget(3)->objectName(), QStringLiteral("verifyTab"));
   EXPECT_EQ(tabs.tabText(0), QStringLiteral("Configuration"));
   EXPECT_EQ(tabs.tabText(1), QStringLiteral("Control"));
   EXPECT_EQ(tabs.tabText(2), QStringLiteral("Tracking"));
+  EXPECT_EQ(tabs.tabText(3), QStringLiteral("Verification"));
 
   const QWidget& control_tab = get<QWidget>("controlTab");
   std::vector<std::string> names = {

@@ -5,7 +5,7 @@
 find_package(Qt5 5.15 REQUIRED COMPONENTS Widgets Charts 3DCore 3DRender 3DExtras)
 
 add_library(cobot_studio_ui STATIC main_window.cpp studio_worker.cpp robot_view.cpp
-  control_tab.cpp time_cursor.hpp)
+  control_tab.cpp verify_tab.cpp time_cursor.hpp)
 set_target_properties(cobot_studio_ui PROPERTIES AUTOMOC ON)
 cobot_set_target_defaults(cobot_studio_ui)
 target_include_directories(cobot_studio_ui PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
