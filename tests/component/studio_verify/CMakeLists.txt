@@ -22,5 +22,7 @@ target_compile_definitions(test_studio_verify PRIVATE
   COBOT_TEST_OUTPUT_DIR="${CMAKE_BINARY_DIR}/test_output")
 target_compile_options(test_studio_verify PRIVATE -UNDEBUG)
 add_test(NAME test_studio_verify COMMAND test_studio_verify)
+# RUN_SERIAL: its verify jobs use every core (jobs 0 = auto), which starves the wall-clock studio
+# tests running next to it under ctest --parallel (studio_3d playback failed twice on #83).
 set_tests_properties(test_studio_verify PROPERTIES ENVIRONMENT QT_QPA_PLATFORM=offscreen
-  TIMEOUT 900)
+  TIMEOUT 900 RUN_SERIAL TRUE)

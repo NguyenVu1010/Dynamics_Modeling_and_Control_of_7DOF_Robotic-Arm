@@ -149,6 +149,10 @@ VerifyRequest request(const std::vector<std::string>& models,
   r.algorithms = algorithms;
   r.task = task_path(task);
   r.out_dir = out_dir;
+  // One worker: ctest runs entries in parallel, and the studio's wall-clock tests (studio_3d
+  // playback) fail when a verify job takes every core (#83 CI). The bytes do not depend on it.
+  r.options.jobs = 1;
+  r.options.tuning.jobs = 1;
   return r;
 }
 
