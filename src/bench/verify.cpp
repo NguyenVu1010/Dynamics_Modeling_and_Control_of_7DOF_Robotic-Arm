@@ -159,6 +159,9 @@ common::Result<VerifyResult> verify(const pipeline::HardwareModel& model,
   if (options.runs == 0) {
     return Out::error("verify: runs must be >= 1");
   }
+  if (options.sensitivity_seeds == 0 || options.ablation_seeds == 0) {
+    return Out::error("verify: sensitivity_seeds and ablation_seeds must be >= 1");
+  }
   const auto cancelled = [&options]() {
     return options.cancel != nullptr && options.cancel->load();
   };

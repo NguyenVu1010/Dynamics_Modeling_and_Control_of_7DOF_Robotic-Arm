@@ -339,9 +339,11 @@ is one `run_queue` with results by index, so the files do not depend on `--jobs`
 
 `--hardware a.yaml,b.yaml` and `--algorithm x,y` (feature verify-analysis, design 10.2 G16) take
 the cross product, models outer, algorithms inner; a pair the model does not list is a `not listed`
-row; no listed pair, an empty item or a model file that does not load is exit 1 before any run.
+row; no listed pair, an empty item, an algorithm or a model (by `name`) given twice, or a model
+file that does not load is exit 1 before any run.
 The pairs run one after the other, each with `--jobs` (`bench::compare`, also for the studio).
-With one listed pair the layout is the single one above. With more, each pair writes
+With one model and one algorithm the layout is the single one above. With more (even when only
+one pair of them is listed), each listed pair writes
 `<dir>/<model>__<algorithm>/report.{json,md}` (+ `tune.csv`), the bytes a single call writes, plus
 `<dir>/comparison.json` and `comparison.md`:
 

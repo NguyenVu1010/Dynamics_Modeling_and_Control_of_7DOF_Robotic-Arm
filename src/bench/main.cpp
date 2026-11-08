@@ -6,6 +6,7 @@
 // auto-tune) exits 0 with a result (also when no level is admissible) and 1 on bad input. `verify`
 // (feature verify) exits 0 for every verdict (a FAIL is a result) and 1 on bad input, no file
 // written; with lists of models and algorithms (feature verify-analysis) it compares the pairs.
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -436,6 +437,9 @@ int verify_main(int argc, char** argv) {
         throw std::invalid_argument("--algorithm: unknown " + name + " (registered: " +
                                     cobot::control::registered_algorithm_names() + ")");
       }
+      if (std::find(algorithms.begin(), algorithms.end(), *algorithm) != algorithms.end()) {
+        throw std::invalid_argument("--algorithm: " + name + " given twice");
+      }
       algorithms.push_back(*algorithm);
     }
     const std::vector<std::string> model_yamls = parse_list("--hardware", f.at("--hardware"));
@@ -485,6 +489,11 @@ int verify_main(int argc, char** argv) {
       if (!in) {
         throw std::invalid_argument(in.reason());
       }
+      for (const cobot::pipeline::HardwareModel& earlier : models) {
+        if (earlier.name == model.value().name) {
+          throw std::invalid_argument("--hardware: model " + earlier.name + " given twice");
+        }
+      }
       models.push_back(model.value());
       inputs.push_back(in.value());
     }
@@ -492,16 +501,14 @@ int verify_main(int argc, char** argv) {
     if (!pairs) {
       throw std::invalid_argument(pairs.reason());
     }
-    std::size_t listed = 0;
-    for (const cobot::bench::ComparisonPair& p : pairs.value()) {
-      listed += p.listed ? 1 : 0;
-    }
+    // One pair in the cross product (one model, one algorithm): report.{json,md} (+ tune.csv) in
+    // --out, as a single call always wrote. More: one directory per listed pair and
+    // comparison.{json,md}, where a pair the model does not list is named "not listed".
+    const bool single = pairs.value().size() == 1;
     const auto rows = cobot::bench::compare(models, algorithms, task.value(), options);
     if (!rows) {
       throw std::invalid_argument(rows.reason());
     }
-    // One listed pair: report.{json,md} (+ tune.csv) in --out, as a single call always wrote;
-    // more: one directory per pair and comparison.{json,md}.
     const std::filesystem::path out_dir = f.at("--out");
     std::vector<OutFile> files;
     std::string printed;
@@ -516,7 +523,7 @@ int verify_main(int argc, char** argv) {
       const cobot::bench::VerifyResult& r = *row.result;
       const std::vector<cobot::bench::InputFile>& in = inputs[pairs.value()[i].model];
       const std::filesystem::path dir =
-          listed == 1 ? out_dir : out_dir / cobot::bench::pair_name(row.model, row.algorithm);
+          single ? out_dir : out_dir / cobot::bench::pair_name(row.model, row.algorithm);
       printed = cobot::bench::report_md(r, in);
       files.push_back(OutFile{dir / "report.json", text(cobot::bench::report_json(r, in))});
       files.push_back(OutFile{dir / "report.md", text(printed)});
@@ -530,7 +537,7 @@ int verify_main(int argc, char** argv) {
                                 }});
       }
     }
-    if (listed > 1) {
+    if (!single) {
       printed = cobot::bench::comparison_md(rows.value());
       files.push_back(
           OutFile{out_dir / "comparison.json", text(cobot::bench::comparison_json(rows.value()))});

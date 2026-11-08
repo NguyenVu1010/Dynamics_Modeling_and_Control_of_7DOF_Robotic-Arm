@@ -38,7 +38,8 @@ struct ComparisonRow {
 };
 
 // verify of every listed pair, one after the other (each with options.jobs), rows in the order of
-// comparison_pairs; the first error stops and comes back.
+// comparison_pairs; the first error stops and comes back, prefixed with the pair's name, except a
+// cancel, which stays the bare "cancelled" of verify.
 common::Result<std::vector<ComparisonRow>> compare(
     const std::vector<pipeline::HardwareModel>& models,
     const std::vector<control::Algorithm>& algorithms,

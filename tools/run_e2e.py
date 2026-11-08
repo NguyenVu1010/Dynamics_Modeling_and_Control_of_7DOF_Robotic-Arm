@@ -539,9 +539,13 @@ def run_gazebo(s: dict, out: Path, report: bool) -> tuple[bool, str]:
     return judge_run(s, csv, out, report)
 
 
+def as_list(value: str | list) -> list:
+    return value if isinstance(value, list) else [value]
+
+
 def run_verify_lists(s: dict, args: argparse.Namespace, out: Path) -> tuple[bool, str]:
-    hardware = ",".join(str(repo_path(h)) for h in s["hardware"])
-    cmd = ["verify", "--hardware", hardware, "--algorithm", ",".join(s["algorithm"])]
+    hardware = ",".join(str(repo_path(h)) for h in as_list(s["hardware"]))
+    cmd = ["verify", "--hardware", hardware, "--algorithm", ",".join(as_list(s["algorithm"]))]
     cmd += ["--task", str(repo_path(s["task"])), "--runs", str(s["runs"])]
     cmd += ["--quick"] if s.get("quick") else []
     for key, name in (("seed0", "--seed0"), ("sensitivity_seeds", "--sensitivity-seeds")):
@@ -552,7 +556,10 @@ def run_verify_lists(s: dict, args: argparse.Namespace, out: Path) -> tuple[bool
     if "tune_seeds" in s:
         cmd += ["--tune-seeds", str(s["tune_seeds"])]
     bench(args, *cmd, "--out", str(out))
-    rows = json.loads((out / "comparison.json").read_text(encoding="utf-8"))["rows"]
+    comparison = out / "comparison.json"
+    if not comparison.is_file():
+        return False, "no comparison.json (one model and one algorithm write a single report)"
+    rows = json.loads(comparison.read_text(encoding="utf-8"))["rows"]
     verdicts = {f"{r['model']}__{r['algorithm']}": r for r in rows}
     problems, seen = [], []
     for pair, want in s["expect"].items():
@@ -573,7 +580,7 @@ def run_verify_lists(s: dict, args: argparse.Namespace, out: Path) -> tuple[bool
 
 
 def run_verify(s: dict, args: argparse.Namespace, out: Path) -> tuple[bool, str]:
-    if isinstance(s["hardware"], list):
+    if isinstance(s["hardware"], list) or isinstance(s["algorithm"], list):
         return run_verify_lists(s, args, out)
     cmd = ["verify", "--hardware", str(repo_path(s["hardware"])), "--algorithm", s["algorithm"]]
     cmd += ["--task", str(repo_path(s["task"])), "--runs", str(s["runs"])]

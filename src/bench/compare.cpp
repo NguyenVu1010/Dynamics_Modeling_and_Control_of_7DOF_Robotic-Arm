@@ -52,6 +52,10 @@ common::Result<std::vector<ComparisonRow>> compare(
     if (p.listed) {
       common::Result<VerifyResult> r = verify(models[p.model], p.algorithm, task, options);
       if (!r) {
+        // A cancel stays the bare "cancelled" of verify (verify.hpp), so a caller can tell it.
+        if (r.reason() == "cancelled") {
+          return Out::error("cancelled");
+        }
         return Out::error(pair_name(row.model, p.algorithm) + ": " + r.reason());
       }
       row.result = std::move(r.value());
