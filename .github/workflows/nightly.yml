@@ -8,7 +8,9 @@ on:
 jobs:
   sim-to-real:
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
+    # E2E-16 alone took 7210 s at 4 jobs with the sensitivity at 20 seeds (verify-analysis);
+    # E2E-17 is the same work on other seeds.
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
       - run: >

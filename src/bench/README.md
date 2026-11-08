@@ -23,8 +23,15 @@ Wilson interval, the worst metrics over the runs that did not hold and the verdi
 one function the CLI and the studio call). Progress and cancel are read between runs only.
 `report_json` / `report_md` write the same content (docs/conventions.md "Verify report") with no wall
 time, so jobs 1 and N give the same bytes; `report_inputs` hashes the input files with `sha256_hex`.
-The 6b seam: `assumptions` lists the model's assumed and derived provenance entries with sensitivity
-"not run"; `causes` and `suggestions` stay empty.
+`assumptions` lists the model's assumed and derived provenance entries.
+
+Analysis (`analysis.hpp`, `compare.hpp`, feature verify-analysis): after the main runs, `verify`
+runs each assumption's two variants (`variant_override`, phase `sensitivity`) and, on a FAIL, each
+active imperfection group switched off (`group_off_overrides`, phase `ablation`), each phase one
+`run_queue` with results by index. The pure functions `sensitivity_rule`, `mark_main_causes` and
+`suggest` decide; `VerifyOptions::sensitivity_keys` is a test hook that limits the keys.
+`bench::compare` runs the listed pairs of several models and algorithms one after the other and
+`comparison_json` / `comparison_md` write the rows (docs/conventions.md "Verify comparison").
 
 Timing: `cobot_bench timing --config <yaml> --steps <n>` prints the PF-01 line
 `p50_us=... p95_us=... max_us=...`. `--paced` steps at the control rate with `clock_nanosleep`

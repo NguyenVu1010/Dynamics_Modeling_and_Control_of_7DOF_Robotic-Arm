@@ -27,6 +27,8 @@ Unit and known-answer component tests cover every module (`tests/unit/`, `tests/
 | E2E-13 | headless Gazebo driven through the studio bridge: jog, joint move, TCP move, waypoints; RViz goal refused | E2E-02 level | every PR |
 | E2E-14 | the E2E-01 trajectory on `budget_xarm7` with the position loop in the simulated drive, seeds 1–3 | E2E-02 level (proposed), no hold | tag `realism2`, manual |
 | E2E-15 | `cobot_bench verify` of `premium_fr3` + `computed_torque` on `reference_move`, `--quick --runs 10 --levels 40,50 --tune-seeds 2` | report.json complete, verdict `marginal` (quick caps PASS), input sha256 match | every PR |
+| E2E-16 | `cobot_bench verify --hardware premium_fr3,mid_kr1205,budget_xarm7 --algorithm computed_torque,drive_position` on `reference_move`, 100 runs, tuning and sensitivity on | comparison.json: premium CT `pass`, mid CT `pass`, budget CT `fail` with the position loop suggestion, budget drive `marginal` | tag `nightly` |
+| E2E-17 | E2E-16 on seeds 101..200 (`--seed0 101`) | the same verdicts (plan ambiguity 18) | tag `nightly` |
 | PF-01 | `ControlLoop` step time | p50/p95 reported; p95 < 1 ms on CI, 200 µs measured on desktop | every PR |
 
 ## Results

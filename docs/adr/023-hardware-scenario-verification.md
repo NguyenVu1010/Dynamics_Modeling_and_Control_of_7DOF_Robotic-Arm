@@ -250,3 +250,42 @@ trễ, so với profile, và ghi độ lệch vào báo cáo. Đến lúc đó, 
 - **Chạy song song (15, C7).** Các lần chạy đi qua `run_queue`, kết quả lưu theo chỉ số seed; báo cáo
   không chứa thời gian thực, nên `--jobs 1` và `--jobs 3` cho cùng từng byte `report.json` và
   `report.md`. Tiến độ và huỷ chỉ được đọc giữa các lần chạy.
+
+## Bổ sung (2026-11-08): PR verify-analysis (6b, độ nhạy, nguyên nhân, so sánh)
+
+- **Độ nhạy của từng giả định (điểm chưa rõ 16, C12).** Mỗi mục provenance loại `assumed` hoặc
+  `derived` có `range` chạy hai biến thể của hồ sơ: khoá ở `lo` và ở `hi`; có `scale` thì mọi phần tử
+  của giá trị trong hồ sơ nhân với `lo` và với `hi` (đầu bằng đúng 1 vẫn chạy); mọi khoá khác giữ
+  nguyên. Khoá bool và khoá lựa chọn ghi `"not varied"`. Mỗi đầu chạy `min(sensitivity_seeds, runs)`
+  seed (mặc định 20) từ `seed0` với hệ số đang dùng; mốc so sánh là chính các seed đó của Monte Carlo
+  chính (không chạy thêm). `"may change"` khi ở một đầu tỉ lệ đạt nằm phía bên kia `target_pass_rate`
+  so với tỉ lệ đạt chính (bằng đúng mục tiêu tính là phía trên, như dấu `>=` của PASS), hoặc khi một đầu
+  có lần bị giữ mà mốc không có; còn lại `"stable"`. Bật mặc định, tắt bằng `--no-sensitivity` và luôn
+  tắt ở chế độ nhanh (báo cáo ghi `"not run"`).
+- **Nguyên nhân và gợi ý (điểm chưa rõ 17), chỉ khi KHÔNG ĐẠT.** Mỗi nhóm `sensor, actuator,
+  friction, model, timing, comm, transmission` có khoá hoạt động (quy tắc của
+  `active_imperfection_keys`, `model.payload_*` thuộc nhiệm vụ) chạy với các khoá đó ở giá trị tắt
+  (0, `false`, `link`; `sensor.qd_filter_hz` và `transmission.ratio` giữ nguyên vì bộ nạp không nhận
+  0) trên `min(ablation_seeds, runs)` seed. Nhóm mà khi bỏ đi số lần đạt tăng nhiều nhất là nguyên
+  nhân chính (hoà thì liệt kê hết); không nhóm nào làm tăng thì báo cáo ghi "no single group explains
+  the failure". Kèm số lần bị giữ theo lý do của Monte Carlo chính. Bảng gợi ý cố định, theo thứ tự:
+  1. luật mô-men (computed_torque, pd_gravity), `comm.servo_rate_hz > 0`, và `state_timeout` +
+     `overspeed` chiếm quá nửa số lần bị giữ -> cần vòng vị trí trong driver (drive_position);
+  2. nguyên nhân chính `comm` -> tăng tần số servo hoặc giảm mất gói;
+  3. `sensor` -> encoder mịn hơn hoặc ít nhiễu cảm biến hơn;
+  4. `transmission` -> truyền động cứng hơn hoặc ít độ rơ hơn;
+  5. `friction` -> nhận dạng và bù ma sát;
+  6. tune không tìm được hệ số chấp nhận được -> mở rộng các mức hoặc đổi luật.
+- **report.json.** Schema vẫn `1`: khoá của 6a giữ thứ tự và nghĩa; khoá mới chỉ nằm trong
+  `assumptions[]` (`base`, `low`, `high`) và `causes` (khi KHÔNG ĐẠT là đối tượng `{groups,
+  hold_reasons}`, còn lại `[]`). Bộ chấm E2E-15 chỉ đọc các khoá cấp trên.
+- **So sánh nhiều model và thuật toán (G16).** `--hardware a,b` và `--algorithm x,y` lấy tích Đề-các,
+  cặp mà model không liệt kê ghi `not listed`, không có cặp nào thì thoát 1 trước mọi lần chạy. Các
+  cặp chạy lần lượt, mỗi cặp với `--jobs` (`bench::compare`, studio dùng lại). Hơn một cặp: mỗi cặp ghi
+  `<out>/<model>__<algorithm>/` đúng từng byte như một lần gọi đơn, thêm `comparison.json` và
+  `comparison.md`; một cặp giữ bố cục cũ.
+- **Seed (điểm chưa rõ 18).** E2E-17 chạy lại E2E-16 trên seed 101..200 và mong cùng kết luận.
+- **Thời gian nightly.** E2E-16 đo trên máy cục bộ với `--jobs 4`: 7210 s (khoảng 120 phút), RSS tối đa 56 MB;
+  E2E-17 cùng khối lượng trên seed khác. Hai kịch bản (trong `tests/`) không mang `--sensitivity-seeds`
+  hay `--no-sensitivity`, nên chọn cách nâng `timeout-minutes` của nightly lên 360 (nightly không
+  phải kiểm tra bắt buộc).
