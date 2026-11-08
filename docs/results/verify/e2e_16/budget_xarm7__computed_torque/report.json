@@ -1,0 +1,100 @@
+{
+  "schema": 1,
+  "disclaimer": "Screening and comparison tool, not a certification: it does not replace a safety assessment to ISO 10218 or ISO/TS 15066, nor measurements on the real robot.",
+  "model": "budget_xarm7",
+  "algorithm": "computed_torque",
+  "task": "reference_move",
+  "verdict": "fail",
+  "quick": false,
+  "runs": 100,
+  "seeds": [1, 100],
+  "pass_count": 0,
+  "pass_rate": 0,
+  "wilson": [0, 0.036993498206985678],
+  "hold_rate": 1,
+  "worst": {
+    "final_pos_err_m": {"value": null, "threshold": 0.0050000000000000001, "margin_limit": 0.0040000000000000001},
+    "final_rot_err_deg": {"value": null, "threshold": 2, "margin_limit": 1.6000000000000001},
+    "rms_joint_err_rad": {"value": null, "threshold": 0.02, "margin_limit": 0.016},
+    "cycle_time_s": {"value": null, "threshold": 12, "margin_limit": 9.6000000000000014}
+  },
+  "tuning": {
+    "key": "config.computed_torque.omega",
+    "gain_used": 20,
+    "gain_source": "default_no_admissible",
+    "levels": [20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150],
+    "rows": [
+      {"level": 20, "seeds": 10, "held": 10, "sat_frac_max": 0.565048551458601, "decays_all": 0, "rms_joint_err_median": null, "final_pos_err_max": null, "chosen": 0},
+      {"level": 30, "seeds": 10, "held": 10, "sat_frac_max": 0.9693894510225034, "decays_all": 0, "rms_joint_err_median": null, "final_pos_err_max": null, "chosen": 0},
+      {"level": 40, "seeds": 10, "held": 10, "sat_frac_max": 0.98775449578387753, "decays_all": 0, "rms_joint_err_median": null, "final_pos_err_max": null, "chosen": 0},
+      {"level": 50, "seeds": 10, "held": 10, "sat_frac_max": 0.9925863272696881, "decays_all": 0, "rms_joint_err_median": null, "final_pos_err_max": null, "chosen": 0},
+      {"level": 60, "seeds": 10, "held": 10, "sat_frac_max": 0.99555762622116439, "decays_all": 0, "rms_joint_err_median": null, "final_pos_err_max": null, "chosen": 0},
+      {"level": 70, "seeds": 10, "held": 10, "sat_frac_max": 0.99648597894552493, "decays_all": 0, "rms_joint_err_median": null, "final_pos_err_max": null, "chosen": 0},
+      {"level": 80, "seeds": 10, "held": 10, "sat_frac_max": 0.99750446862837028, "decays_all": 0, "rms_joint_err_median": null, "final_pos_err_max": null, "chosen": 0},
+      {"level": 90, "seeds": 10, "held": 10, "sat_frac_max": 0.99783692125523282, "decays_all": 0, "rms_joint_err_median": null, "final_pos_err_max": null, "chosen": 0},
+      {"level": 100, "seeds": 10, "held": 10, "sat_frac_max": 0.99793014018858361, "decays_all": 0, "rms_joint_err_median": null, "final_pos_err_max": null, "chosen": 0},
+      {"level": 110, "seeds": 10, "held": 10, "sat_frac_max": 0.99793014018858361, "decays_all": 0, "rms_joint_err_median": null, "final_pos_err_max": null, "chosen": 0},
+      {"level": 120, "seeds": 10, "held": 10, "sat_frac_max": 0.99815317673708748, "decays_all": 0, "rms_joint_err_median": null, "final_pos_err_max": null, "chosen": 0},
+      {"level": 130, "seeds": 10, "held": 10, "sat_frac_max": 0.99823781285940716, "decays_all": 0, "rms_joint_err_median": null, "final_pos_err_max": null, "chosen": 0},
+      {"level": 140, "seeds": 10, "held": 10, "sat_frac_max": 0.99848270051450472, "decays_all": 0, "rms_joint_err_median": null, "final_pos_err_max": null, "chosen": 0},
+      {"level": 150, "seeds": 10, "held": 10, "sat_frac_max": 0.9988200753396107, "decays_all": 0, "rms_joint_err_median": null, "final_pos_err_max": null, "chosen": 0}
+    ],
+    "chosen": null,
+    "reason": "no admissible gain of 14 levels: held 14, saturated 14, not decaying 14, no rms 14"
+  },
+  "assumptions": [
+    {"key": "sensor.q_noise_std_rad", "kind": "derived", "range": [2.5000000000000001e-05, 0.0001], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 2.5000000000000001e-05, "passed": 0, "held": 10}, "high": {"value": 0.0001, "passed": 0, "held": 10}},
+    {"key": "sensor.q_offset_std_rad", "kind": "assumed", "range": [0.00050000000000000001, 0.0050000000000000001], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 0.00050000000000000001, "passed": 0, "held": 10}, "high": {"value": 0.0050000000000000001, "passed": 0, "held": 10}},
+    {"key": "sensor.qd_from_diff", "kind": "assumed", "sensitivity": "not varied"},
+    {"key": "sensor.qd_filter_hz", "kind": "assumed", "range": [25, 100], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 25, "passed": 0, "held": 10}, "high": {"value": 100, "passed": 0, "held": 10}},
+    {"key": "sensor.sensor_delay_cycles", "kind": "assumed", "range": [0, 3], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 0, "passed": 0, "held": 10}, "high": {"value": 3, "passed": 0, "held": 10}},
+    {"key": "sensor.position_source", "kind": "assumed", "sensitivity": "not varied"},
+    {"key": "actuator.torque_scale_std", "kind": "assumed", "range": [0.050000000000000003, 0.20000000000000001], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 0.050000000000000003, "passed": 0, "held": 10}, "high": {"value": 0.20000000000000001, "passed": 0, "held": 10}},
+    {"key": "actuator.torque_scale_asym_frac", "kind": "assumed", "range": [0, 0.059999999999999998], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 0, "passed": 0, "held": 10}, "high": {"value": 0.059999999999999998, "passed": 0, "held": 10}},
+    {"key": "actuator.torque_ripple_frac", "kind": "assumed", "range": [0.02, 0.10000000000000001], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 0.02, "passed": 0, "held": 10}, "high": {"value": 0.10000000000000001, "passed": 0, "held": 10}},
+    {"key": "actuator.ripple_periods_per_rev", "kind": "assumed", "range": [2, 12], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 2, "passed": 0, "held": 10}, "high": {"value": 12, "passed": 0, "held": 10}},
+    {"key": "actuator.deadband_nm", "kind": "assumed", "scale": [0.20000000000000001, 3], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 0.20000000000000001, "passed": 0, "held": 10}, "high": {"value": 3, "passed": 0, "held": 10}},
+    {"key": "actuator.torque_cmd_resolution_nm", "kind": "assumed", "scale": [0.25, 2], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 0.25, "passed": 0, "held": 10}, "high": {"value": 2, "passed": 0, "held": 10}},
+    {"key": "actuator.motor_time_constant_s", "kind": "assumed", "range": [0.00050000000000000001, 0.0050000000000000001], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 0.00050000000000000001, "passed": 0, "held": 10}, "high": {"value": 0.0050000000000000001, "passed": 0, "held": 10}},
+    {"key": "actuator.command_delay_cycles", "kind": "assumed", "range": [0, 3], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 0, "passed": 0, "held": 10}, "high": {"value": 3, "passed": 0, "held": 10}},
+    {"key": "actuator.torque_slew_nm_s", "kind": "assumed", "scale": [0.5, 2], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 0.5, "passed": 0, "held": 10}, "high": {"value": 2, "passed": 0, "held": 10}},
+    {"key": "actuator.knee_speed_rad_s", "kind": "derived", "scale": [0.80000000000000004, 1.25], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 0.80000000000000004, "passed": 0, "held": 10}, "high": {"value": 1.25, "passed": 0, "held": 10}},
+    {"key": "actuator.zero_torque_speed_rad_s", "kind": "derived", "scale": [0.80000000000000004, 1.25], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 0.80000000000000004, "passed": 0, "held": 10}, "high": {"value": 1.25, "passed": 0, "held": 10}},
+    {"key": "actuator.bus.r_source_ohm", "kind": "assumed", "range": [0.050000000000000003, 0.5], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 0.050000000000000003, "passed": 0, "held": 10}, "high": {"value": 0.5, "passed": 0, "held": 10}},
+    {"key": "actuator.bus.v_min_v", "kind": "assumed", "range": [36, 43.200000000000003], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 36, "passed": 0, "held": 10}, "high": {"value": 43.200000000000003, "passed": 0, "held": 10}},
+    {"key": "friction.coulomb_nm", "kind": "derived", "scale": [0.5, 1.5], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 0.5, "passed": 0, "held": 10}, "high": {"value": 1.5, "passed": 0, "held": 10}},
+    {"key": "friction.viscous_nm_s_rad", "kind": "assumed", "scale": [0.5, 2], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 0.5, "passed": 0, "held": 10}, "high": {"value": 2, "passed": 0, "held": 10}},
+    {"key": "model.link_mass_scale_std", "kind": "assumed", "range": [0.02, 0.20000000000000001], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 0.02, "passed": 0, "held": 10}, "high": {"value": 0.20000000000000001, "passed": 0, "held": 10}},
+    {"key": "model.com_shift_std_m", "kind": "assumed", "range": [0.002, 0.02], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 0.002, "passed": 0, "held": 10}, "high": {"value": 0.02, "passed": 0, "held": 10}},
+    {"key": "timing.overrun_prob", "kind": "assumed", "range": [0.0001, 0.01], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 0.0001, "passed": 0, "held": 10}, "high": {"value": 0.01, "passed": 0, "held": 10}},
+    {"key": "timing.overrun_cycles", "kind": "assumed", "range": [1, 5], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 1, "passed": 0, "held": 10}, "high": {"value": 5, "passed": 0, "held": 10}},
+    {"key": "comm.packet_loss_prob", "kind": "assumed", "range": [0.0001, 0.01], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 0.0001, "passed": 0, "held": 10}, "high": {"value": 0.01, "passed": 0, "held": 10}},
+    {"key": "comm.latency_burst_prob", "kind": "assumed", "range": [0.0001, 0.01], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 0.0001, "passed": 0, "held": 10}, "high": {"value": 0.01, "passed": 0, "held": 10}},
+    {"key": "comm.burst_cycles", "kind": "assumed", "range": [1, 10], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 1, "passed": 0, "held": 10}, "high": {"value": 10, "passed": 0, "held": 10}},
+    {"key": "transmission.damping_ratio", "kind": "assumed", "range": [0.0050000000000000001, 0.050000000000000003], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 0.0050000000000000001, "passed": 0, "held": 10}, "high": {"value": 0.050000000000000003, "passed": 0, "held": 10}},
+    {"key": "transmission.error_amp_rad", "kind": "assumed", "range": [0.00029, 0.0016999999999999999], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 0.00029, "passed": 0, "held": 10}, "high": {"value": 0.0016999999999999999, "passed": 0, "held": 10}},
+    {"key": "transmission.lost_motion_rad", "kind": "assumed", "range": [0.00029, 0.0016999999999999999], "sensitivity": "stable", "base": {"passed": 0, "held": 10}, "low": {"value": 0.00029, "passed": 0, "held": 10}, "high": {"value": 0.0016999999999999999, "passed": 0, "held": 10}}
+  ],
+  "causes": {
+    "groups": [
+      {"group": "sensor", "passed_without": 0, "base_passed": 0, "main": false},
+      {"group": "actuator", "passed_without": 0, "base_passed": 0, "main": false},
+      {"group": "friction", "passed_without": 0, "base_passed": 0, "main": false},
+      {"group": "model", "passed_without": 0, "base_passed": 0, "main": false},
+      {"group": "timing", "passed_without": 0, "base_passed": 0, "main": false},
+      {"group": "comm", "passed_without": 17, "base_passed": 0, "main": true},
+      {"group": "transmission", "passed_without": 0, "base_passed": 0, "main": false}
+    ],
+    "hold_reasons": {"overspeed": 1, "state_timeout": 99}
+  },
+  "suggestions": ["needs a position loop in the drive (algorithm drive_position)", "raise the servo rate or reduce packet loss", "no admissible gain in the sweep: widen the levels or change the law"],
+  "versions": {
+    "git": "6ae849e",
+    "inputs": [
+      {"path": "/home/runner/work/Dynamics_Modeling_and_Control_of_7DOF_Robotic-Arm/Dynamics_Modeling_and_Control_of_7DOF_Robotic-Arm/config/hardware/budget_xarm7.yaml", "sha256": "1fedba18d2beba7cd96c10bcc001c939f8d2a697477e3753559468e6b673d449"},
+      {"path": "/home/runner/work/Dynamics_Modeling_and_Control_of_7DOF_Robotic-Arm/Dynamics_Modeling_and_Control_of_7DOF_Robotic-Arm/config/imperfections/budget_xarm7.yaml", "sha256": "12ed5edf10110806c50e5659ca321a152611335224f60c021a084a40a6d70941"},
+      {"path": "/home/runner/work/Dynamics_Modeling_and_Control_of_7DOF_Robotic-Arm/Dynamics_Modeling_and_Control_of_7DOF_Robotic-Arm/config/budget_xarm7.yaml", "sha256": "f99f4b7418e3f409ca42ff6d9102e14c79a50d90b4d39b5471f8620edb2479ba"},
+      {"path": "/home/runner/work/Dynamics_Modeling_and_Control_of_7DOF_Robotic-Arm/Dynamics_Modeling_and_Control_of_7DOF_Robotic-Arm/config/tasks/reference_move.yaml", "sha256": "601b56df0d0d9b8295c4ff6d25174bf48609400623cbb3edeb7690a01ed0daca"}
+    ]
+  }
+}

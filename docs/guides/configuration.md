@@ -29,7 +29,7 @@ its numbers.
 ## Hardware models and tasks
 
 Hardware verification asks "this hardware, this algorithm, this task" ([ADR-023](../adr/023-hardware-scenario-verification.md)).
-Two more file types name those pieces. They only load and combine the files above; no command reads them yet:
+Two more file types name those pieces; `cobot_bench verify` and the studio's Verification tab read them ([verification guide](verification.md)):
 
 | File | Holds |
 | --- | --- |

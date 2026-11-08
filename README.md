@@ -44,10 +44,17 @@ Tracking tab plots the run. [Full-resolution video](docs/media/demo-v1.mp4); rec
   position error stays at least 8x under the threshold. On budget (250 Hz servo), torque sent
   from the host trips the safety hold on every seed
   ([E2E-12](tests/e2e/scenarios/e2e_12_profiles.yaml)). A position loop in the simulated drive
-  removes the holds: 0 of 100 seeds hold and 93 of 100 stay within the proposed thresholds. That
-  is not yet a pass, because the final position error reaches 7.38 mm on the worst seed
-  ([E2E-14](tests/e2e/scenarios/e2e_14_budget_drive.yaml), [numbers](https://github.com/NguyenVu1010/Dynamics_Modeling_and_Control_of_7DOF_Robotic-Arm/pull/72),
-  [ADR-023](docs/adr/023-hardware-scenario-verification.md)).
+  removes the holds, but the final position error still reaches 7.5 mm on the worst seed
+  ([E2E-14](tests/e2e/scenarios/e2e_14_budget_drive.yaml)).
+- **Hardware verification with a stated confidence.** `cobot_bench verify` and the studio's
+  Verification tab tune the law's gain per hardware model, run 100 Monte Carlo seeds and give a
+  three-level verdict from a 95 % Wilson interval, with the assumptions that could change it, the
+  main cause of a failure and a suggestion
+  ([ADR-023](docs/adr/023-hardware-scenario-verification.md),
+  [results](docs/results/verify/README.md)). Premium and mid pass (100/100). Budget with torque
+  from the host fails at every gain (0/100); the report names the 250 Hz link as the main cause
+  and suggests a position loop in the drive. With that loop, budget is marginal (92/100, Wilson
+  0.85..0.96). Seeds 101..200 give the same four verdicts.
 - **The same controller in two hosts.** It runs in Gazebo Harmonic through `ros2_control` and in
   a ROS-free bench. Gazebo with realistic errors ends 0.071 mm from the goal
   ([E2E-09](docs/results/realism/e2e_09/report.md)). An RViz2 waypoint panel and the Qt app
@@ -107,6 +114,8 @@ Thresholds and full numbers: [tests and results](docs/guides/testing.md#results)
 | PF-02 studio bridge cost per step | – | +0.17 µs at p50 ([studio](docs/results/studio/README.md#pf-02-control-step-with-the-studio-bridge)) |
 | Stop guarantee, frozen studio | 0.705 s + 5 ms observer poll | 0.709 s max over 5 trials ([studio](docs/results/studio/README.md#stop-guarantee)) |
 | E2E-08 arm64 Pi 5 image (QEMU), nightly | ctest + E2E-01..04 | pass in CI |
+| E2E-16 verify, 3 models, 100 seeds, nightly | PASS: Wilson lower bound ≥ 95 % and worst ≤ 80 % of each threshold | premium PASS, mid PASS, budget FAIL, budget + drive loop MARGINAL ([results](docs/results/verify/README.md)) |
+| E2E-17 same, seeds 101..200, nightly | same verdicts | same verdicts ([comparison](docs/results/verify/e2e_17/comparison.md)) |
 
 ## Quick start
 
@@ -122,6 +131,9 @@ tools/wsl/pytest.sh                 # Python tests
 B=~/projects/7dof_dynamic_control/build/main
 ~/projects/7dof_dynamic_control/venv/bin/python tools/run_e2e.py --all --tag pr \
   --bench $B/src/bench/cobot_bench --out out/pr
+
+# Hardware verification: tune, 100 runs, verdict and report (several models in one call)
+$B/src/bench/cobot_bench verify --hardware config/hardware/premium_fr3.yaml   --algorithm computed_torque --task config/tasks/reference_move.yaml --out out/verify
 
 # Gazebo with the real controller, then the studio connected to it
 tools/wsl/sim.sh build && source tools/wsl/env.sh
@@ -153,6 +165,7 @@ Full workflow: [waypoint GUI guide](docs/guides/waypoint-gui.md).
 | `cobot_studio` and manual control, safety rules | [docs/guides/studio.md](docs/guides/studio.md) |
 | Controller and environment YAML, imperfection profiles | [docs/guides/configuration.md](docs/guides/configuration.md) |
 | Test levels and full results | [docs/guides/testing.md](docs/guides/testing.md) |
+| Hardware verification: models, tasks, reports, results | [docs/guides/verification.md](docs/guides/verification.md), [docs/results/verify](docs/results/verify/README.md) |
 | Layout, control data flow, project phases | [docs/guides/architecture.md](docs/guides/architecture.md) |
 | Frames, units, data contracts | [docs/conventions.md](docs/conventions.md) |
 | Architecture decisions (Vietnamese) | [docs/adr/](docs/adr/) |
@@ -170,8 +183,10 @@ tag [`v0-python`](https://github.com/NguyenVu1010/Dynamics_Modeling_and_Control_
 Pinocchio hay KDL) và bộ điều khiển computed torque 1 kHz cho tay máy 7 bậc, mô hình đọc từ một
 file URDF. Cùng bộ điều khiển chạy trong Gazebo Harmonic qua `ros2_control` và trong bench không
 ROS. Lớp mô hình không hoàn hảo (nhiễu, trễ, sai số động cơ, ma sát, hộp số đàn hồi, mất gói)
-cùng ba profile phần cứng cho biết phần cứng nào đủ dùng. `cobot_studio` điều khiển tay máy bằng
-tay và vẽ sai số bám. Đích phần cứng sau này là Raspberry Pi 5. ADR, thiết kế và bài học viết
+cùng ba profile phần cứng cho biết phần cứng nào đủ dùng. Lệnh `cobot_bench verify` và tab Kiểm
+nghiệm của `cobot_studio` tự chỉnh hệ số, chạy 100 lần Monte Carlo và kết luận ĐẠT, KHÔNG ĐẠT hay
+SÁT NGƯỠNG kèm khoảng tin cậy và các giả định. `cobot_studio` cũng điều khiển tay máy bằng tay và
+vẽ sai số bám. Đích phần cứng sau này là Raspberry Pi 5. ADR, thiết kế và bài học viết
 bằng tiếng Việt trong `docs/`.
 
 ## License
