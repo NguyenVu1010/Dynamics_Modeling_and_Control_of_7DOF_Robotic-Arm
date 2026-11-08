@@ -361,12 +361,18 @@ TEST_F(Studio3d, PlaybackAdvancesTheCursorAtTheChosenSpeedAndPauses) {
   speed->setCurrentIndex(2);  // 4x
   ASSERT_TRUE(speed->currentText().startsWith("4"));
 
-  // 4x for 0.5 s of wall time: 4 * 0.5 = 2.0 s of run time (the run is 3 s, no clamp).
+  // 4x for about 0.5 s of wall time: 4 * 0.5 = 2.0 s of run time (the run is 3 s, no clamp). The
+  // wall time actually spent is measured: on a loaded CI runner the 500 ms spin overran by up to
+  // 140 ms (#83), which the cursor rightly follows. The tolerance stays 0.4 s of run time.
   cursor_->set_time_s(0.0);
+  QElapsedTimer wall;
+  wall.start();
   play->click();
   spin_for(500);
   const double t_played = cursor_->time_s();
-  EXPECT_NEAR(t_played, 2.0, 0.4);
+  const double wall_s = static_cast<double>(wall.elapsed()) / 1000.0;
+  ASSERT_LT(wall_s, 0.5 + 0.4) << "the event loop stalled; the cursor would clamp near 3 s";
+  EXPECT_NEAR(t_played, 4.0 * wall_s, 0.4) << "wall " << wall_s << " s";
 
   // Pause: the cursor stays where it is.
   play->click();
