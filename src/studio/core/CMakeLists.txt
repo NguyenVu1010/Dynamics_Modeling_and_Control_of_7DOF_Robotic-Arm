@@ -1,7 +1,7 @@
 # cobot_studio_core (feature studio-core, ADR-021): base pairs, parameter catalog, studio file,
 # run store, metrics, chart series and the in-process runner on the bench engine; the 3D view's
 # RobotScene, STL loader and playback helpers (feature studio-3d); the Run CSV reader, live runs
-# and the bridge client (feature studio-control). No Qt.
+# and the bridge client (feature studio-control); the verify job (feature studio-verify). No Qt.
 find_package(yaml-cpp REQUIRED)
 find_package(tinyxml2 REQUIRED)
 add_library(cobot_studio_core STATIC
@@ -17,7 +17,8 @@ add_library(cobot_studio_core STATIC
   src/playback.cpp
   src/run_csv.cpp
   src/live_run.cpp
-  src/bridge_client.cpp)
+  src/bridge_client.cpp
+  src/verify_job.cpp)
 cobot_set_target_defaults(cobot_studio_core)
 target_include_directories(cobot_studio_core PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 # yaml-cpp only for the studio file (ADR-021); the controller and imperfection files go through

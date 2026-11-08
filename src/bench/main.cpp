@@ -15,8 +15,6 @@
 #include <ctime>
 #include <exception>
 #include <filesystem>
-#include <fstream>
-#include <functional>
 #include <limits>
 #include <map>
 #include <optional>
@@ -38,6 +36,7 @@
 #include "serve.hpp"
 #include "tune.hpp"
 #include "verify.hpp"
+#include "verify_outputs.hpp"
 
 namespace {
 
@@ -338,16 +337,6 @@ int tune_main(int argc, char** argv) {
   }
 }
 
-// Writes `text` to `path` (std::invalid_argument naming it on failure).
-void write_text(const std::filesystem::path& path, const std::string& text) {
-  std::ofstream out(path, std::ios::binary | std::ios::trunc);
-  out << text;
-  out.flush();
-  if (!out) {
-    throw std::invalid_argument("cannot write " + path.string());
-  }
-}
-
 // "a,b,c" of `flag`: every item non-empty (std::invalid_argument naming the flag otherwise).
 std::vector<std::string> parse_list(const std::string& flag, const std::string& text) {
   std::vector<std::string> items;
@@ -365,47 +354,6 @@ std::vector<std::string> parse_list(const std::string& flag, const std::string& 
       return items;
     }
     begin = comma + 1;
-  }
-}
-
-// One file to write: `write` fills the given (temporary) path.
-struct OutFile {
-  std::filesystem::path path;
-  std::function<void(const std::filesystem::path&)> write;
-};
-
-// Every file goes to a temporary name first and is renamed only once all are written, so a failed
-// write leaves none of them behind.
-void write_all(const std::vector<OutFile>& files) {
-  const auto temp = [](const std::filesystem::path& p) {
-    return p.parent_path() / ("." + p.filename().string() + ".tmp");
-  };
-  const auto discard = [&](bool finals) {
-    for (const OutFile& f : files) {
-      std::error_code ignored;
-      std::filesystem::remove(temp(f.path), ignored);
-      if (finals) {
-        std::filesystem::remove(f.path, ignored);
-      }
-    }
-  };
-  try {
-    for (const OutFile& f : files) {
-      std::error_code ec;
-      std::filesystem::create_directories(f.path.parent_path(), ec);
-      f.write(temp(f.path));
-    }
-  } catch (...) {
-    discard(false);
-    throw;
-  }
-  for (const OutFile& f : files) {
-    std::error_code ec;
-    std::filesystem::rename(temp(f.path), f.path, ec);
-    if (ec) {
-      discard(true);
-      throw std::invalid_argument("cannot write " + f.path.string() + ": " + ec.message());
-    }
   }
 }
 
@@ -472,78 +420,29 @@ int verify_main(int argc, char** argv) {
     if (f.count("--jobs") > 0) {
       options.jobs = parse_jobs(f.at("--jobs"));
     }
-    const std::filesystem::path task_yaml = f.at("--task");
-    const auto task = cobot::pipeline::load_task(task_yaml);
-    if (!task) {
-      throw std::invalid_argument(task.reason());
-    }
+    const std::vector<std::filesystem::path> model_paths(model_yamls.begin(), model_yamls.end());
     // Every model and every input file is checked before the first run.
-    std::vector<cobot::pipeline::HardwareModel> models;
-    std::vector<std::vector<cobot::bench::InputFile>> inputs;
-    for (const std::string& yaml : model_yamls) {
-      const auto model = cobot::pipeline::load_hardware_model(yaml);
-      if (!model) {
-        throw std::invalid_argument(model.reason());
-      }
-      const auto in = cobot::bench::report_inputs(yaml, model.value(), task_yaml, task.value());
-      if (!in) {
-        throw std::invalid_argument(in.reason());
-      }
-      for (const cobot::pipeline::HardwareModel& earlier : models) {
-        if (earlier.name == model.value().name) {
-          throw std::invalid_argument("--hardware: model " + earlier.name + " given twice");
-        }
-      }
-      models.push_back(model.value());
-      inputs.push_back(in.value());
+    const auto in = cobot::bench::load_verify_inputs(model_paths, algorithms, f.at("--task"));
+    if (!in) {
+      throw std::invalid_argument(in.reason());
     }
-    const auto pairs = cobot::bench::comparison_pairs(models, algorithms);
-    if (!pairs) {
-      throw std::invalid_argument(pairs.reason());
+    const cobot::bench::VerifyInputs& v = in.value();
+    const auto rows = cobot::bench::compare(v.models, algorithms, v.task, options);
+    if (!rows) {
+      throw std::invalid_argument(rows.reason());
     }
     // One pair in the cross product (one model, one algorithm): report.{json,md} (+ tune.csv) in
     // --out, as a single call always wrote. More: one directory per listed pair and
     // comparison.{json,md}, where a pair the model does not list is named "not listed".
-    const bool single = pairs.value().size() == 1;
-    const auto rows = cobot::bench::compare(models, algorithms, task.value(), options);
-    if (!rows) {
-      throw std::invalid_argument(rows.reason());
+    const auto written =
+        cobot::bench::write_verify_outputs(f.at("--out"), v.pairs, rows.value(), v.inputs);
+    if (!written) {
+      throw std::invalid_argument(written.reason());
     }
-    const std::filesystem::path out_dir = f.at("--out");
-    std::vector<OutFile> files;
-    std::string printed;
-    const auto text = [](std::string s) {
-      return [s = std::move(s)](const std::filesystem::path& p) { write_text(p, s); };
-    };
-    for (std::size_t i = 0; i < rows.value().size(); ++i) {
-      const cobot::bench::ComparisonRow& row = rows.value()[i];
-      if (!row.result) {
-        continue;
-      }
-      const cobot::bench::VerifyResult& r = *row.result;
-      const std::vector<cobot::bench::InputFile>& in = inputs[pairs.value()[i].model];
-      const std::filesystem::path dir =
-          single ? out_dir : out_dir / cobot::bench::pair_name(row.model, row.algorithm);
-      printed = cobot::bench::report_md(r, in);
-      files.push_back(OutFile{dir / "report.json", text(cobot::bench::report_json(r, in))});
-      files.push_back(OutFile{dir / "report.md", text(printed)});
-      if (r.tuning) {
-        files.push_back(OutFile{dir / "tune.csv", [&r](const std::filesystem::path& p) {
-                                  const cobot::common::Status st =
-                                      cobot::bench::write_tune_csv(p, *r.tuning);
-                                  if (!st) {
-                                    throw std::invalid_argument(st.reason());
-                                  }
-                                }});
-      }
-    }
-    if (!single) {
-      printed = cobot::bench::comparison_md(rows.value());
-      files.push_back(
-          OutFile{out_dir / "comparison.json", text(cobot::bench::comparison_json(rows.value()))});
-      files.push_back(OutFile{out_dir / "comparison.md", text(printed)});
-    }
-    write_all(files);
+    const std::string printed =
+        v.pairs.size() == 1
+            ? cobot::bench::report_md(*rows.value().front().result, v.inputs.front())
+            : cobot::bench::comparison_md(rows.value());
     const std::chrono::duration<double> wall = std::chrono::steady_clock::now() - start;
     std::printf("%s\nwall time: %.1f s\n", printed.c_str(), wall.count());
     return 0;

@@ -46,6 +46,7 @@
 
 #include "control_tab.hpp"
 #include "robot_view.hpp"
+#include "verify_tab.hpp"
 #include <QtCharts/QChart>
 #include <QtCharts/QChartView>
 #include <QtCharts/QLineSeries>
@@ -313,12 +314,19 @@ MainWindow::MainWindow(std::filesystem::path config_dir,
       *client_, bridge_name, pairs_.empty() ? std::filesystem::path() : pairs_.front().config_yaml);
   tabs->addTab(control_, tr("Control"));
   tabs->addTab(build_tracking_tab(), tr("Tracking"));
+  auto* verify_tab = new VerifyTab(config_dir, work_dir_, *worker_);
+  tabs->addTab(verify_tab, tr("Verification"));
   // QStackedLayout lowers added pages and raises the current one, which reorders the pages among
-  // their siblings. The Configuration tab is kept first, so a window-wide lookup of a name both
-  // tabs use (resetButton) finds the Configuration tab's; only the stacking order changes, and
-  // one page is visible at a time.
-  config_tab->lower();
-  connect(tabs, &QTabWidget::currentChanged, config_tab, [config_tab] { config_tab->lower(); });
+  // their siblings. The Configuration tab is kept first and the Verification tab last, so a
+  // window-wide lookup of a name two tabs use (resetButton; runButton, cancelButton, progressBar)
+  // finds the Configuration or Tracking tab's; only the stacking order changes, and one page is
+  // visible at a time.
+  const auto order_pages = [config_tab, verify_tab] {
+    config_tab->lower();
+    verify_tab->raise();
+  };
+  order_pages();
+  connect(tabs, &QTabWidget::currentChanged, config_tab, order_pages);
   // The two speed sliders are one setting, StudioConfig::speed_pct.
   for (QSlider* s : {speed_, control_->speed_slider()}) {
     connect(s, &QSlider::valueChanged, this, [this](int v) {
@@ -362,6 +370,7 @@ MainWindow::MainWindow(std::filesystem::path config_dir,
 // Cancels the job in progress and joins the worker: at most the current run finishes.
 MainWindow::~MainWindow() {
   worker_->cancel();
+  worker_->cancel_verify();
   thread_.quit();
   thread_.wait();
 }
