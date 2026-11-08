@@ -52,8 +52,8 @@ matches its bytes. With lists (feature verify-analysis: `hardware` a list of mod
 --sensitivity-seeds, --no-sensitivity when given) and passes when comparison.json has a row of every
 `expect: {<model>__<algorithm>: verdict}` pair with that verdict and every text of
 `expect_suggestions: {<pair>: [text]}` is in that pair's report.json suggestions.
-Scenarios tagged nightly or realism2 run only with --tag <that tag> or --scenario. Exit 0 all
-pass, 1 any fails, 2 bad arguments.
+Scenarios tagged nightly, realism2 or verify-nightly run only with --tag <that tag> or
+--scenario. Exit 0 all pass, 1 any fails, 2 bad arguments.
 """
 
 import argparse
@@ -87,7 +87,7 @@ from cobot_eval.metrics import (  # noqa: E402
 
 SCENARIO_DIR = REPO / "tests/e2e/scenarios"
 THRESHOLD_KEYS = ("final_pos_err_m", "final_rot_err_deg", "rms_joint_err_rad")
-OPT_IN_TAGS = {"nightly", "realism2"}  # never selected by a plain --all
+OPT_IN_TAGS = {"nightly", "realism2", "verify-nightly"}  # never selected by a plain --all
 GAZEBO_MARGIN_S = 5.0  # real-time factor below 1 and shutdown, on top of the trajectory time
 GAZEBO_POLL_S = 0.1
 GAZEBO_CAP = 3.0  # overall wait cap, as a multiple of the minimum wait
