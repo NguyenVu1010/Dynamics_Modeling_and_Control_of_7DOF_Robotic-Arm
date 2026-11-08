@@ -257,6 +257,45 @@ median rms (an exact tie goes to the lower level). The command prints the table,
 and a one-line reason, and exits 0 also when no level is admissible; bad input exits 1 and writes
 no file.
 
+### Verify report
+
+`cobot_bench verify --hardware <model.yaml> --algorithm <name> --task <task.yaml> [--runs n]
+[--seed0 n] [--quick] [--no-tune] [--levels a,b,...] [--tune-seeds n] [--jobs n] --out <dir>`
+(feature verify, ADR-023) tunes the law's gain (as `cobot_bench tune`, seeds 1..`--tune-seeds`,
+default 10; `--no-tune` keeps the model's gain), runs seeds `seed0..seed0+runs-1` (defaults 1 and
+100), writes `<dir>/report.json`, `<dir>/report.md` (same content), `tune.csv` when tuned, and
+prints the MD and the wall time. Exit 0 for every verdict, 1 on bad input with no file written.
+
+A run passes when it did not hold and `final_pos_err_m`, `final_rot_err_rad` (in degrees),
+`rms_joint_err_rad` and the settle time are each `<=` the task's requirement (NaN fails). The
+settle time (`cycle_time_s`) is the time from the first row until the TCP enters and stays within
+`final_pos_err_m` / `final_rot_err_deg` of the desired pose of the evaluation row (the row of the
+final errors), up to that row; NaN for a held run or one outside at that row. Verdict: `fail` when
+the Wilson (95 %) upper bound of the pass rate is under `target_pass_rate` or the Wilson lower bound
+of the hold rate is over `max_hold_rate`; else `pass` when not quick (`--quick` or fewer than 100
+runs), the Wilson lower bound of the pass rate is `>= target_pass_rate`, the hold rate is
+`<= max_hold_rate` and every worst value is `<= margin_limit`; else `marginal`.
+
+report.json keys, in this order (numbers `%.17g`, NaN `null`):
+
+| key | value |
+|---|---|
+| `schema` | `1` |
+| `disclaimer` | the ADR-023 sentence, also the first line of report.md |
+| `model`, `algorithm`, `task` | names |
+| `verdict` | `pass`, `fail` or `marginal` |
+| `quick` | `true` with `--quick` or fewer than 100 runs |
+| `runs` | number of runs |
+| `seeds` | `[first, last]` |
+| `pass_count`, `pass_rate` | runs that pass, and their share |
+| `wilson` | `[lo, hi]` of the pass rate |
+| `hold_rate` | share of runs that held |
+| `worst` | `final_pos_err_m`, `final_rot_err_deg`, `rms_joint_err_rad`, `cycle_time_s` (max settle time), each `{value, threshold, margin_limit}`: the max over the runs that did not hold (`null` when all held), the requirement, `(1 - margin_frac) * threshold` |
+| `tuning` | `{key, gain_used, gain_source, levels, rows, chosen, reason}`: `gain_source` `tuned`, `default_no_admissible` (no admissible level: the model's gain) or `default_tuning_off`; `rows` as the lines of tune.csv (flags 0/1); with tuning off `levels` and `rows` are `[]`, `chosen` `null` |
+| `assumptions` | the model's provenance entries of kind `assumed` or `derived`: `{key, kind, range` or `scale, sensitivity}`, sensitivity `"not run"` |
+| `causes`, `suggestions` | `[]` (filled by PR 6b) |
+| `versions` | `{git, inputs}`: `git describe` of the build; `inputs` the model file, its imperfection and controller files, the task file and its waypoint file, each `{path, sha256}` of its bytes |
+
 ### Studio file
 
 A cobot_studio configuration (`studio::load_studio_file` / `save_studio_file`, ADR-021): a base

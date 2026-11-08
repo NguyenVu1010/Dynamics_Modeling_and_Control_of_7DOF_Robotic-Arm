@@ -16,6 +16,16 @@ stored by item index, so the result does not depend on scheduling. The run path 
 down (config and waypoint loaders, URDF parser, Recorder, SimPlant, imperfection RNGs, metrics)
 holds no `static` or global mutable state: every run owns its objects.
 
+Verify (`verify.hpp`, `report.hpp`, `sha256.hpp`, ADR-023): `bench::verify` tunes (unless told not
+to), then runs seeds `seed0..` on `run_queue` with `run_with` and the task's final thresholds (so each
+`RunSummary` has its `settle_time_s`), judges each run (`run_passes`), and gives the counts, the
+Wilson interval, the worst metrics over the runs that did not hold and the verdict (`verdict`, the
+one function the CLI and the studio call). Progress and cancel are read between runs only.
+`report_json` / `report_md` write the same content (docs/conventions.md "Verify report") with no wall
+time, so jobs 1 and N give the same bytes; `report_inputs` hashes the input files with `sha256_hex`.
+The 6b seam: `assumptions` lists the model's assumed and derived provenance entries with sensitivity
+"not run"; `causes` and `suggestions` stay empty.
+
 Timing: `cobot_bench timing --config <yaml> --steps <n>` prints the PF-01 line
 `p50_us=... p95_us=... max_us=...`. `--paced` steps at the control rate with `clock_nanosleep`
 (absolute deadlines) and `--log-mode off|recorder|recorder_live` overrides `cobot.log.mode`; with

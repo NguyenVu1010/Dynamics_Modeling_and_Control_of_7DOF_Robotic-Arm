@@ -43,11 +43,18 @@ kind profiles runs `cobot_bench montecarlo` (runs seeds from seed) once per entr
 thresholds) into <out>/<id>/<name> and judges each run from the Summary CSV metric columns; with
 hold: fail any held run fails the profile; with hold: report every held run, whatever its
 hold_reason, counts in the printed hold rate (with the reasons), is not judged and never fails.
+kind verify (feature verify) runs `cobot_bench verify --hardware H --algorithm A --task T --runs n
+[--quick] --levels a,b --tune-seeds n --out <out>/<id>` (no `config` key: the controller file is the
+hardware model's) and passes when every top-level key of the Verify report is in report.json,
+`verdict` equals expect_verdict, `quick` is true and the sha256 of every versions.inputs file
+matches its bytes.
 Scenarios tagged nightly or realism2 run only with --tag <that tag> or --scenario. Exit 0 all
 pass, 1 any fails, 2 bad arguments.
 """
 
 import argparse
+import hashlib
+import json
 import math
 import os
 import re
@@ -98,6 +105,14 @@ STATUS_TYPE = "std_msgs/msg/String"
 # Canceled waypoint run (E2E-11b, design 2026-10-29 section 7): at rest and within the limits.
 # Defaults of the optional scenario thresholds rest_window_s, rest_qd_max_rad_s, peak_tau_ratio.
 CANCEL_DEFAULTS = {"rest_window_s": 0.5, "rest_qd_max_rad_s": 0.01, "peak_tau_ratio": 1.0}
+
+
+# docs/conventions.md "Verify report"
+VERIFY_KEYS = (
+    *("schema", "disclaimer", "verdict", "quick", "runs", "seeds", "pass_count", "pass_rate"),
+    *("wilson", "hold_rate", "worst", "tuning", "assumptions", "causes", "suggestions"),
+    *("versions", "model", "algorithm", "task"),
+)
 
 
 def repo_path(value: str) -> Path:
@@ -520,11 +535,36 @@ def run_gazebo(s: dict, out: Path, report: bool) -> tuple[bool, str]:
     return judge_run(s, csv, out, report)
 
 
+def run_verify(s: dict, args: argparse.Namespace, out: Path) -> tuple[bool, str]:
+    cmd = ["verify", "--hardware", str(repo_path(s["hardware"])), "--algorithm", s["algorithm"]]
+    cmd += ["--task", str(repo_path(s["task"])), "--runs", str(s["runs"])]
+    cmd += ["--quick"] if s.get("quick") else []
+    if "levels" in s:
+        cmd += ["--levels", ",".join(str(v) for v in s["levels"])]
+    if "tune_seeds" in s:
+        cmd += ["--tune-seeds", str(s["tune_seeds"])]
+    bench(args, *cmd, "--out", str(out))
+    report = json.loads((out / "report.json").read_text(encoding="utf-8"))
+    problems = [f"no {k} in report.json" for k in VERIFY_KEYS if k not in report]
+    if report.get("verdict") != s["expect_verdict"]:
+        problems.append(f"verdict {report.get('verdict')}, expected {s['expect_verdict']}")
+    if report.get("quick") is not True:
+        problems.append(f"quick {report.get('quick')}, expected true")
+    for f in report.get("versions", {}).get("inputs", []):
+        if hashlib.sha256(Path(f["path"]).read_bytes()).hexdigest() != f["sha256"]:
+            problems.append(f"sha256 of {f['path']} does not match")
+    verdict, passed = report.get("verdict"), report.get("pass_count")
+    detail = f"verdict {verdict}, {passed}/{report.get('runs')} pass"
+    return not problems, detail + (f"; {'; '.join(problems)}" if problems else "")
+
+
 def run_scenario(s: dict, args: argparse.Namespace) -> tuple[bool, str]:
     out = args.out / str(s["id"])
     out.mkdir(parents=True, exist_ok=True)
     if s.get("runner") == "gazebo":
         return run_gazebo(s, out, not args.no_report)
+    if s["kind"] == "verify":
+        return run_verify(s, args, out)
     config = str(repo_path(s["config"]))
     if s["kind"] == "timing":
         text = bench(args, "timing", "--config", config, "--steps", str(s["steps"])).stdout

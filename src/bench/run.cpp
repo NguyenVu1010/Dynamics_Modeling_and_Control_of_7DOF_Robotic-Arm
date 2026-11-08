@@ -178,10 +178,10 @@ namespace {
 // One run of `request`; `path_invalid` is set when validate_path rejects the waypoint list.
 // `config_overrides`, when not empty, is applied to the controller file instead of
 // request.config_override (run_with).
-common::Result<RunData> run_engine(
-    const RunRequest& request,
-    bool& path_invalid,
-    const std::vector<pipeline::KeyOverride>& config_overrides = {}) {
+common::Result<RunData> run_engine(const RunRequest& request,
+                                   bool& path_invalid,
+                                   const std::vector<pipeline::KeyOverride>& config_overrides = {},
+                                   const std::optional<SettleThresholds>& settle = std::nullopt) {
   using Out = common::Result<RunData>;
   const imperfect::ImperfectionConfig<kN>& imperfections = request.imperfections;
   const std::filesystem::path& label = request.label;
@@ -348,7 +348,8 @@ common::Result<RunData> run_engine(
                 std::llround(meta.window_end_s * ns_per_s),
                 config.algorithm == control::Algorithm::kDrivePosition ? TorqueSource::kMotor
                                                                        : TorqueSource::kCommand,
-                std::llround(meta.goal_time_s * ns_per_s));
+                std::llround(meta.goal_time_s * ns_per_s),
+                settle);
   return Out::ok(std::move(run));
 }
 
@@ -392,7 +393,8 @@ common::Result<RunSummary> run_with(const std::filesystem::path& config_yaml,
                                     const std::vector<pipeline::KeyOverride>& config_overrides,
                                     const imperfect::ImperfectionConfig<kN>& imperfections,
                                     const std::filesystem::path& label,
-                                    WaypointInput* waypoints) {
+                                    WaypointInput* waypoints,
+                                    const std::optional<SettleThresholds>& settle) {
   using Out = common::Result<RunSummary>;
   RunRequest request;
   request.config_yaml = config_yaml;
@@ -402,7 +404,7 @@ common::Result<RunSummary> run_with(const std::filesystem::path& config_yaml,
     request.waypoints_yaml = waypoints->yaml;
   }
   bool path_invalid = false;
-  common::Result<RunData> run = run_engine(request, path_invalid, config_overrides);
+  common::Result<RunData> run = run_engine(request, path_invalid, config_overrides, settle);
   if (waypoints != nullptr) {
     waypoints->path_invalid = path_invalid;
   }

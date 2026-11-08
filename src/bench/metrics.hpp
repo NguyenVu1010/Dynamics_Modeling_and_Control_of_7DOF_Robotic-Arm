@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <ostream>
 #include <string>
 #include <vector>
@@ -37,6 +38,20 @@ RunSummary summarize(const std::vector<pipeline::LogRecord<kN>>& rows,
                      std::int64_t t_eval_ns,
                      TorqueSource torque,
                      std::int64_t t_goal_ns);
+
+// The same, with RunSummary::settle_time_s when `settle` is given (NaN otherwise; no other field
+// changes). Reading of the task's cycle_time_s (ADR-023, ambiguity 11): the time from the first row
+// until the TCP enters and stays within `settle` around the final goal, the desired pose T_b_d of
+// the evaluation row (the row of final_pos_err_m), on every row from that instant up to the
+// evaluation row. The last entry counts; outside at the evaluation row (never settled) or a held
+// run is NaN; inside from the first row is 0.
+RunSummary summarize(const std::vector<pipeline::LogRecord<kN>>& rows,
+                     const Vec& tau_max,
+                     const Vec& rated,
+                     std::int64_t t_eval_ns,
+                     TorqueSource torque,
+                     std::int64_t t_goal_ns,
+                     const std::optional<SettleThresholds>& settle);
 
 // The Run CSV of `run` and `<out_csv>.meta.yaml`, the bytes `cobot_bench run` writes.
 common::Status write_run_files(const RunData& run, const std::filesystem::path& out_csv);
