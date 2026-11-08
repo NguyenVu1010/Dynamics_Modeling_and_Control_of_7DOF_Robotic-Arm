@@ -36,6 +36,9 @@ class VerifyTab : public QWidget {
             std::filesystem::path work_dir,
             StudioWorker& worker,
             QWidget* parent = nullptr);
+  // A job still running when the window closes (the worker is joined first) never reports back:
+  // its directory, if this tab created it and nothing was written there, is removed.
+  ~VerifyTab() override;
 
   // The request the input widgets describe; every other option at its default, out_dir empty.
   VerifyRequest request() const;

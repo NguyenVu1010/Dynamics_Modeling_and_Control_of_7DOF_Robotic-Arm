@@ -318,9 +318,9 @@ MainWindow::MainWindow(std::filesystem::path config_dir,
   tabs->addTab(verify_tab, tr("Verification"));
   // QStackedLayout lowers added pages and raises the current one, which reorders the pages among
   // their siblings. The Configuration tab is kept first and the Verification tab last, so a
-  // window-wide lookup of a name two tabs use (resetButton; runButton, cancelButton, progressBar)
-  // finds the Configuration or Tracking tab's; only the stacking order changes, and one page is
-  // visible at a time.
+  // window-wide lookup of a name two tabs use (resetButton, exportButton; runButton, cancelButton,
+  // progressBar) finds the Configuration or Tracking tab's; only the stacking order changes, and
+  // one page is visible at a time.
   const auto order_pages = [config_tab, verify_tab] {
     config_tab->lower();
     verify_tab->raise();

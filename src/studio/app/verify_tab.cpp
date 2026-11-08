@@ -407,19 +407,28 @@ void VerifyTab::on_progress(const QString& phase, int pair, int pairs, int done,
   progress_->setValue(done);
 }
 
+VerifyTab::~VerifyTab() {
+  if (busy_ && created_dir_) {
+    std::error_code ec;
+    fs::remove(pending_dir_, ec);  // only when still empty: a finished writer's files stay
+  }
+}
+
 void VerifyTab::on_finished(const VerifyHandle& handle, const QString& error) {
   progress_->setRange(0, 1);
   progress_->reset();
   if (!error.isEmpty() || !handle.outcome) {
     if (created_dir_) {
+      // A failed job leaves no report (the writer is all or none), but a failed write may leave
+      // the per-pair directories it created: the directory is this tab's, so it goes entirely.
       std::error_code ec;
-      fs::remove(pending_dir_, ec);  // only when still empty
+      fs::remove_all(pending_dir_, ec);
     }
     phase_->setText(error);
     set_busy(false);
     return;
   }
-  rows_ = std::move(handle.outcome->rows);
+  rows_ = handle.outcome->rows;  // copied: every copy of the handle shares the outcome
   out_dir_ = pending_dir_;
   phase_->setText(tr("done: %1").arg(qs(out_dir_.string())));
   const QSignalBlocker block(pair_combo_);
@@ -590,9 +599,35 @@ bool VerifyTab::export_to(const QString& target) {
   if (fs::exists(to, ec) && (!fs::is_directory(to, ec) || !fs::is_empty(to, ec))) {
     return false;
   }
-  fs::create_directories(to, ec);
-  fs::copy(out_dir_, to, fs::copy_options::recursive, ec);
-  return !ec;
+  // Never into the job's own directory or below it: a recursive copy would copy into itself.
+  const fs::path from = fs::weakly_canonical(out_dir_, ec).lexically_normal();
+  const fs::path dest = fs::weakly_canonical(to, ec).lexically_normal();
+  if (ec) {
+    return false;
+  }
+  if (std::mismatch(from.begin(), from.end(), dest.begin(), dest.end()).first == from.end()) {
+    return false;
+  }
+  // Copy next to the target, then rename, so a failed copy leaves no half-exported folder.
+  fs::path staging = dest;
+  staging += ".export-tmp";
+  fs::remove_all(staging, ec);
+  ec.clear();
+  fs::create_directories(staging, ec);
+  if (!ec) {
+    fs::copy(out_dir_, staging, fs::copy_options::recursive, ec);
+  }
+  if (!ec) {
+    fs::remove(dest, ec);  // empty or absent (checked above)
+    ec.clear();
+    fs::rename(staging, dest, ec);
+  }
+  if (ec) {
+    std::error_code ignore;
+    fs::remove_all(staging, ignore);
+    return false;
+  }
+  return true;
 }
 
 }  // namespace cobot::studio
