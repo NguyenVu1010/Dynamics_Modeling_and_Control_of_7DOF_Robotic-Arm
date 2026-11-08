@@ -1,0 +1,11 @@
+{
+  "disclaimer": "Screening and comparison tool, not a certification: it does not replace a safety assessment to ISO 10218 or ISO/TS 15066, nor measurements on the real robot.",
+  "rows": [
+    {"model": "premium_fr3", "algorithm": "computed_torque", "verdict": "pass", "pass_count": 100, "runs": 100, "wilson": [0.96300650179301428, 1], "worst": {"final_pos_err_m": 0.00019357669175628202, "final_rot_err_deg": 0.040060528867764324, "rms_joint_err_rad": 0.00046076165306857439, "cycle_time_s": 9.1192320050000006}, "gain_used": 50, "gain_source": "tuned"},
+    {"model": "premium_fr3", "algorithm": "drive_position", "verdict": "not listed"},
+    {"model": "mid_kr1205", "algorithm": "computed_torque", "verdict": "pass", "pass_count": 100, "runs": 100, "wilson": [0.96300650179301428, 1], "worst": {"final_pos_err_m": 0.00085214998266911553, "final_rot_err_deg": 0.1023371551654291, "rms_joint_err_rad": 0.0015228752089879055, "cycle_time_s": 9.1428366160000003}, "gain_used": 40, "gain_source": "tuned"},
+    {"model": "mid_kr1205", "algorithm": "drive_position", "verdict": "not listed"},
+    {"model": "budget_xarm7", "algorithm": "computed_torque", "verdict": "fail", "pass_count": 0, "runs": 100, "wilson": [0, 0.036993498206985678], "worst": {"final_pos_err_m": null, "final_rot_err_deg": null, "rms_joint_err_rad": null, "cycle_time_s": null}, "gain_used": 20, "gain_source": "default_no_admissible"},
+    {"model": "budget_xarm7", "algorithm": "drive_position", "verdict": "marginal", "pass_count": 92, "runs": 100, "wilson": [0.85001892299051274, 0.95890653851561936], "worst": {"final_pos_err_m": 0.0075049691997587818, "final_rot_err_deg": 0.66286593404520777, "rms_joint_err_rad": 0.0074141208561306548, "cycle_time_s": null}, "gain_used": 50, "gain_source": "tuned"}
+  ]
+}
