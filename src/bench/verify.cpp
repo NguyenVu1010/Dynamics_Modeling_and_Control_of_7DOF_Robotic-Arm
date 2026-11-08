@@ -94,7 +94,10 @@ Interval wilson(std::size_t successes, std::size_t n, double z) {
   const double denom = 1.0 + z2 / nd;
   const double centre = (p + z2 / (2.0 * nd)) / denom;
   const double half = z * std::sqrt(p * (1.0 - p) / nd + z2 / (4.0 * nd * nd)) / denom;
-  return Interval{std::max(0.0, centre - half), std::min(1.0, centre + half)};
+  // The ends are exact where the formula only rounds to them (0/100 gave 3.5e-18).
+  const double lo = successes == 0 ? 0.0 : std::max(0.0, centre - half);
+  const double hi = successes == n ? 1.0 : std::min(1.0, centre + half);
+  return Interval{lo, hi};
 }
 
 const char* to_string(Verdict v) {
