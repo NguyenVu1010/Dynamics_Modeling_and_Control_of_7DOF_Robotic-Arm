@@ -719,7 +719,7 @@ class CobotController final : public ci::ControllerInterface {
       next->loop = std::make_unique<cobot::pipeline::ControlLoop<kN>>(
           *next->model, next->config, recorder_.get());
     } catch (const std::exception& e) {
-      return R::error(e.what());
+      return R::error(std::string(e.what()));
     }
     std::pair<cobot::model::Arm7, cobot::pipeline::Config<kN>> applied{*next->model, next->config};
     const std::uint64_t seed_used = next->seed;

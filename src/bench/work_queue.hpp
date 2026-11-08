@@ -42,7 +42,7 @@ inline common::Status run_queue(std::size_t count,
       try {
         st = work(i);
       } catch (const std::exception& e) {
-        st = common::Status::error(e.what());
+        st = common::Status::error(std::string(e.what()));
       }
       if (!st) {
         const std::lock_guard<std::mutex> lock(mutex);
