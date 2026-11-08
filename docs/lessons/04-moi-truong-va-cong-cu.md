@@ -63,3 +63,14 @@
 - **Nguyên nhân:** khoá SSH chỉ có ở phía Windows.
 - **Xử lý:** pull từ Windows (cùng thư mục), hoặc trong WSL đặt
   `git config --global core.sshCommand ssh.exe` để dùng ssh và khoá của Windows.
+
+## 7. `lint.sh` báo OK cho file mới chưa `git add` (#77)
+
+- **Triệu chứng:** `lint.sh` ở máy báo `LINT OK`, job `lint` trên CI báo file test mới chưa
+  clang-format.
+- **Nguyên nhân:** danh sách file lấy từ `git ls-files`, chỉ gồm file đã track; file mới viết xong
+  chưa `git add` thì không được kiểm. clang-tidy cũng chỉ xem diff của các commit.
+- **Xử lý:** lấy cả file chưa track mà không bị ignore (`--others --exclude-standard`), so diff với
+  cây làm việc thay vì `HEAD`, in số file đã kiểm, và báo lỗi khi danh sách rỗng.
+- **Bài học:** giống mục 1: in ra đã kiểm bao nhiêu file. Khi thử trong WSL, chạy lệnh từ một file
+  script: `wsl bash -c '...'` gọi từ Git Bash trả `$?` sai (cả `false` cũng ra 0).
