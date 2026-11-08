@@ -20,10 +20,14 @@ while [ $# -gt 0 ]; do
 done
 cd "$repo"
 
-mapfile -t cpp < <(git ls-files '*.cpp' '*.hpp')
-if [ "${#cpp[@]}" -gt 0 ]; then
-  if [ "$fix" = 1 ]; then clang-format-18 -i "${cpp[@]}"; else clang-format-18 --dry-run --Werror "${cpp[@]}"; fi
+# New files count before `git add` too (--others --exclude-standard): CI sees them once committed.
+mapfile -t cpp < <(git ls-files --cached --others --exclude-standard '*.cpp' '*.hpp')
+if [ "${#cpp[@]}" -eq 0 ]; then
+  echo "LINT: git lists no C++ file; is this a git checkout?" >&2
+  exit 1
 fi
+echo "clang-format: ${#cpp[@]} files"
+if [ "$fix" = 1 ]; then clang-format-18 -i "${cpp[@]}"; else clang-format-18 --dry-run --Werror "${cpp[@]}"; fi
 
 if [ "$fix" = 1 ]; then
   "$venv/bin/ruff" check --fix .
@@ -35,7 +39,12 @@ fi
 
 build_dir="$(cobot_build_dir)"
 # ros2_node and ros2_gui need the ROS headers: `sim.sh tidy` checks them (gazebo CI job).
-mapfile -t changed < <(git diff --name-only --diff-filter=AM "$base"...HEAD -- '*.cpp' ':!src/ros2_node/**' ':!src/ros2_gui/**' 2>/dev/null || true)
+# Committed and uncommitted changes since the branch left $base, plus new untracked files.
+fork="$(git merge-base "$base" HEAD 2>/dev/null || echo "$base")"
+mapfile -t changed < <({
+  git diff --name-only --diff-filter=AM "$fork" -- '*.cpp' ':!src/ros2_node/**' ':!src/ros2_gui/**'
+  git ls-files --others --exclude-standard -- '*.cpp' ':!src/ros2_node/**' ':!src/ros2_gui/**'
+} 2>/dev/null | sort -u || true)
 if [ "${#changed[@]}" -gt 0 ] && [ -f "$build_dir/compile_commands.json" ]; then
   clang-tidy-18 -p "$build_dir" --quiet --warnings-as-errors='*' "${changed[@]}"
 elif [ "${#changed[@]}" -gt 0 ]; then
