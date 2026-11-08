@@ -211,3 +211,20 @@ def test_pr_and_plain_selections_never_start_them(tmp_path, bench, tag):
     _, out, calls = run_e2e(tmp_path, bench, args)
     lists = [c for c in calls if c[0] == "verify" and "," in flag(c, "--hardware")]
     assert not lists, out
+
+
+@pytest.mark.parametrize(
+    "hardware,algorithm,want_hw,want_alg",
+    [
+        (HARDWARE[2], ["computed_torque", "drive_position"], 1, "computed_torque,drive_position"),
+        (HARDWARE, "computed_torque", 3, "computed_torque"),
+    ],
+)
+def test_either_key_may_be_a_single_value(tmp_path, bench, hardware, algorithm, want_hw, want_alg):
+    # Review of #82: list mode when either key is a list; the other may stay a single value.
+    path = scenario(tmp_path, hardware=hardware, algorithm=algorithm)
+    _, out, calls = run_e2e(tmp_path, bench, ["--scenario", path])
+    assert "Traceback" not in out, out
+    assert len(calls) == 1, out
+    assert len(flag(calls[0], "--hardware").split(",")) == want_hw
+    assert flag(calls[0], "--algorithm") == want_alg

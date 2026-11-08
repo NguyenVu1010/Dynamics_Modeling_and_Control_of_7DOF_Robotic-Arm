@@ -22,6 +22,7 @@ target_include_directories(test_bench_verify_analysis PRIVATE
 cobot_add_test(test_bench_verify_analysis_runs
   test_analysis_runs.cpp
   test_analysis_cli.cpp
+  test_review_followups.cpp
   LIBS cobot_bench_run cobot::pipeline)
 target_include_directories(test_bench_verify_analysis_runs PRIVATE
   ${PROJECT_SOURCE_DIR}/src/bench ${CMAKE_CURRENT_SOURCE_DIR}/../bench_verify)
