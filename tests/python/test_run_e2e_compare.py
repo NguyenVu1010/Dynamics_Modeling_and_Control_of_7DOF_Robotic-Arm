@@ -12,7 +12,8 @@ Contract (tests/e2e/scenarios/e2e_16_verify_compare.yaml, e2e_17_verify_seeds.ya
   has that verdict; a pair without a row fails, named. Every text of `expect_suggestions` is in
   <out>/<id>/<pair>/report.json `suggestions`. No comparison.json or a bench exit code other
   than 0 fails. The output names the scenario and, on failure, the pair and why.
-- Tagged nightly: `--all --tag nightly` runs them, `--all` and `--all --tag pr` do not.
+- Tagged verify-nightly: `--all --tag verify-nightly` runs them; `--all`, `--all --tag pr` and
+  `--all --tag nightly` do not.
 """
 
 import json
@@ -54,7 +55,7 @@ def bench(tmp_path):
 
 
 def scenario(tmp_path, **extra):
-    data = {"id": "T-compare", "tags": ["nightly"], "runner": "bench", "kind": "verify"}
+    data = {"id": "T-compare", "tags": ["verify-nightly"], "runner": "bench", "kind": "verify"}
     data |= {"hardware": HARDWARE, "algorithm": ["computed_torque", "drive_position"]}
     data |= {"task": TASK, "runs": 100, "expect": dict(EXPECT)}
     data |= {"expect_suggestions": {"budget_xarm7__computed_torque": [POSITION_LOOP]}}
@@ -166,7 +167,7 @@ def load(path):
 def test_the_scenarios_follow_the_brief(path, sid):
     s = load(path)
     assert s["id"] == sid
-    assert s["tags"] == ["nightly"]
+    assert s["tags"] == ["verify-nightly"]
     assert s["runner"] == "bench" and s["kind"] == "verify"
     assert [(REPO / h).resolve() for h in s["hardware"]] == [(REPO / h).resolve() for h in HARDWARE]
     assert s["algorithm"] == ["computed_torque", "drive_position"]
@@ -196,7 +197,7 @@ def test_e2e_17_runs_seeds_101_to_200():
 
 
 def test_the_nightly_selection_runs_both_and_the_others_do_not(tmp_path, bench):
-    _, out, calls = run_e2e(tmp_path, bench, ["--all", "--tag", "nightly"])
+    _, out, calls = run_e2e(tmp_path, bench, ["--all", "--tag", "verify-nightly"])
     outs = sorted(Path(flag(c, "--out")).name for c in calls if c[0] == "verify")
     assert outs == ["E2E-16", "E2E-17"], out
     for sid in ("E2E-16", "E2E-17"):
@@ -204,7 +205,7 @@ def test_the_nightly_selection_runs_both_and_the_others_do_not(tmp_path, bench):
         assert line and "PASS" in line[0], out
 
 
-@pytest.mark.parametrize("tag", ["pr", None])
+@pytest.mark.parametrize("tag", ["pr", "nightly", None])
 def test_pr_and_plain_selections_never_start_them(tmp_path, bench, tag):
     args = ["--all"] + (["--tag", tag] if tag else [])
     _, out, calls = run_e2e(tmp_path, bench, args)

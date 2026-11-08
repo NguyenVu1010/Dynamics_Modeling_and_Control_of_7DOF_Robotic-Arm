@@ -1,13 +1,13 @@
 # E2E-17 (feature verify-analysis, cobot_studio phase C PR 6b, plan ambiguity 18): the seed
 # stability check, E2E-16 on seeds 101..200 (`--seed0 101`): the same verdicts are expected.
 # Judged as E2E-16 (kind verify with lists, tools/run_e2e.py), from
-# <out>/E2E-17/comparison.json.
+# <out>/E2E-17/comparison.json. Only the verdicts are compared, so no sensitivity (time).
 #
 # budget_xarm7 drive_position at 92/100 on seeds 1..100 sits two runs from the FAIL line
 # (90/100): if seeds 101..200 give another verdict, the PR of verify-analysis reports the numbers
 # and this file says what they say, with a comment.
 id: E2E-17
-tags: [nightly]
+tags: [verify-nightly]
 runner: bench
 kind: verify
 hardware:
@@ -18,6 +18,7 @@ algorithm: [computed_torque, drive_position]
 task: config/tasks/reference_move.yaml
 runs: 100
 seed0: 101
+no_sensitivity: true
 expect:
   premium_fr3__computed_torque: pass
   mid_kr1205__computed_torque: pass

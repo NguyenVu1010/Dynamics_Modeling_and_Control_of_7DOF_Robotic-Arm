@@ -10,10 +10,10 @@
 #
 # Expected from #81 (100 runs each on reference_move): premium CT PASS, mid CT PASS, budget CT
 # FAIL (every run holds by state_timeout: the torque law needs a position loop in the drive),
-# budget drive MARGINAL (92/100). Nightly, 4 cores: the time budget and the sensitivity choice
-# are stated in the PR of verify-analysis.
+# budget drive MARGINAL (92/100). Job `verify` of nightly.yml (tag verify-nightly, 4 cores):
+# with the sensitivity at 20 seeds this took 7210 s locally at 4 jobs, so it runs at 10 seeds.
 id: E2E-16
-tags: [nightly]
+tags: [verify-nightly]
 runner: bench
 kind: verify
 hardware:
@@ -23,6 +23,7 @@ hardware:
 algorithm: [computed_torque, drive_position]
 task: config/tasks/reference_move.yaml
 runs: 100
+sensitivity_seeds: 10
 expect:
   premium_fr3__computed_torque: pass
   mid_kr1205__computed_torque: pass
