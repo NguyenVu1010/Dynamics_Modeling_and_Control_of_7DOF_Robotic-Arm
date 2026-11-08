@@ -18,6 +18,7 @@ target_include_directories(test_bench_verify PRIVATE ${PROJECT_SOURCE_DIR}/src/b
 cobot_add_test(test_bench_verify_runs
   test_verify_runs.cpp
   test_verify_cli.cpp
+  test_verify_cancel.cpp
   LIBS cobot_bench_run cobot::pipeline)
 target_include_directories(test_bench_verify_runs PRIVATE ${PROJECT_SOURCE_DIR}/src/bench)
 target_compile_definitions(test_bench_verify_runs PRIVATE
