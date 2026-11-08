@@ -100,7 +100,10 @@ bool is_chosen(const TuneResult& t, const TuneRow& r) {
 }
 
 std::string bounds(const Assumption& a) {
-  const std::array<double, 2> b = a.range ? *a.range : a.scale ? *a.scale : std::array<double, 2>{};
+  if (!a.range && !a.scale) {
+    return "-";  // a bool or choice key: no bounds
+  }
+  const std::array<double, 2> b = a.range ? *a.range : *a.scale;
   return std::string(a.range ? "range " : "scale ") + short_num(b[0]) + " .. " + short_num(b[1]);
 }
 
