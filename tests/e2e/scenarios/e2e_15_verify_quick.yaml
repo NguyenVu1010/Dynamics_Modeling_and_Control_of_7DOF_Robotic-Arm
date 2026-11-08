@@ -1,0 +1,22 @@
+# E2E-15 (feature verify, cobot_studio phase C PR 6a, ADR-023 "Kết luận ba mức từ Monte Carlo"):
+# `cobot_bench verify` of a hardware model, an algorithm and a task in quick mode, judged from its
+# report.json. kind verify (tools/run_e2e.py): `cobot_bench verify --hardware <hardware> --algorithm
+# <algorithm> --task <task> --runs <runs> [--quick] --levels <levels, comma-separated> --tune-seeds
+# <tune_seeds> --out <out>/E2E-15`; passes when the bench exits 0, every top-level key of the
+# Verify report (docs/conventions.md) is present, `verdict` equals expect_verdict, `quick` is true
+# and the sha256 of every file in versions.inputs matches its bytes.
+#
+# premium_fr3 with computed_torque passes every run of reference_move at omega 50 (#78), and quick
+# mode caps the verdict at MARGINAL. Must finish in under 3 minutes on the CI runner.
+id: E2E-15
+tags: [pr]
+runner: bench
+kind: verify
+hardware: config/hardware/premium_fr3.yaml
+algorithm: computed_torque
+task: config/tasks/reference_move.yaml
+runs: 10
+quick: true
+levels: [40, 50]
+tune_seeds: 2
+expect_verdict: marginal

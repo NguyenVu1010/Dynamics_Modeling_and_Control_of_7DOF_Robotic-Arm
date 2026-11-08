@@ -226,3 +226,27 @@ trễ, so với profile, và ghi độ lệch vào báo cáo. Đến lúc đó, 
   budget_xarm7 drive 19 mức 244 s; RSS đỉnh 104 MB mỗi lần tune (dòng của một lần chạy bỏ đi ngay khi
   đã tóm tắt). Mức được chọn: premium CT 50, mid CT 40, budget CT không có (mọi mức bị giữ), budget
   drive 50.
+
+## Bổ sung (2026-11-08): PR verify (6a, kết luận ba mức)
+
+- **Tách PR 6.** PR 6a (này): kết quả từng lần chạy, thời gian ổn định, khoảng Wilson, kết luận, Monte
+  Carlo sau bước tune, báo cáo JSON + MD, lệnh `cobot_bench verify`, E2E-15. PR 6b (`verify-analysis`):
+  độ nhạy theo từng giả định, nguyên nhân và gợi ý, bảng so sánh nhiều model/luật (G16), E2E-16/17.
+  Chỗ nối cho 6b: `assumptions` liệt kê các mục provenance `assumed`/`derived` với `sensitivity: "not
+  run"`, `causes` và `suggestions` để trống.
+- **Thời gian ổn định (điểm chưa rõ 11).** `cycle_time_s` đọc là thời gian từ dòng đầu tiên tới lúc TCP
+  vào và ở lại trong ngưỡng cuối (`final_pos_err_m`, `final_rot_err_deg`) quanh **đích cuối**, tức tư thế
+  mong muốn `T_b_d` của dòng đánh giá (dòng của `final_pos_err_m`), trên mọi dòng từ lúc đó tới dòng đánh
+  giá. Lần vào cuối cùng được tính; ra ngoài ở dòng đánh giá hoặc lần chạy bị giữ cho NaN; ở trong ngay
+  từ dòng đầu cho 0. Chỉ nằm trong `RunSummary::settle_time_s` (không thêm cột CSV); chỉ tính khi có
+  ngưỡng (`SettleThresholds` trên `run_with` và `summarize`), nên tune và các Run CSV không đổi.
+- **Đạt từng lần (điểm chưa rõ 13).** Không bị giữ, và sai số vị trí, góc (độ), rms khớp, thời gian ổn
+  định đều `<=` yêu cầu; NaN là trượt. Giá trị tệ nhất lấy trên các lần không bị giữ.
+- **Wilson và kết luận (14, C11, C14).** FAIL khi cận trên Wilson của tỉ lệ đạt < `target_pass_rate`
+  hoặc cận dưới Wilson của tỉ lệ giữ > `max_hold_rate`; PASS khi không ở chế độ nhanh, cận dưới tỉ lệ
+  đạt `>= target_pass_rate`, tỉ lệ giữ (điểm) `<= max_hold_rate` và mọi giá trị tệ nhất `<=` giới hạn
+  biên `(1 - margin_frac) * ngưỡng`; còn lại MARGINAL. **Chế độ nhanh** (`--quick` hoặc dưới 100 lần
+  chạy) không bao giờ PASS, vẫn có thể FAIL. Một hàm `bench::verdict` dùng chung cho CLI và studio.
+- **Chạy song song (15, C7).** Các lần chạy đi qua `run_queue`, kết quả lưu theo chỉ số seed; báo cáo
+  không chứa thời gian thực, nên `--jobs 1` và `--jobs 3` cho cùng từng byte `report.json` và
+  `report.md`. Tiến độ và huỷ chỉ được đọc giữa các lần chạy.

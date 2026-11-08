@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <fstream>
 #include <limits>
+#include <mutex>
 #include <thread>
 #include <utility>
 
@@ -224,8 +225,13 @@ common::Result<TuneResult> tune(const pipeline::HardwareModel& model,
   if (jobs == 0) {
     jobs = std::max(1U, std::min(std::thread::hardware_concurrency(), kMaxDefaultJobs));
   }
-  // Each run keeps its rows only until it is summarised (run_with).
+  std::mutex mutex;
+  std::size_t done = 0;
+  // Each run keeps its rows only until it is summarised (run_with); cancel is read between runs.
   const common::Status ran = run_queue(summaries.size(), jobs, [&](std::size_t i) {
+    if (options.cancel != nullptr && options.cancel->load()) {
+      return common::Status::error("cancelled");
+    }
     const std::size_t l = i / n_seeds;
     imperfect::ImperfectionConfig<kN> p = profile.value();
     p.seed = seeds[i % n_seeds];
@@ -241,6 +247,10 @@ common::Result<TuneResult> tune(const pipeline::HardwareModel& model,
                                    std::to_string(p.seed) + ": " + run.reason());
     }
     summaries[i] = run.value();
+    if (options.progress) {
+      const std::lock_guard<std::mutex> lock(mutex);
+      options.progress(++done, summaries.size());
+    }
     return common::Status::ok();
   });
   if (!ran) {

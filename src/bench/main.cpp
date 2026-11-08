@@ -3,14 +3,18 @@
 // (a bad waypoint file included) with the reason on stderr, 1 when `run --waypoints` rejects the
 // list (one line per issue on stderr, no Run CSV written). `serve` (feature controller-bridge)
 // prints "serving /cobot_<name>" and runs until SIGINT / SIGTERM or --duration-s. `tune` (feature
-// auto-tune) exits 0 with a result (also when no level is admissible) and 1 on bad input.
+// auto-tune) exits 0 with a result (also when no level is admissible) and 1 on bad input. `verify`
+// (feature verify) exits 0 for every verdict (a FAIL is a result) and 1 on bad input, no file
+// written.
 #include <atomic>
+#include <chrono>
 #include <csignal>
 #include <cstdint>
 #include <cstdio>
 #include <ctime>
 #include <exception>
 #include <filesystem>
+#include <fstream>
 #include <limits>
 #include <map>
 #include <optional>
@@ -25,10 +29,12 @@
 #include "cobot/pipeline/task.hpp"
 
 #include "engine.hpp"
+#include "report.hpp"
 #include "run.hpp"
 #include "run_data.hpp"
 #include "serve.hpp"
 #include "tune.hpp"
+#include "verify.hpp"
 
 namespace {
 
@@ -46,14 +52,19 @@ const char* const kUsage =
     "       cobot_bench serve --config <yaml> --imperfections <yaml> [--seed <u64>] "
     "[--name <name>] [--out <dir>] [--duration-s <s>]\n"
     "       cobot_bench tune --hardware <model.yaml> --algorithm <name> --task <task.yaml> "
-    "[--levels a,b,c] [--seeds <n>] [--jobs <n>] --out <dir>\n";
+    "[--levels a,b,c] [--seeds <n>] [--jobs <n>] --out <dir>\n"
+    "       cobot_bench verify --hardware <model.yaml> --algorithm <name> --task <task.yaml> "
+    "[--runs <n>] [--seed0 <u64>] [--quick] [--no-tune] [--levels a,b,c] [--tune-seeds <n>] "
+    "[--jobs <n>] --out <dir>\n";
 
 const char* const kKeepRuns = "--keep-runs";
 const char* const kPaced = "--paced";
+const char* const kQuick = "--quick";
+const char* const kNoTune = "--no-tune";
 const char* const kLogMode = "--log-mode";
 
-// "--name value" pairs after the mode (--keep-runs and --paced take no value and map to ""); throws
-// std::invalid_argument on a bad command line.
+// "--name value" pairs after the mode (the switches --keep-runs, --paced, --quick and --no-tune
+// take no value and map to ""); throws std::invalid_argument on a bad command line.
 std::map<std::string, std::string> parse_flags(int argc,
                                                char** argv,
                                                const std::set<std::string>& known,
@@ -61,7 +72,7 @@ std::map<std::string, std::string> parse_flags(int argc,
   std::map<std::string, std::string> flags;
   for (int i = 2; i < argc; i += 2) {
     const std::string name = argv[i];
-    const bool is_switch = name == kKeepRuns || name == kPaced;
+    const bool is_switch = name == kKeepRuns || name == kPaced || name == kQuick || name == kNoTune;
     if (known.count(name) == 0 || (!is_switch && i + 1 >= argc) ||
         !flags.emplace(name, is_switch ? "" : argv[i + 1]).second) {
       throw std::invalid_argument("unknown, repeated or valueless argument " + name);
@@ -191,6 +202,24 @@ std::uint64_t parse_count(const std::string& flag, const std::string& text) {
   }
 }
 
+// --jobs of tune and verify.
+unsigned parse_jobs(const std::string& text) {
+  const std::uint64_t n = parse_count("--jobs", text);
+  if (n > std::numeric_limits<unsigned>::max()) {
+    throw std::invalid_argument("--jobs: out of range: " + text);
+  }
+  return static_cast<unsigned>(n);
+}
+
+// A count of `flag` that must be >= 1.
+std::uint64_t parse_positive(const std::string& flag, const std::string& text) {
+  const std::uint64_t n = parse_count(flag, text);
+  if (n == 0) {
+    throw std::invalid_argument(flag + " must be >= 1");
+  }
+  return n;
+}
+
 // "a,b,c": every element a whole-string number.
 std::vector<double> parse_levels(const std::string& text) {
   std::vector<double> levels;
@@ -266,20 +295,13 @@ int tune_main(int argc, char** argv) {
       options.levels = parse_levels(f.at("--levels"));
     }
     if (f.count("--seeds") > 0) {
-      const std::uint64_t n = parse_count("--seeds", f.at("--seeds"));
-      if (n == 0) {
-        throw std::invalid_argument("--seeds must be >= 1");
-      }
+      const std::uint64_t n = parse_positive("--seeds", f.at("--seeds"));
       for (std::uint64_t s = 1; s <= n; ++s) {
         options.seeds.push_back(s);
       }
     }
     if (f.count("--jobs") > 0) {
-      const std::uint64_t n = parse_count("--jobs", f.at("--jobs"));
-      if (n > std::numeric_limits<unsigned>::max()) {
-        throw std::invalid_argument("--jobs: out of range: " + f.at("--jobs"));
-      }
-      options.jobs = static_cast<unsigned>(n);
+      options.jobs = parse_jobs(f.at("--jobs"));
     }
     const auto model = cobot::pipeline::load_hardware_model(f.at("--hardware"));
     if (!model) {
@@ -306,6 +328,132 @@ int tune_main(int argc, char** argv) {
   } catch (const std::exception& e) {
     std::fprintf(stderr, "cobot_bench tune: %s\n%s", e.what(), kUsage);
     return kExitTuneBadInput;
+  }
+}
+
+// Writes `text` to `path` (std::invalid_argument naming it on failure).
+void write_text(const std::filesystem::path& path, const std::string& text) {
+  std::ofstream out(path, std::ios::binary | std::ios::trunc);
+  out << text;
+  out.flush();
+  if (!out) {
+    throw std::invalid_argument("cannot write " + path.string());
+  }
+}
+
+int verify_main(int argc, char** argv) {
+  constexpr int kExitVerifyBadInput = 1;
+  const auto start = std::chrono::steady_clock::now();
+  try {
+    const auto f = parse_flags(argc,
+                               argv,
+                               {"--hardware",
+                                "--algorithm",
+                                "--task",
+                                "--runs",
+                                "--seed0",
+                                kQuick,
+                                kNoTune,
+                                "--levels",
+                                "--tune-seeds",
+                                "--jobs",
+                                "--out"},
+                               {"--hardware", "--algorithm", "--task", "--out"});
+    const auto algorithm = cobot::control::algorithm_from_string(f.at("--algorithm"));
+    if (!algorithm) {
+      throw std::invalid_argument("--algorithm: unknown " + f.at("--algorithm") + " (registered: " +
+                                  cobot::control::registered_algorithm_names() + ")");
+    }
+    cobot::bench::VerifyOptions options;
+    if (f.count("--runs") > 0) {
+      options.runs = parse_positive("--runs", f.at("--runs"));
+    }
+    if (f.count("--seed0") > 0) {
+      options.seed0 = parse_count("--seed0", f.at("--seed0"));
+    }
+    options.quick = f.count(kQuick) > 0;
+    options.tune = f.count(kNoTune) == 0;
+    if (f.count("--levels") > 0) {
+      options.tuning.levels = parse_levels(f.at("--levels"));
+    }
+    if (f.count("--tune-seeds") > 0) {
+      const std::uint64_t n = parse_positive("--tune-seeds", f.at("--tune-seeds"));
+      for (std::uint64_t s = 1; s <= n; ++s) {
+        options.tuning.seeds.push_back(s);
+      }
+    }
+    if (f.count("--jobs") > 0) {
+      options.jobs = parse_jobs(f.at("--jobs"));
+    }
+    const std::filesystem::path model_yaml = f.at("--hardware");
+    const std::filesystem::path task_yaml = f.at("--task");
+    const auto model = cobot::pipeline::load_hardware_model(model_yaml);
+    if (!model) {
+      throw std::invalid_argument(model.reason());
+    }
+    const auto task = cobot::pipeline::load_task(task_yaml);
+    if (!task) {
+      throw std::invalid_argument(task.reason());
+    }
+    const auto inputs =
+        cobot::bench::report_inputs(model_yaml, model.value(), task_yaml, task.value());
+    if (!inputs) {
+      throw std::invalid_argument(inputs.reason());
+    }
+    const auto result = cobot::bench::verify(model.value(), *algorithm, task.value(), options);
+    if (!result) {
+      throw std::invalid_argument(result.reason());
+    }
+    const std::filesystem::path out_dir = f.at("--out");
+    std::error_code ec;
+    std::filesystem::create_directories(out_dir, ec);
+    const std::string md = cobot::bench::report_md(result.value(), inputs.value());
+    // Every file goes to a temporary name first and is renamed only once all are written, so a
+    // failed write leaves none of them behind.
+    std::vector<std::string> names{"report.json", "report.md"};
+    if (result.value().tuning) {
+      names.emplace_back("tune.csv");
+    }
+    const auto temp = [&out_dir](const std::string& name) {
+      return out_dir / ("." + name + ".tmp");
+    };
+    const auto discard = [&](bool finals) {
+      for (const std::string& name : names) {
+        std::error_code ignored;
+        std::filesystem::remove(temp(name), ignored);
+        if (finals) {
+          std::filesystem::remove(out_dir / name, ignored);
+        }
+      }
+    };
+    try {
+      write_text(temp("report.json"), cobot::bench::report_json(result.value(), inputs.value()));
+      write_text(temp("report.md"), md);
+      if (result.value().tuning) {
+        const cobot::common::Status written =
+            cobot::bench::write_tune_csv(temp("tune.csv"), *result.value().tuning);
+        if (!written) {
+          throw std::invalid_argument(written.reason());
+        }
+      }
+    } catch (...) {
+      discard(false);
+      throw;
+    }
+    for (const std::string& name : names) {
+      std::filesystem::rename(temp(name), out_dir / name, ec);
+      if (ec) {
+        discard(true);
+        throw std::invalid_argument("cannot write " + (out_dir / name).string() + ": " +
+                                    ec.message());
+      }
+    }
+    const std::chrono::duration<double> wall = std::chrono::steady_clock::now() - start;
+    std::printf("%s\nwall time: %.1f s\n", md.c_str(), wall.count());
+    return 0;
+  } catch (const std::exception& e) {
+    std::fprintf(stderr, "cobot_bench verify: %s\n%s", e.what(), kUsage);
+    return kExitVerifyBadInput;
   }
 }
 
@@ -341,6 +489,9 @@ int main_impl(int argc, char** argv) {
   }
   if (mode == "tune") {
     return tune_main(argc, argv);
+  }
+  if (mode == "verify") {
+    return verify_main(argc, argv);
   }
   if (mode == "montecarlo") {
     const auto f = parse_flags(

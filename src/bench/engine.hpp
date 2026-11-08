@@ -41,6 +41,15 @@ struct RunSummary {
   // held, without hold rows or without a goal time.
   double swing_first_rad = std::numeric_limits<double>::quiet_NaN();
   double swing_last_rad = std::numeric_limits<double>::quiet_NaN();
+  // Not in the Summary CSV (feature verify): the settle time, s (metrics.hpp, SettleThresholds).
+  // NaN when not asked for, for a run that held and for one that never settles.
+  double settle_time_s = std::numeric_limits<double>::quiet_NaN();
+};
+
+// The task's final thresholds for RunSummary::settle_time_s (feature verify).
+struct SettleThresholds {
+  double pos_m = 0.0;    // |p_d - p_e|
+  double rot_rad = 0.0;  // angle of R_d R_e^T
 };
 
 // A sweep param `config.<section>.<key>` and its level (pipeline::load_config_with).
@@ -68,13 +77,15 @@ common::Result<RunSummary> run_profile(
     const std::optional<ConfigOverride>& config_override = std::nullopt);
 
 // run_profile on a list of controller overrides (pipeline::load_config_with) instead of one
-// scalar, with no file written (feature auto-tune).
+// scalar, with no file written (feature auto-tune). With `settle` the summary has its
+// settle_time_s (feature verify); without it, the summary is the same bit for bit.
 common::Result<RunSummary> run_with(
     const std::filesystem::path& config_yaml,
     const std::vector<pipeline::KeyOverride>& config_overrides,
     const imperfect::ImperfectionConfig<model::kArmDof>& imperfections,
     const std::filesystem::path& label,
-    WaypointInput* waypoints = nullptr);
+    WaypointInput* waypoints = nullptr,
+    const std::optional<SettleThresholds>& settle = std::nullopt);
 
 // bench::run, with `path_invalid` telling a rejected waypoint list from bad input.
 common::Status run_checked(const std::filesystem::path& config_yaml,

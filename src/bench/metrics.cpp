@@ -173,6 +173,31 @@ void add_swing(const std::vector<pipeline::LogRecord<kN>>& rows,
   s.swing_last_rad = swing_in(rows, end_ns - window_ns, end_ns);
 }
 
+// settle_time_s of a run that did not hold (metrics.hpp): walk back from the evaluation row while
+// the TCP is inside the band around that row's T_b_d.
+double settle_time(const std::vector<pipeline::LogRecord<kN>>& rows,
+                   std::int64_t t_eval_ns,
+                   const SettleThresholds& band) {
+  std::size_t eval = 0;
+  while (eval + 1 < rows.size() && rows[eval + 1].t.ns <= t_eval_ns) {
+    ++eval;
+  }
+  const common::Pose& goal = rows[eval].T_b_d;
+  const auto inside = [&](const pipeline::LogRecord<kN>& r) {
+    return (goal.p - r.T_b_e.p).norm() <= band.pos_m &&
+           common::so3_log(goal.R * r.T_b_e.R.transpose()).norm() <= band.rot_rad;
+  };
+  if (!inside(rows[eval])) {
+    return std::numeric_limits<double>::quiet_NaN();
+  }
+  std::size_t entry = eval;
+  while (entry > 0 && inside(rows[entry - 1])) {
+    --entry;
+  }
+  return static_cast<double>(rows[entry].t.ns - rows.front().t.ns) /
+         static_cast<double>(common::kNanosecondsPerSecond);
+}
+
 std::string number(double v) {
   std::array<char, 32> text{};
   std::snprintf(text.data(), text.size(), "%.17g", v);
@@ -206,6 +231,20 @@ RunSummary summarize(const std::vector<pipeline::LogRecord<kN>>& rows,
                      std::int64_t t_goal_ns) {
   RunSummary s = summarize(rows, tau_max, rated, t_eval_ns, torque);
   add_swing(rows, t_goal_ns, s);
+  return s;
+}
+
+RunSummary summarize(const std::vector<pipeline::LogRecord<kN>>& rows,
+                     const Vec& tau_max,
+                     const Vec& rated,
+                     std::int64_t t_eval_ns,
+                     TorqueSource torque,
+                     std::int64_t t_goal_ns,
+                     const std::optional<SettleThresholds>& settle) {
+  RunSummary s = summarize(rows, tau_max, rated, t_eval_ns, torque, t_goal_ns);
+  if (settle && !s.held && !rows.empty()) {
+    s.settle_time_s = settle_time(rows, t_eval_ns, *settle);
+  }
   return s;
 }
 
