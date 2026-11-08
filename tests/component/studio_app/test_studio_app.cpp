@@ -229,15 +229,18 @@ class StudioApp : public ::testing::Test {
 };
 
 TEST_F(StudioApp, WindowHasThreeTabsAndTheContractWidgets) {
-  // Design 5.3 order (feature studio-control): Configuration, Control, Tracking.
+  // Design 5.3 order (feature studio-control), then design 10 (feature studio-verify):
+  // Configuration, Control, Tracking, Verification.
   const auto& tabs = get<QTabWidget>("tabs");
-  ASSERT_EQ(tabs.count(), 3);
+  ASSERT_EQ(tabs.count(), 4);
   EXPECT_EQ(tabs.widget(0)->objectName(), QStringLiteral("configTab"));
   EXPECT_EQ(tabs.widget(1)->objectName(), QStringLiteral("controlTab"));
   EXPECT_EQ(tabs.widget(2)->objectName(), QStringLiteral("trackingTab"));
+  EXPECT_EQ(tabs.widget(3)->objectName(), QStringLiteral("verifyTab"));
   EXPECT_EQ(tabs.tabText(0), QStringLiteral("Configuration"));
   EXPECT_EQ(tabs.tabText(1), QStringLiteral("Control"));
   EXPECT_EQ(tabs.tabText(2), QStringLiteral("Tracking"));
+  EXPECT_EQ(tabs.tabText(3), QStringLiteral("Verification"));
 
   for (const char* name :
        {"baseCombo",       "paramTree",          "omegaSpin",   "advancedGains", "halTimeoutSpin",
