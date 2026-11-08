@@ -1,0 +1,29 @@
+# E2E-17 (feature verify-analysis, cobot_studio phase C PR 6b, plan ambiguity 18): the seed
+# stability check, E2E-16 on seeds 101..200 (`--seed0 101`): the same verdicts are expected.
+# Judged as E2E-16 (kind verify with lists, tools/run_e2e.py), from
+# <out>/E2E-17/comparison.json. Only the verdicts are compared, so no sensitivity (time).
+#
+# budget_xarm7 drive_position at 92/100 on seeds 1..100 sits two runs from the FAIL line
+# (90/100): if seeds 101..200 give another verdict, the PR of verify-analysis reports the numbers
+# and this file says what they say, with a comment.
+id: E2E-17
+tags: [verify-nightly]
+runner: bench
+kind: verify
+hardware:
+  - config/hardware/premium_fr3.yaml
+  - config/hardware/mid_kr1205.yaml
+  - config/hardware/budget_xarm7.yaml
+algorithm: [computed_torque, drive_position]
+task: config/tasks/reference_move.yaml
+runs: 100
+seed0: 101
+no_sensitivity: true
+expect:
+  premium_fr3__computed_torque: pass
+  mid_kr1205__computed_torque: pass
+  budget_xarm7__computed_torque: fail
+  budget_xarm7__drive_position: marginal
+expect_suggestions:
+  budget_xarm7__computed_torque:
+    - "needs a position loop in the drive (algorithm drive_position)"

@@ -10,6 +10,7 @@
 
 #include "cobot/imperfect/config.hpp"
 #include "cobot/pipeline/config.hpp"
+#include "cobot/pipeline/log_record.hpp"
 
 #include "run_data.hpp"
 #include "work_queue.hpp"
@@ -68,6 +69,17 @@ double worst_of(const std::vector<SeedRun>& runs, Metric metric) {
     any = true;
   }
   return worst;
+}
+
+// Counts of runs[begin, begin + n).
+Counts tally(const std::vector<SeedRun>& runs, std::size_t begin, std::size_t n) {
+  Counts c;
+  for (std::size_t i = begin; i < begin + n && i < runs.size(); ++i) {
+    ++c.runs;
+    c.passed += runs[i].passed ? 1 : 0;
+    c.held += runs[i].summary.held ? 1 : 0;
+  }
+  return c;
 }
 
 }  // namespace
@@ -147,6 +159,9 @@ common::Result<VerifyResult> verify(const pipeline::HardwareModel& model,
   if (options.runs == 0) {
     return Out::error("verify: runs must be >= 1");
   }
+  if (options.sensitivity_seeds == 0 || options.ablation_seeds == 0) {
+    return Out::error("verify: sensitivity_seeds and ablation_seeds must be >= 1");
+  }
   const auto cancelled = [&options]() {
     return options.cancel != nullptr && options.cancel->load();
   };
@@ -203,47 +218,52 @@ common::Result<VerifyResult> verify(const pipeline::HardwareModel& model,
   }
   const pipeline::TaskRequirements& req = task.requirements;
   const SettleThresholds band{req.final_pos_err_m, req.final_rot_err_deg / kDegPerRad};
-  result.runs.resize(options.runs);
   unsigned jobs = options.jobs;
   if (jobs == 0) {
     jobs = std::max(1U, std::min(std::thread::hardware_concurrency(), kMaxDefaultJobs));
   }
-  std::mutex mutex;
-  std::size_t done = 0;
-  progress("runs", 0, options.runs);
-  // Each run keeps its rows only until it is summarised (run_with); cancel is read between runs.
-  const common::Status ran = run_queue(options.runs, jobs, [&](std::size_t i) {
-    if (cancelled()) {
-      return common::Status::error("cancelled");
-    }
-    imperfect::ImperfectionConfig<kN> p = profile.value();
-    p.seed = options.seed0 + i;
-    std::optional<WaypointInput> waypoints;
-    if (ro.waypoints) {
-      waypoints = WaypointInput{*ro.waypoints};
-    }
-    common::Result<RunSummary> run = run_with(
-        model.controller, overrides, p, model.name, waypoints ? &*waypoints : nullptr, band);
-    if (!run) {
-      return common::Status::error(model.name + " seed " + std::to_string(p.seed) + ": " +
-                                   run.reason());
-    }
-    SeedRun& slot = result.runs[i];
-    slot.seed = p.seed;
-    slot.summary = run.value();
-    slot.passed = run_passes(slot.summary, req);
-    const std::lock_guard<std::mutex> lock(mutex);
-    progress("runs", ++done, options.runs);
-    return common::Status::ok();
-  });
+  using Profile = imperfect::ImperfectionConfig<kN>;
+  // One phase: item i runs profiles[i / seeds] with seed seed0 + i % seeds, stored at out[i]. Each
+  // run keeps its rows only until it is summarised (run_with); cancel is read between runs.
+  const auto run_phase = [&](const char* phase,
+                             const std::vector<Profile>& profiles,
+                             std::size_t seeds,
+                             std::vector<SeedRun>& out) {
+    const std::size_t total = profiles.size() * seeds;
+    out.assign(total, SeedRun{});
+    std::mutex mutex;
+    std::size_t done = 0;
+    progress(phase, 0, total);
+    return run_queue(total, jobs, [&](std::size_t i) {
+      if (cancelled()) {
+        return common::Status::error("cancelled");
+      }
+      Profile p = profiles[i / seeds];
+      p.seed = options.seed0 + i % seeds;
+      std::optional<WaypointInput> waypoints;
+      if (ro.waypoints) {
+        waypoints = WaypointInput{*ro.waypoints};
+      }
+      common::Result<RunSummary> run = run_with(
+          model.controller, overrides, p, model.name, waypoints ? &*waypoints : nullptr, band);
+      if (!run) {
+        return common::Status::error(model.name + " seed " + std::to_string(p.seed) + ": " +
+                                     run.reason());
+      }
+      SeedRun& slot = out[i];
+      slot.seed = p.seed;
+      slot.summary = run.value();
+      slot.passed = run_passes(slot.summary, req);
+      const std::lock_guard<std::mutex> lock(mutex);
+      progress(phase, ++done, total);
+      return common::Status::ok();
+    });
+  };
+  const common::Status ran = run_phase("runs", {profile.value()}, options.runs, result.runs);
   if (!ran) {
     return Out::error(ran.reason());
   }
-  for (const SeedRun& r : result.runs) {
-    result.counts.passed += r.passed ? 1 : 0;
-    result.counts.held += r.summary.held ? 1 : 0;
-  }
-  result.counts.runs = result.runs.size();
+  result.counts = tally(result.runs, 0, result.runs.size());
   result.pass_rate = ratio(result.counts.passed, result.counts.runs);
   result.hold_rate = ratio(result.counts.held, result.counts.runs);
   result.wilson = wilson(result.counts.passed, result.counts.runs);
@@ -264,11 +284,108 @@ common::Result<VerifyResult> verify(const pipeline::HardwareModel& model,
         return s.settle_time_s;
       }));
   result.verdict = verdict(result.counts, result.worst, req, result.quick);
+  // A profile with `extra` on top of the run's own imperfection overrides.
+  const auto load_with = [&](std::vector<KeyOverride> extra) {
+    extra.insert(extra.end(), ro.imperfections.begin(), ro.imperfections.end());
+    return pipeline::load_imperfections_with<kN>(model.imperfections, extra);
+  };
+  const auto first = [&result](std::size_t n) { return tally(result.runs, 0, n); };
+  const std::vector<std::string>& only = options.sensitivity_keys;
+  const bool sensitivity =
+      options.sensitivity && !options.quick && (options.runs >= kFullRuns || !only.empty());
+  const std::size_t s_seeds = std::min(options.sensitivity_seeds, options.runs);
+  std::vector<Profile> variants;
+  std::vector<std::size_t> varied;  // index into result.assumptions of each pair of variants
   for (const pipeline::ProvenanceEntry& e : model.provenance) {
-    if (e.kind != pipeline::ProvenanceKind::kPublished) {
-      result.assumptions.push_back(Assumption{e.key, e.kind, e.range, e.scale, "not run"});
+    if (e.kind == pipeline::ProvenanceKind::kPublished) {
+      continue;
+    }
+    Assumption a{e.key, e.kind, e.range, e.scale, "not run", {}, {}, {}};
+    if (sensitivity && (only.empty() || std::find(only.begin(), only.end(), e.key) != only.end())) {
+      a.sensitivity = to_string(Sensitivity::kNotVaried);
+      for (const End end : {End::kLow, End::kHigh}) {
+        if (!e.range && !e.scale) {
+          break;
+        }
+        const common::Result<KeyOverride> o = variant_override(model.imperfections, e, end);
+        const common::Result<Profile> p =
+            o ? load_with({o.value()}) : common::Result<Profile>::error(o.reason());
+        if (!p) {
+          return Out::error(model.name + ": " + e.key + ": " + p.reason());
+        }
+        variants.push_back(p.value());
+        varied.push_back(result.assumptions.size());
+      }
+    }
+    result.assumptions.push_back(std::move(a));
+  }
+  if (!variants.empty()) {
+    std::vector<SeedRun> runs;
+    const common::Status st = run_phase("sensitivity", variants, s_seeds, runs);
+    if (!st) {
+      return Out::error(st.reason());
+    }
+    for (std::size_t v = 0; v < varied.size(); v += 2) {
+      Assumption& a = result.assumptions[varied[v]];
+      const std::array<double, 2> b = a.range ? *a.range : *a.scale;
+      a.base = first(s_seeds);
+      a.low = SensitivityEnd{b[0], tally(runs, v * s_seeds, s_seeds)};
+      a.high = SensitivityEnd{b[1], tally(runs, (v + 1) * s_seeds, s_seeds)};
+      const std::array<Counts, 2> ends{a.low->counts, a.high->counts};
+      a.sensitivity =
+          to_string(sensitivity_rule(result.counts, *a.base, ends, req.target_pass_rate));
     }
   }
+  if (result.verdict != Verdict::kFail) {
+    return Out::ok(std::move(result));
+  }
+  // The ablation (plan ambiguity 17): each active group at its off values.
+  const std::size_t a_seeds = std::min(options.ablation_seeds, options.runs);
+  std::vector<Profile> ablated;
+  for (const char* group : kAblationGroups) {
+    const common::Result<std::vector<KeyOverride>> off =
+        group_off_overrides(model.imperfections, group);
+    if (!off) {
+      return Out::error(model.name + ": " + off.reason());
+    }
+    if (off.value().empty()) {
+      continue;
+    }
+    const common::Result<Profile> p = load_with(off.value());
+    if (!p) {
+      return Out::error(model.name + ": " + group + " off: " + p.reason());
+    }
+    ablated.push_back(p.value());
+    result.causes.push_back(Cause{group, 0, first(a_seeds).passed, false});
+  }
+  if (!ablated.empty()) {
+    std::vector<SeedRun> runs;
+    const common::Status st = run_phase("ablation", ablated, a_seeds, runs);
+    if (!st) {
+      return Out::error(st.reason());
+    }
+    for (std::size_t g = 0; g < result.causes.size(); ++g) {
+      result.causes[g].passed_without = tally(runs, g * a_seeds, a_seeds).passed;
+    }
+  }
+  SuggestionFacts facts;
+  facts.algorithm = algorithm;
+  facts.servo_rate_hz = profile.value().comm.servo_rate_hz;
+  facts.no_admissible_gain = result.gain_source == GainSource::kDefaultNoAdmissible;
+  for (const SeedRun& r : result.runs) {
+    if (r.summary.held) {
+      ++result.hold_reasons[pipeline::to_string(r.summary.hold_reason)];
+    }
+  }
+  facts.hold_reasons = result.hold_reasons;
+  if (mark_main_causes(result.causes)) {
+    for (const Cause& c : result.causes) {
+      if (c.main) {
+        facts.main_causes.push_back(c.group);
+      }
+    }
+  }
+  result.suggestions = suggest(facts);
   return Out::ok(std::move(result));
 }
 

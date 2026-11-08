@@ -1,0 +1,34 @@
+# E2E-16 (feature verify-analysis, cobot_studio phase C PR 6b, ADR-023 "Báo cáo", design 10.2 G16):
+# `cobot_bench verify` of three hardware models and two algorithms in one call (the cross product,
+# premium_fr3 and mid_kr1205 do not list drive_position: "not listed"), full runs with tuning,
+# judged from <out>/E2E-16/comparison.json. kind verify with lists (tools/run_e2e.py):
+# `cobot_bench verify --hardware <hardware, comma-separated> --algorithm <algorithm,
+# comma-separated> --task <task> --runs <runs> [--seed0 n] [--sensitivity-seeds n]
+# [--no-sensitivity] --out <out>/E2E-16`; passes when the bench exits 0, the comparison row of
+# every `expect` pair has that verdict, and every text of `expect_suggestions` is in that pair's
+# report.json suggestions.
+#
+# Expected from #81 (100 runs each on reference_move): premium CT PASS, mid CT PASS, budget CT
+# FAIL (every run holds by state_timeout: the torque law needs a position loop in the drive),
+# budget drive MARGINAL (92/100). Job `verify` of nightly.yml (tag verify-nightly, 4 cores):
+# with the sensitivity at 20 seeds this took 7210 s locally at 4 jobs, so it runs at 10 seeds.
+id: E2E-16
+tags: [verify-nightly]
+runner: bench
+kind: verify
+hardware:
+  - config/hardware/premium_fr3.yaml
+  - config/hardware/mid_kr1205.yaml
+  - config/hardware/budget_xarm7.yaml
+algorithm: [computed_torque, drive_position]
+task: config/tasks/reference_move.yaml
+runs: 100
+sensitivity_seeds: 10
+expect:
+  premium_fr3__computed_torque: pass
+  mid_kr1205__computed_torque: pass
+  budget_xarm7__computed_torque: fail
+  budget_xarm7__drive_position: marginal
+expect_suggestions:
+  budget_xarm7__computed_torque:
+    - "needs a position loop in the drive (algorithm drive_position)"

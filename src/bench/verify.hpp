@@ -5,6 +5,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -15,6 +16,7 @@
 #include "cobot/pipeline/hardware_model.hpp"
 #include "cobot/pipeline/task.hpp"
 
+#include "analysis.hpp"
 #include "engine.hpp"
 #include "tune.hpp"
 
@@ -34,12 +36,6 @@ Interval wilson(std::size_t successes, std::size_t n, double z = 1.9599639845400
 
 enum class Verdict { kPass, kFail, kMarginal };
 const char* to_string(Verdict v);  // "pass" | "fail" | "marginal"
-
-struct Counts {
-  std::size_t runs = 0;
-  std::size_t passed = 0;
-  std::size_t held = 0;
-};
 
 // The worst value over the runs that did not hold (NaN when every run held, or when one of them has
 // a NaN value, such as the settle time of a run that never settled);
@@ -69,13 +65,23 @@ enum class GainSource { kTuned, kDefaultNoAdmissible, kDefaultTuningOff };
 // "tuned" | "default_no_admissible" | "default_tuning_off"
 const char* to_string(GainSource source);
 
-// A provenance entry of kind assumed or derived (the seam of the sensitivity analysis, PR 6b).
+// One end of a varied key: value is the bound (range) or the factor (scale).
+struct SensitivityEnd {
+  double value = 0.0;
+  Counts counts;
+};
+
+// A provenance entry of kind assumed or derived and its sensitivity (feature verify-analysis):
+// "not run" | "stable" | "may change" | "not varied"; base, low and high are set when it ran.
 struct Assumption {
   std::string key;
   pipeline::ProvenanceKind kind = pipeline::ProvenanceKind::kAssumed;
   std::optional<std::array<double, 2>> range;
   std::optional<std::array<double, 2>> scale;
   std::string sensitivity = "not run";
+  std::optional<Counts> base;  // the same seeds of the main Monte Carlo
+  std::optional<SensitivityEnd> low;
+  std::optional<SensitivityEnd> high;
 };
 
 struct SeedRun {
@@ -95,6 +101,14 @@ struct VerifyOptions {
   std::function<void(std::string_view phase, std::size_t done, std::size_t total)> progress;
   // Set: no further run starts and verify returns the error "cancelled".
   const std::atomic<bool>* cancel = nullptr;
+  // The analysis (feature verify-analysis). The sensitivity runs unless false or quick mode;
+  // each variant and each ablated group runs min(seeds, runs) seeds from seed0.
+  bool sensitivity = true;
+  std::size_t sensitivity_seeds = 20;
+  std::size_t ablation_seeds = 20;
+  // Test hook: non-empty -> only these keys run (the others stay "not run"), and the sensitivity
+  // also runs in the quick mode of runs < 100 (never with `quick` or with sensitivity false).
+  std::vector<std::string> sensitivity_keys;
 };
 
 struct VerifyResult {
@@ -115,13 +129,18 @@ struct VerifyResult {
   Verdict verdict = Verdict::kFail;
   bool quick = false;  // the flag or runs < 100
   std::vector<Assumption> assumptions;
-  std::vector<std::string> causes;       // PR 6b
-  std::vector<std::string> suggestions;  // PR 6b
+  // On a FAIL only (feature verify-analysis): one row per active group in kAblationGroups order,
+  // the hold reasons of the main runs (to_string(HoldReason) -> runs) and suggest().
+  std::vector<Cause> causes;
+  std::map<std::string, std::size_t> hold_reasons;
+  std::vector<std::string> suggestions;
 };
 
 // tune (unless options.tune is false), then options.runs runs with seeds seed0.. on run_queue,
-// stored by seed index. An algorithm the model does not list is an error before any run; the first
-// error of a run stops the remaining work and comes back.
+// stored by seed index, then the sensitivity (phase "sensitivity") and, on a FAIL, the ablation
+// (phase "ablation"), each phase one run_queue with results by index. An algorithm the model does
+// not list is an error before any run; the first error of a run stops the remaining work and comes
+// back.
 common::Result<VerifyResult> verify(const pipeline::HardwareModel& model,
                                     control::Algorithm algorithm,
                                     const pipeline::Task& task,

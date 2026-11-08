@@ -260,7 +260,8 @@ no file.
 ### Verify report
 
 `cobot_bench verify --hardware <model.yaml> --algorithm <name> --task <task.yaml> [--runs n]
-[--seed0 n] [--quick] [--no-tune] [--levels a,b,...] [--tune-seeds n] [--jobs n] --out <dir>`
+[--seed0 n] [--quick] [--no-tune] [--levels a,b,...] [--tune-seeds n] [--no-sensitivity]
+[--sensitivity-seeds n] [--ablation-seeds n] [--jobs n] --out <dir>`
 (feature verify, ADR-023) tunes the law's gain (as `cobot_bench tune`, seeds 1..`--tune-seeds`,
 default 10; `--no-tune` keeps the model's gain), runs seeds `seed0..seed0+runs-1` (defaults 1 and
 100), writes `<dir>/report.json`, `<dir>/report.md` (same content), `tune.csv` when tuned, and
@@ -292,9 +293,70 @@ report.json keys, in this order (numbers `%.17g`, NaN `null`):
 | `hold_rate` | share of runs that held |
 | `worst` | `final_pos_err_m`, `final_rot_err_deg`, `rms_joint_err_rad`, `cycle_time_s` (max settle time), each `{value, threshold, margin_limit}`: the max over the runs that did not hold (`null` when all held, or when a run that did not hold has no value for that metric: `cycle_time_s` of a run that never settled; that run fails, so PASS is blocked anyway), the requirement, `(1 - margin_frac) * threshold` |
 | `tuning` | `{key, gain_used, gain_source, levels, rows, chosen, reason}`: `gain_source` `tuned`, `default_no_admissible` (no admissible level: the model's gain) or `default_tuning_off`; `rows` as the lines of tune.csv (flags 0/1); with tuning off `levels` and `rows` are `[]`, `chosen` `null` |
-| `assumptions` | the model's provenance entries of kind `assumed` or `derived`: `{key, kind, range` or `scale, sensitivity}`, sensitivity `"not run"` |
-| `causes`, `suggestions` | `[]` (filled by PR 6b) |
+| `assumptions` | the model's provenance entries of kind `assumed` or `derived`: `{key, kind, range` or `scale, sensitivity}`, and for a key that ran also `base: {passed, held}`, `low: {value, passed, held}`, `high: {value, passed, held}` (see Sensitivity below) |
+| `causes` | `[]` unless FAIL; on a FAIL `{groups: [{group, passed_without, base_passed, main}], hold_reasons: {<hold reason>: runs}}` (see Causes below) |
+| `suggestions` | `[]` unless FAIL; on a FAIL the lines of the suggestion table below |
 | `versions` | `{git, inputs}`: `git describe` of the build; `inputs` the model file, its imperfection and controller files, the task file and its waypoint file, each `{path, sha256}` of its bytes |
+
+Schema stays `1`: the keys of 6a keep their order and meaning, the new keys are only inside
+`assumptions[]` and `causes` (an object only on a FAIL), and the E2E-15 judge reads only the
+top-level keys.
+
+**Sensitivity** (feature verify-analysis, plan ambiguity 16, C12). On by default, off with
+`--no-sensitivity` and in quick mode (`"not run"` as before). Each entry with a `range` runs the
+profile with the key at `lo` and at `hi`; one with a `scale` with every element of the profile's
+value times `lo` and times `hi` (an end at exactly 1 still runs); every other key unchanged.
+`value` is the bound or the factor. Each end runs `min(--sensitivity-seeds, runs)` seeds (default
+20) from `seed0` at the gain used; `base` is the same seeds of the main runs (no extra run). A bool
+or choice key is `"not varied"`. `"may change"` when at either end the pass rate is on the other
+side of `target_pass_rate` than the main pass rate (a rate equal to the target counts as at or
+above it), or when an end holds while `base.held` is 0; else `"stable"`. report.md: the assumption
+table shows base, low and high pass counts and the stable column.
+
+**Causes** (plan ambiguity 17), only on a FAIL. For each group of `sensor, actuator, friction,
+model, timing, comm, transmission` with active keys (`active_imperfection_keys`; `model.payload_*`
+belongs to the task), the profile with them at their off value (0, `false`, `link`;
+`sensor.qd_filter_hz` and `transmission.ratio` stay, the loader refuses 0) runs
+`min(--ablation-seeds, runs)` seeds (default 20); `base_passed` is the same seeds of the main runs.
+The groups with the largest `passed_without` above `base_passed` are `main` (ties all); none:
+report.md says "no single group explains the failure". `hold_reasons` counts the main runs' holds.
+
+**Suggestions**, only on a FAIL, in this order:
+
+| rule | line |
+|---|---|
+| computed_torque or pd_gravity, `comm.servo_rate_hz > 0`, state_timeout + overspeed more than half of the holds | needs a position loop in the drive (algorithm drive_position) |
+| main cause `comm` | raise the servo rate or reduce packet loss |
+| main cause `sensor` | a finer encoder or less sensor noise |
+| main cause `transmission` | a stiffer transmission or less lost motion |
+| main cause `friction` | friction identification and compensation |
+| the tune step found no admissible gain | no admissible gain in the sweep: widen the levels or change the law |
+
+Progress phases (`VerifyOptions::progress`): `tune`, `runs`, `sensitivity`, `ablation`; each phase
+is one `run_queue` with results by index, so the files do not depend on `--jobs`.
+
+### Verify comparison
+
+`--hardware a.yaml,b.yaml` and `--algorithm x,y` (feature verify-analysis, design 10.2 G16) take
+the cross product, models outer, algorithms inner; a pair the model does not list is a `not listed`
+row; no listed pair, an empty item, an algorithm or a model (by `name`) given twice, or a model
+file that does not load is exit 1 before any run.
+The pairs run one after the other, each with `--jobs` (`bench::compare`, also for the studio).
+With one model and one algorithm the layout is the single one above. With more (even when only
+one pair of them is listed), each listed pair writes
+`<dir>/<model>__<algorithm>/report.{json,md}` (+ `tune.csv`), the bytes a single call writes, plus
+`<dir>/comparison.json` and `comparison.md`:
+
+```json
+{"disclaimer": "...", "rows": [
+  {"model": "budget_xarm7", "algorithm": "drive_position", "verdict": "marginal",
+   "pass_count": 92, "runs": 100, "wilson": [lo, hi], "worst": {"final_pos_err_m": v, ...},
+   "gain_used": 80, "gain_source": "tuned"},
+  {"model": "premium_fr3", "algorithm": "drive_position", "verdict": "not listed"}]}
+```
+
+comparison.md: the disclaimer on its first line, then one table row per pair (verdict, passed /
+runs, Wilson interval, worst value of each metric, gain used and its source).
 
 ### Studio file
 

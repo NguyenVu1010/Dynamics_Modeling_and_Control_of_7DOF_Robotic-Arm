@@ -5,6 +5,7 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <variant>
 #include <vector>
 
 #include "cobot/common/result.hpp"
@@ -66,5 +67,11 @@ Result<Config<N>> config_for(const HardwareModel& model, control::Algorithm algo
 // actuator.torque_ripple_frac. sensor.position_source counts when it differs from the loader's
 // default, link. Order: as in the file.
 Result<std::vector<std::string>> active_imperfection_keys(const std::filesystem::path& profile);
+
+// The value of a numeric leaf of a profile file (dotted key under imperfections:, as in the
+// provenance list; feature verify-analysis): a scalar as a double, a list as a list. A key absent
+// from the file, or a leaf that is not a number or a list of numbers, is an error naming the key.
+using ProfileValue = std::variant<double, std::vector<double>>;
+Result<ProfileValue> profile_value(const std::filesystem::path& profile, const std::string& key);
 
 }  // namespace cobot::pipeline

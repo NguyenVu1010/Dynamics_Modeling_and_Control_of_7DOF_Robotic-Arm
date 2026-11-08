@@ -5,7 +5,9 @@
 #include <cstdio>
 #include <fstream>
 #include <iterator>
+#include <optional>
 
+#include "compare.hpp"
 #include "sha256.hpp"
 
 namespace cobot::bench {
@@ -102,6 +104,20 @@ std::string bounds(const Assumption& a) {
   return std::string(a.range ? "range " : "scale ") + short_num(b[0]) + " .. " + short_num(b[1]);
 }
 
+std::string counts_json(const Counts& c) {
+  return "\"passed\": " + std::to_string(c.passed) + ", \"held\": " + std::to_string(c.held);
+}
+
+std::string end_json(const char* name, const std::optional<SensitivityEnd>& e) {
+  return e ? std::string(", \"") + name + R"(": {"value": )" + num(e->value) + ", " +
+                 counts_json(e->counts) + "}"
+           : std::string();
+}
+
+std::string passed_md(const std::optional<Counts>& c) {
+  return c ? std::to_string(c->passed) + "/" + std::to_string(c->runs) : std::string("-");
+}
+
 }  // namespace
 
 common::Result<std::vector<InputFile>> report_inputs(const std::filesystem::path& model_yaml,
@@ -179,13 +195,32 @@ std::string report_json(const VerifyResult& r, const std::vector<InputFile>& inp
     if (a.scale) {
       j += ", \"scale\": " + pair((*a.scale)[0], (*a.scale)[1]);
     }
-    j += ", \"sensitivity\": " + str(a.sensitivity) + "}";
+    j += ", \"sensitivity\": " + str(a.sensitivity);
+    if (a.base) {
+      j += ", \"base\": {" + counts_json(*a.base) + "}";
+    }
+    j += end_json("low", a.low) + end_json("high", a.high) + "}";
   }
-  j += std::string(r.assumptions.empty() ? "" : "\n  ") + "],\n  \"causes\": [";
-  for (std::size_t i = 0; i < r.causes.size(); ++i) {
-    j += (i > 0 ? ", " : "") + str(r.causes[i]);
+  j += std::string(r.assumptions.empty() ? "" : "\n  ") + "],\n  \"causes\": ";
+  if (r.causes.empty() && r.hold_reasons.empty()) {
+    j += "[]";
+  } else {  // a FAIL with its ablation: {"groups": [...], "hold_reasons": {...}}
+    j += "{\n    \"groups\": [";
+    for (std::size_t i = 0; i < r.causes.size(); ++i) {
+      const Cause& c = r.causes[i];
+      j += std::string(i > 0 ? "," : "") + "\n      {\"group\": " + str(c.group) +
+           ", \"passed_without\": " + std::to_string(c.passed_without) +
+           ", \"base_passed\": " + std::to_string(c.base_passed) +
+           ", \"main\": " + (c.main ? "true" : "false") + "}";
+    }
+    j += std::string(r.causes.empty() ? "" : "\n    ") + "],\n    \"hold_reasons\": {";
+    std::size_t i = 0;
+    for (const auto& [reason, n] : r.hold_reasons) {
+      j += (i++ > 0 ? ", " : "") + str(reason) + ": " + std::to_string(n);
+    }
+    j += "}\n  }";
   }
-  j += "],\n  \"suggestions\": [";
+  j += ",\n  \"suggestions\": [";
   for (std::size_t i = 0; i < r.suggestions.size(); ++i) {
     j += (i > 0 ? ", " : "") + str(r.suggestions[i]);
   }
@@ -234,15 +269,98 @@ std::string report_md(const VerifyResult& r, const std::vector<InputFile>& input
   } else {
     m += "tuning off\n";
   }
-  m += "\n## Assumptions\n\n| key | kind | bounds | sensitivity |\n|---|---|---|---|\n";
+  m += "\n## Assumptions\n\n| key | kind | bounds | base passed | low passed | high passed | "
+       "verdict stable |\n|---|---|---|---|---|---|---|\n";
   for (const Assumption& a : r.assumptions) {
-    m += "| " + a.key + " | " + kind_name(a.kind) + " | " + bounds(a) + " | " + a.sensitivity +
-         " |\n";
+    m += "| " + a.key + " | " + kind_name(a.kind) + " | " + bounds(a) + " | " + passed_md(a.base) +
+         " | " + passed_md(a.low ? std::optional<Counts>(a.low->counts) : std::nullopt) + " | " +
+         passed_md(a.high ? std::optional<Counts>(a.high->counts) : std::nullopt) + " | " +
+         a.sensitivity + " |\n";
+  }
+  if (r.verdict == Verdict::kFail) {
+    m += "\n## Causes\n\n| group off | passed without | base passed | main |\n|---|---|---|---|\n";
+    std::string main;
+    for (const Cause& c : r.causes) {
+      m += "| " + c.group + " | " + std::to_string(c.passed_without) + " | " +
+           std::to_string(c.base_passed) + " | " + (c.main ? "yes" : "no") + " |\n";
+      main += c.main ? (main.empty() ? "" : ", ") + c.group : "";
+    }
+    m += "\nMain cause: " + (main.empty() ? "no single group explains the failure" : main) +
+         "\n\nHold reasons:";
+    for (const auto& [reason, n] : r.hold_reasons) {
+      m += " " + reason + " " + std::to_string(n) + ";";
+    }
+    m += std::string(r.hold_reasons.empty() ? " none" : "") + "\n\n## Suggestions\n\n";
+    for (const std::string& s : r.suggestions) {
+      m += "- " + s + "\n";
+    }
+    m += r.suggestions.empty() ? "none\n" : "";
   }
   m += "\n## Versions\n\ngit: " + std::string(COBOT_GIT_DESCRIBE) +
        "\n\n| input | sha256 |\n|---|---|\n";
   for (const InputFile& f : inputs) {
     m += "| " + f.path + " | " + f.sha256 + " |\n";
+  }
+  return m;
+}
+
+std::string comparison_json(const std::vector<ComparisonRow>& rows) {
+  std::string j = "{\n  \"disclaimer\": " + str(kVerifyDisclaimer) + ",\n  \"rows\": [";
+  for (std::size_t i = 0; i < rows.size(); ++i) {
+    const ComparisonRow& row = rows[i];
+    j += std::string(i > 0 ? "," : "") + "\n    {\"model\": " + str(row.model) +
+         ", \"algorithm\": " + str(control::to_string(row.algorithm)) + ", \"verdict\": ";
+    if (!row.result) {
+      j += "\"not listed\"}";
+      continue;
+    }
+    const VerifyResult& r = *row.result;
+    j += str(to_string(r.verdict)) + ", \"pass_count\": " + std::to_string(r.counts.passed) +
+         ", \"runs\": " + std::to_string(r.counts.runs) +
+         ", \"wilson\": " + pair(r.wilson.lo, r.wilson.hi) + ", \"worst\": {";
+    for (std::size_t k = 0; k < r.worst.size(); ++k) {
+      j += (k > 0 ? ", " : "") + str(r.worst[k].name) + ": " + num(r.worst[k].value);
+    }
+    j += "}, \"gain_used\": " + num(r.gain_used) +
+         ", \"gain_source\": " + str(to_string(r.gain_source)) + "}";
+  }
+  return j + std::string(rows.empty() ? "" : "\n  ") + "]\n}\n";
+}
+
+std::string comparison_md(const std::vector<ComparisonRow>& rows) {
+  std::vector<std::string> metrics;
+  for (const ComparisonRow& row : rows) {
+    for (std::size_t k = metrics.size(); row.result && k < row.result->worst.size(); ++k) {
+      metrics.push_back(row.result->worst[k].name);
+    }
+  }
+  std::string m = std::string(kVerifyDisclaimer) +
+                  "\n\n# Verify comparison\n\n| model | algorithm | verdict | passed / runs | "
+                  "Wilson 95 % |";
+  std::string rule = "|---|---|---|---|---|";
+  for (const std::string& name : metrics) {
+    m += " worst " + name + " |";
+    rule += "---|";
+  }
+  m += " gain used | gain source |\n" + rule + "---|---|\n";
+  for (const ComparisonRow& row : rows) {
+    m += "| " + row.model + " | " + control::to_string(row.algorithm) + " | ";
+    if (!row.result) {
+      m += "not listed | - | - |";
+      for (std::size_t k = 0; k < metrics.size(); ++k) {
+        m += " - |";
+      }
+      m += " - | - |\n";
+      continue;
+    }
+    const VerifyResult& r = *row.result;
+    m += std::string(verdict_line(r.verdict)) + " | " + std::to_string(r.counts.passed) + " / " +
+         std::to_string(r.counts.runs) + " | " + short_num(r.wilson.lo) + " .. " +
+         short_num(r.wilson.hi) + " |";
+    for (const WorstMetric& w : r.worst) {
+      m += " " + short_num(w.value) + " |";
+    }
+    m += " " + short_num(r.gain_used) + " | " + to_string(r.gain_source) + " |\n";
   }
   return m;
 }

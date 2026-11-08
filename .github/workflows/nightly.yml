@@ -29,3 +29,32 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: nightly-results, path: results, if-no-files-found: ignore }
+
+  # E2E-16 and E2E-17 (verify-analysis), tag verify-nightly, one job each in parallel: full
+  # `cobot_bench verify` of four model/algorithm pairs, 100 runs each. Locally at 4 jobs E2E-16 took
+  # 7210 s with the sensitivity at 20 seeds; the scenario runs it at 10 seeds, and E2E-17 (seed
+  # stability of the verdicts) runs without sensitivity.
+  verify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [e2e_16_verify_compare, e2e_17_verify_seeds]
+    steps:
+      - uses: actions/checkout@v4
+      - run: >
+          sudo apt-get update && sudo apt-get install -y cmake ninja-build g++ libeigen3-dev
+          libgtest-dev libgmock-dev libtinyxml2-dev libyaml-cpp-dev
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: pip install -e ".[eval]"
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCOBOT_BUILD_TESTS=OFF
+      - run: cmake --build build --parallel 4
+      - name: Verify scenario
+        run: >
+          python tools/run_e2e.py --scenario tests/e2e/scenarios/${{ matrix.scenario }}.yaml
+          --bench build/src/bench/cobot_bench --out results/verify-${{ github.run_id }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: "verify-${{ matrix.scenario }}", path: results, if-no-files-found: ignore }

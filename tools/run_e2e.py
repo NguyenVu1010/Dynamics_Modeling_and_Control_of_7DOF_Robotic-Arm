@@ -47,9 +47,13 @@ kind verify (feature verify) runs `cobot_bench verify --hardware H --algorithm A
 [--quick] --levels a,b --tune-seeds n --out <out>/<id>` (no `config` key: the controller file is the
 hardware model's) and passes when every top-level key of the Verify report is in report.json,
 `verdict` equals expect_verdict, `quick` is true and the sha256 of every versions.inputs file
-matches its bytes.
-Scenarios tagged nightly or realism2 run only with --tag <that tag> or --scenario. Exit 0 all
-pass, 1 any fails, 2 bad arguments.
+matches its bytes. With lists (feature verify-analysis: `hardware` a list of model files,
+`algorithm` a list of names) it is one call with both joined by commas (plus --seed0,
+--sensitivity-seeds, --no-sensitivity when given) and passes when comparison.json has a row of every
+`expect: {<model>__<algorithm>: verdict}` pair with that verdict and every text of
+`expect_suggestions: {<pair>: [text]}` is in that pair's report.json suggestions.
+Scenarios tagged nightly, realism2 or verify-nightly run only with --tag <that tag> or
+--scenario. Exit 0 all pass, 1 any fails, 2 bad arguments.
 """
 
 import argparse
@@ -83,7 +87,7 @@ from cobot_eval.metrics import (  # noqa: E402
 
 SCENARIO_DIR = REPO / "tests/e2e/scenarios"
 THRESHOLD_KEYS = ("final_pos_err_m", "final_rot_err_deg", "rms_joint_err_rad")
-OPT_IN_TAGS = {"nightly", "realism2"}  # never selected by a plain --all
+OPT_IN_TAGS = {"nightly", "realism2", "verify-nightly"}  # never selected by a plain --all
 GAZEBO_MARGIN_S = 5.0  # real-time factor below 1 and shutdown, on top of the trajectory time
 GAZEBO_POLL_S = 0.1
 GAZEBO_CAP = 3.0  # overall wait cap, as a multiple of the minimum wait
@@ -535,7 +539,49 @@ def run_gazebo(s: dict, out: Path, report: bool) -> tuple[bool, str]:
     return judge_run(s, csv, out, report)
 
 
+def as_list(value: str | list) -> list:
+    return value if isinstance(value, list) else [value]
+
+
+def run_verify_lists(s: dict, args: argparse.Namespace, out: Path) -> tuple[bool, str]:
+    hardware = ",".join(str(repo_path(h)) for h in as_list(s["hardware"]))
+    cmd = ["verify", "--hardware", hardware, "--algorithm", ",".join(as_list(s["algorithm"]))]
+    cmd += ["--task", str(repo_path(s["task"])), "--runs", str(s["runs"])]
+    cmd += ["--quick"] if s.get("quick") else []
+    for key, name in (("seed0", "--seed0"), ("sensitivity_seeds", "--sensitivity-seeds")):
+        cmd += [name, str(s[key])] if key in s else []
+    cmd += ["--no-sensitivity"] if s.get("no_sensitivity") else []
+    if "levels" in s:
+        cmd += ["--levels", ",".join(str(v) for v in s["levels"])]
+    if "tune_seeds" in s:
+        cmd += ["--tune-seeds", str(s["tune_seeds"])]
+    bench(args, *cmd, "--out", str(out))
+    comparison = out / "comparison.json"
+    if not comparison.is_file():
+        return False, "no comparison.json (one model and one algorithm write a single report)"
+    rows = json.loads(comparison.read_text(encoding="utf-8"))["rows"]
+    verdicts = {f"{r['model']}__{r['algorithm']}": r for r in rows}
+    problems, seen = [], []
+    for pair, want in s["expect"].items():
+        row = verdicts.get(pair)
+        if row is None:
+            problems.append(f"{pair}: no row in comparison.json")
+            continue
+        seen.append(f"{pair} {row['verdict']} {row.get('pass_count')}/{row.get('runs')}")
+        if row["verdict"] != want:
+            problems.append(f"{pair}: verdict {row['verdict']}, expected {want}")
+    for pair, texts in (s.get("expect_suggestions") or {}).items():
+        path = out / pair / "report.json"
+        got = []
+        if path.is_file():
+            got = json.loads(path.read_text(encoding="utf-8")).get("suggestions", [])
+        problems += [f"{pair}: no suggestion {text!r}" for text in texts if text not in got]
+    return not problems, "; ".join(seen + problems)
+
+
 def run_verify(s: dict, args: argparse.Namespace, out: Path) -> tuple[bool, str]:
+    if isinstance(s["hardware"], list) or isinstance(s["algorithm"], list):
+        return run_verify_lists(s, args, out)
     cmd = ["verify", "--hardware", str(repo_path(s["hardware"])), "--algorithm", s["algorithm"]]
     cmd += ["--task", str(repo_path(s["task"])), "--runs", str(s["runs"])]
     cmd += ["--quick"] if s.get("quick") else []
