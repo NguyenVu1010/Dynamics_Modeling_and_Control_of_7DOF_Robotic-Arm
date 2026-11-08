@@ -389,6 +389,34 @@ Result<std::vector<std::string>> active_imperfection_keys(const fs::path& profil
   return Out::ok(std::move(keys));
 }
 
+Result<ProfileValue> profile_value(const fs::path& profile, const std::string& key) {
+  using Out = Result<ProfileValue>;
+  try {
+    const YAML::Node root = YAML::LoadFile(profile.string());
+    YAML::Node node = root["imperfections"];
+    std::size_t begin = 0;
+    for (;;) {
+      const std::size_t dot = key.find('.', begin);
+      const YAML::Node& map = node;  // const: a lookup never adds the key
+      const YAML::Node child = node.IsMap() ? map[key.substr(begin, dot - begin)] : YAML::Node();
+      if (!child.IsDefined() || child.IsNull()) {
+        return Out::error(profile.string() + ": no key " + key);
+      }
+      node.reset(child);
+      if (dot == std::string::npos) {
+        break;
+      }
+      begin = dot + 1;
+    }
+    if (node.IsSequence()) {
+      return Out::ok(ProfileValue{node.as<std::vector<double>>()});
+    }
+    return Out::ok(ProfileValue{node.as<double>()});
+  } catch (const YAML::Exception& e) {
+    return Out::error(profile.string() + ": " + key + ": " + e.what());
+  }
+}
+
 #define COBOT_HARDWARE_INSTANTIATE(N) \
   template Result<Config<(N)>> config_for<(N)>(const HardwareModel&, control::Algorithm);
 COBOT_INSTANTIATE_DOF(COBOT_HARDWARE_INSTANTIATE)

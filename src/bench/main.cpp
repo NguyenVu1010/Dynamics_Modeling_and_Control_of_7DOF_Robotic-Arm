@@ -5,7 +5,7 @@
 // prints "serving /cobot_<name>" and runs until SIGINT / SIGTERM or --duration-s. `tune` (feature
 // auto-tune) exits 0 with a result (also when no level is admissible) and 1 on bad input. `verify`
 // (feature verify) exits 0 for every verdict (a FAIL is a result) and 1 on bad input, no file
-// written.
+// written; with lists of models and algorithms (feature verify-analysis) it compares the pairs.
 #include <atomic>
 #include <chrono>
 #include <csignal>
@@ -15,6 +15,7 @@
 #include <exception>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <limits>
 #include <map>
 #include <optional>
@@ -28,6 +29,7 @@
 #include "cobot/pipeline/hardware_model.hpp"
 #include "cobot/pipeline/task.hpp"
 
+#include "compare.hpp"
 #include "engine.hpp"
 #include "report.hpp"
 #include "run.hpp"
@@ -53,18 +55,21 @@ const char* const kUsage =
     "[--name <name>] [--out <dir>] [--duration-s <s>]\n"
     "       cobot_bench tune --hardware <model.yaml> --algorithm <name> --task <task.yaml> "
     "[--levels a,b,c] [--seeds <n>] [--jobs <n>] --out <dir>\n"
-    "       cobot_bench verify --hardware <model.yaml> --algorithm <name> --task <task.yaml> "
-    "[--runs <n>] [--seed0 <u64>] [--quick] [--no-tune] [--levels a,b,c] [--tune-seeds <n>] "
-    "[--jobs <n>] --out <dir>\n";
+    "       cobot_bench verify --hardware <model.yaml>[,<model.yaml>...] --algorithm "
+    "<name>[,<name>...] --task <task.yaml> [--runs <n>] [--seed0 <u64>] [--quick] [--no-tune] "
+    "[--levels a,b,c] [--tune-seeds <n>] [--no-sensitivity] [--sensitivity-seeds <n>] "
+    "[--ablation-seeds <n>] [--jobs <n>] --out <dir>\n";
 
 const char* const kKeepRuns = "--keep-runs";
 const char* const kPaced = "--paced";
 const char* const kQuick = "--quick";
 const char* const kNoTune = "--no-tune";
+const char* const kNoSensitivity = "--no-sensitivity";
 const char* const kLogMode = "--log-mode";
 
-// "--name value" pairs after the mode (the switches --keep-runs, --paced, --quick and --no-tune
-// take no value and map to ""); throws std::invalid_argument on a bad command line.
+// "--name value" pairs after the mode (the switches --keep-runs, --paced, --quick, --no-tune and
+// --no-sensitivity take no value and map to ""); throws std::invalid_argument on a bad command
+// line.
 std::map<std::string, std::string> parse_flags(int argc,
                                                char** argv,
                                                const std::set<std::string>& known,
@@ -72,7 +77,8 @@ std::map<std::string, std::string> parse_flags(int argc,
   std::map<std::string, std::string> flags;
   for (int i = 2; i < argc; i += 2) {
     const std::string name = argv[i];
-    const bool is_switch = name == kKeepRuns || name == kPaced || name == kQuick || name == kNoTune;
+    const bool is_switch = name == kKeepRuns || name == kPaced || name == kQuick ||
+                           name == kNoTune || name == kNoSensitivity;
     if (known.count(name) == 0 || (!is_switch && i + 1 >= argc) ||
         !flags.emplace(name, is_switch ? "" : argv[i + 1]).second) {
       throw std::invalid_argument("unknown, repeated or valueless argument " + name);
@@ -341,6 +347,67 @@ void write_text(const std::filesystem::path& path, const std::string& text) {
   }
 }
 
+// "a,b,c" of `flag`: every item non-empty (std::invalid_argument naming the flag otherwise).
+std::vector<std::string> parse_list(const std::string& flag, const std::string& text) {
+  std::vector<std::string> items;
+  std::size_t begin = 0;
+  for (;;) {
+    const std::size_t comma = text.find(',', begin);
+    items.push_back(text.substr(begin, comma - begin));
+    if (items.back().empty()) {
+      std::string reason = flag;
+      reason += ": empty item in ";
+      reason += text;
+      throw std::invalid_argument(reason);
+    }
+    if (comma == std::string::npos) {
+      return items;
+    }
+    begin = comma + 1;
+  }
+}
+
+// One file to write: `write` fills the given (temporary) path.
+struct OutFile {
+  std::filesystem::path path;
+  std::function<void(const std::filesystem::path&)> write;
+};
+
+// Every file goes to a temporary name first and is renamed only once all are written, so a failed
+// write leaves none of them behind.
+void write_all(const std::vector<OutFile>& files) {
+  const auto temp = [](const std::filesystem::path& p) {
+    return p.parent_path() / ("." + p.filename().string() + ".tmp");
+  };
+  const auto discard = [&](bool finals) {
+    for (const OutFile& f : files) {
+      std::error_code ignored;
+      std::filesystem::remove(temp(f.path), ignored);
+      if (finals) {
+        std::filesystem::remove(f.path, ignored);
+      }
+    }
+  };
+  try {
+    for (const OutFile& f : files) {
+      std::error_code ec;
+      std::filesystem::create_directories(f.path.parent_path(), ec);
+      f.write(temp(f.path));
+    }
+  } catch (...) {
+    discard(false);
+    throw;
+  }
+  for (const OutFile& f : files) {
+    std::error_code ec;
+    std::filesystem::rename(temp(f.path), f.path, ec);
+    if (ec) {
+      discard(true);
+      throw std::invalid_argument("cannot write " + f.path.string() + ": " + ec.message());
+    }
+  }
+}
+
 int verify_main(int argc, char** argv) {
   constexpr int kExitVerifyBadInput = 1;
   const auto start = std::chrono::steady_clock::now();
@@ -354,16 +421,24 @@ int verify_main(int argc, char** argv) {
                                 "--seed0",
                                 kQuick,
                                 kNoTune,
+                                kNoSensitivity,
                                 "--levels",
                                 "--tune-seeds",
+                                "--sensitivity-seeds",
+                                "--ablation-seeds",
                                 "--jobs",
                                 "--out"},
                                {"--hardware", "--algorithm", "--task", "--out"});
-    const auto algorithm = cobot::control::algorithm_from_string(f.at("--algorithm"));
-    if (!algorithm) {
-      throw std::invalid_argument("--algorithm: unknown " + f.at("--algorithm") + " (registered: " +
-                                  cobot::control::registered_algorithm_names() + ")");
+    std::vector<cobot::control::Algorithm> algorithms;
+    for (const std::string& name : parse_list("--algorithm", f.at("--algorithm"))) {
+      const auto algorithm = cobot::control::algorithm_from_string(name);
+      if (!algorithm) {
+        throw std::invalid_argument("--algorithm: unknown " + name + " (registered: " +
+                                    cobot::control::registered_algorithm_names() + ")");
+      }
+      algorithms.push_back(*algorithm);
     }
+    const std::vector<std::string> model_yamls = parse_list("--hardware", f.at("--hardware"));
     cobot::bench::VerifyOptions options;
     if (f.count("--runs") > 0) {
       options.runs = parse_positive("--runs", f.at("--runs"));
@@ -373,6 +448,14 @@ int verify_main(int argc, char** argv) {
     }
     options.quick = f.count(kQuick) > 0;
     options.tune = f.count(kNoTune) == 0;
+    options.sensitivity = f.count(kNoSensitivity) == 0;
+    if (f.count("--sensitivity-seeds") > 0) {
+      options.sensitivity_seeds =
+          parse_positive("--sensitivity-seeds", f.at("--sensitivity-seeds"));
+    }
+    if (f.count("--ablation-seeds") > 0) {
+      options.ablation_seeds = parse_positive("--ablation-seeds", f.at("--ablation-seeds"));
+    }
     if (f.count("--levels") > 0) {
       options.tuning.levels = parse_levels(f.at("--levels"));
     }
@@ -385,71 +468,77 @@ int verify_main(int argc, char** argv) {
     if (f.count("--jobs") > 0) {
       options.jobs = parse_jobs(f.at("--jobs"));
     }
-    const std::filesystem::path model_yaml = f.at("--hardware");
     const std::filesystem::path task_yaml = f.at("--task");
-    const auto model = cobot::pipeline::load_hardware_model(model_yaml);
-    if (!model) {
-      throw std::invalid_argument(model.reason());
-    }
     const auto task = cobot::pipeline::load_task(task_yaml);
     if (!task) {
       throw std::invalid_argument(task.reason());
     }
-    const auto inputs =
-        cobot::bench::report_inputs(model_yaml, model.value(), task_yaml, task.value());
-    if (!inputs) {
-      throw std::invalid_argument(inputs.reason());
+    // Every model and every input file is checked before the first run.
+    std::vector<cobot::pipeline::HardwareModel> models;
+    std::vector<std::vector<cobot::bench::InputFile>> inputs;
+    for (const std::string& yaml : model_yamls) {
+      const auto model = cobot::pipeline::load_hardware_model(yaml);
+      if (!model) {
+        throw std::invalid_argument(model.reason());
+      }
+      const auto in = cobot::bench::report_inputs(yaml, model.value(), task_yaml, task.value());
+      if (!in) {
+        throw std::invalid_argument(in.reason());
+      }
+      models.push_back(model.value());
+      inputs.push_back(in.value());
     }
-    const auto result = cobot::bench::verify(model.value(), *algorithm, task.value(), options);
-    if (!result) {
-      throw std::invalid_argument(result.reason());
+    const auto pairs = cobot::bench::comparison_pairs(models, algorithms);
+    if (!pairs) {
+      throw std::invalid_argument(pairs.reason());
     }
+    std::size_t listed = 0;
+    for (const cobot::bench::ComparisonPair& p : pairs.value()) {
+      listed += p.listed ? 1 : 0;
+    }
+    const auto rows = cobot::bench::compare(models, algorithms, task.value(), options);
+    if (!rows) {
+      throw std::invalid_argument(rows.reason());
+    }
+    // One listed pair: report.{json,md} (+ tune.csv) in --out, as a single call always wrote;
+    // more: one directory per pair and comparison.{json,md}.
     const std::filesystem::path out_dir = f.at("--out");
-    std::error_code ec;
-    std::filesystem::create_directories(out_dir, ec);
-    const std::string md = cobot::bench::report_md(result.value(), inputs.value());
-    // Every file goes to a temporary name first and is renamed only once all are written, so a
-    // failed write leaves none of them behind.
-    std::vector<std::string> names{"report.json", "report.md"};
-    if (result.value().tuning) {
-      names.emplace_back("tune.csv");
-    }
-    const auto temp = [&out_dir](const std::string& name) {
-      return out_dir / ("." + name + ".tmp");
+    std::vector<OutFile> files;
+    std::string printed;
+    const auto text = [](std::string s) {
+      return [s = std::move(s)](const std::filesystem::path& p) { write_text(p, s); };
     };
-    const auto discard = [&](bool finals) {
-      for (const std::string& name : names) {
-        std::error_code ignored;
-        std::filesystem::remove(temp(name), ignored);
-        if (finals) {
-          std::filesystem::remove(out_dir / name, ignored);
-        }
+    for (std::size_t i = 0; i < rows.value().size(); ++i) {
+      const cobot::bench::ComparisonRow& row = rows.value()[i];
+      if (!row.result) {
+        continue;
       }
-    };
-    try {
-      write_text(temp("report.json"), cobot::bench::report_json(result.value(), inputs.value()));
-      write_text(temp("report.md"), md);
-      if (result.value().tuning) {
-        const cobot::common::Status written =
-            cobot::bench::write_tune_csv(temp("tune.csv"), *result.value().tuning);
-        if (!written) {
-          throw std::invalid_argument(written.reason());
-        }
-      }
-    } catch (...) {
-      discard(false);
-      throw;
-    }
-    for (const std::string& name : names) {
-      std::filesystem::rename(temp(name), out_dir / name, ec);
-      if (ec) {
-        discard(true);
-        throw std::invalid_argument("cannot write " + (out_dir / name).string() + ": " +
-                                    ec.message());
+      const cobot::bench::VerifyResult& r = *row.result;
+      const std::vector<cobot::bench::InputFile>& in = inputs[pairs.value()[i].model];
+      const std::filesystem::path dir =
+          listed == 1 ? out_dir : out_dir / cobot::bench::pair_name(row.model, row.algorithm);
+      printed = cobot::bench::report_md(r, in);
+      files.push_back(OutFile{dir / "report.json", text(cobot::bench::report_json(r, in))});
+      files.push_back(OutFile{dir / "report.md", text(printed)});
+      if (r.tuning) {
+        files.push_back(OutFile{dir / "tune.csv", [&r](const std::filesystem::path& p) {
+                                  const cobot::common::Status st =
+                                      cobot::bench::write_tune_csv(p, *r.tuning);
+                                  if (!st) {
+                                    throw std::invalid_argument(st.reason());
+                                  }
+                                }});
       }
     }
+    if (listed > 1) {
+      printed = cobot::bench::comparison_md(rows.value());
+      files.push_back(
+          OutFile{out_dir / "comparison.json", text(cobot::bench::comparison_json(rows.value()))});
+      files.push_back(OutFile{out_dir / "comparison.md", text(printed)});
+    }
+    write_all(files);
     const std::chrono::duration<double> wall = std::chrono::steady_clock::now() - start;
-    std::printf("%s\nwall time: %.1f s\n", md.c_str(), wall.count());
+    std::printf("%s\nwall time: %.1f s\n", printed.c_str(), wall.count());
     return 0;
   } catch (const std::exception& e) {
     std::fprintf(stderr, "cobot_bench verify: %s\n%s", e.what(), kUsage);

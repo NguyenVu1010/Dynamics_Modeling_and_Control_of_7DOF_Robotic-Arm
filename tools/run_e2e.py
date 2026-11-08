@@ -47,7 +47,11 @@ kind verify (feature verify) runs `cobot_bench verify --hardware H --algorithm A
 [--quick] --levels a,b --tune-seeds n --out <out>/<id>` (no `config` key: the controller file is the
 hardware model's) and passes when every top-level key of the Verify report is in report.json,
 `verdict` equals expect_verdict, `quick` is true and the sha256 of every versions.inputs file
-matches its bytes.
+matches its bytes. With lists (feature verify-analysis: `hardware` a list of model files,
+`algorithm` a list of names) it is one call with both joined by commas (plus --seed0,
+--sensitivity-seeds, --no-sensitivity when given) and passes when comparison.json has a row of every
+`expect: {<model>__<algorithm>: verdict}` pair with that verdict and every text of
+`expect_suggestions: {<pair>: [text]}` is in that pair's report.json suggestions.
 Scenarios tagged nightly or realism2 run only with --tag <that tag> or --scenario. Exit 0 all
 pass, 1 any fails, 2 bad arguments.
 """
@@ -535,7 +539,42 @@ def run_gazebo(s: dict, out: Path, report: bool) -> tuple[bool, str]:
     return judge_run(s, csv, out, report)
 
 
+def run_verify_lists(s: dict, args: argparse.Namespace, out: Path) -> tuple[bool, str]:
+    hardware = ",".join(str(repo_path(h)) for h in s["hardware"])
+    cmd = ["verify", "--hardware", hardware, "--algorithm", ",".join(s["algorithm"])]
+    cmd += ["--task", str(repo_path(s["task"])), "--runs", str(s["runs"])]
+    cmd += ["--quick"] if s.get("quick") else []
+    for key, name in (("seed0", "--seed0"), ("sensitivity_seeds", "--sensitivity-seeds")):
+        cmd += [name, str(s[key])] if key in s else []
+    cmd += ["--no-sensitivity"] if s.get("no_sensitivity") else []
+    if "levels" in s:
+        cmd += ["--levels", ",".join(str(v) for v in s["levels"])]
+    if "tune_seeds" in s:
+        cmd += ["--tune-seeds", str(s["tune_seeds"])]
+    bench(args, *cmd, "--out", str(out))
+    rows = json.loads((out / "comparison.json").read_text(encoding="utf-8"))["rows"]
+    verdicts = {f"{r['model']}__{r['algorithm']}": r for r in rows}
+    problems, seen = [], []
+    for pair, want in s["expect"].items():
+        row = verdicts.get(pair)
+        if row is None:
+            problems.append(f"{pair}: no row in comparison.json")
+            continue
+        seen.append(f"{pair} {row['verdict']} {row.get('pass_count')}/{row.get('runs')}")
+        if row["verdict"] != want:
+            problems.append(f"{pair}: verdict {row['verdict']}, expected {want}")
+    for pair, texts in (s.get("expect_suggestions") or {}).items():
+        path = out / pair / "report.json"
+        got = []
+        if path.is_file():
+            got = json.loads(path.read_text(encoding="utf-8")).get("suggestions", [])
+        problems += [f"{pair}: no suggestion {text!r}" for text in texts if text not in got]
+    return not problems, "; ".join(seen + problems)
+
+
 def run_verify(s: dict, args: argparse.Namespace, out: Path) -> tuple[bool, str]:
+    if isinstance(s["hardware"], list):
+        return run_verify_lists(s, args, out)
     cmd = ["verify", "--hardware", str(repo_path(s["hardware"])), "--algorithm", s["algorithm"]]
     cmd += ["--task", str(repo_path(s["task"])), "--runs", str(s["runs"])]
     cmd += ["--quick"] if s.get("quick") else []
