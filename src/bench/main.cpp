@@ -408,13 +408,44 @@ int verify_main(int argc, char** argv) {
     std::error_code ec;
     std::filesystem::create_directories(out_dir, ec);
     const std::string md = cobot::bench::report_md(result.value(), inputs.value());
-    write_text(out_dir / "report.json", cobot::bench::report_json(result.value(), inputs.value()));
-    write_text(out_dir / "report.md", md);
+    // Every file goes to a temporary name first and is renamed only once all are written, so a
+    // failed write leaves none of them behind.
+    std::vector<std::string> names{"report.json", "report.md"};
     if (result.value().tuning) {
-      const cobot::common::Status written =
-          cobot::bench::write_tune_csv(out_dir / "tune.csv", *result.value().tuning);
-      if (!written) {
-        throw std::invalid_argument(written.reason());
+      names.emplace_back("tune.csv");
+    }
+    const auto temp = [&out_dir](const std::string& name) {
+      return out_dir / ("." + name + ".tmp");
+    };
+    const auto discard = [&](bool finals) {
+      for (const std::string& name : names) {
+        std::error_code ignored;
+        std::filesystem::remove(temp(name), ignored);
+        if (finals) {
+          std::filesystem::remove(out_dir / name, ignored);
+        }
+      }
+    };
+    try {
+      write_text(temp("report.json"), cobot::bench::report_json(result.value(), inputs.value()));
+      write_text(temp("report.md"), md);
+      if (result.value().tuning) {
+        const cobot::common::Status written =
+            cobot::bench::write_tune_csv(temp("tune.csv"), *result.value().tuning);
+        if (!written) {
+          throw std::invalid_argument(written.reason());
+        }
+      }
+    } catch (...) {
+      discard(false);
+      throw;
+    }
+    for (const std::string& name : names) {
+      std::filesystem::rename(temp(name), out_dir / name, ec);
+      if (ec) {
+        discard(true);
+        throw std::invalid_argument("cannot write " + (out_dir / name).string() + ": " +
+                                    ec.message());
       }
     }
     const std::chrono::duration<double> wall = std::chrono::steady_clock::now() - start;

@@ -41,7 +41,8 @@ struct Counts {
   std::size_t held = 0;
 };
 
-// The worst value over the runs that did not hold (NaN when every run held);
+// The worst value over the runs that did not hold (NaN when every run held, or when one of them has
+// a NaN value, such as the settle time of a run that never settled);
 // margin_limit = (1 - margin_frac) * threshold.
 struct WorstMetric {
   std::string name;

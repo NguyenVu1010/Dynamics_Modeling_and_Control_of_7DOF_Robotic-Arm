@@ -550,7 +550,10 @@ def run_verify(s: dict, args: argparse.Namespace, out: Path) -> tuple[bool, str]
         problems.append(f"verdict {report.get('verdict')}, expected {s['expect_verdict']}")
     if report.get("quick") is not True:
         problems.append(f"quick {report.get('quick')}, expected true")
-    for f in report.get("versions", {}).get("inputs", []):
+    inputs = report.get("versions", {}).get("inputs") or []
+    if not inputs:
+        problems.append("no file in versions.inputs")
+    for f in inputs:
         if hashlib.sha256(Path(f["path"]).read_bytes()).hexdigest() != f["sha256"]:
             problems.append(f"sha256 of {f['path']} does not match")
     verdict, passed = report.get("verdict"), report.get("pass_count")

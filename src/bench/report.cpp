@@ -199,11 +199,11 @@ std::string report_json(const VerifyResult& r, const std::vector<InputFile>& inp
 }
 
 std::string report_md(const VerifyResult& r, const std::vector<InputFile>& inputs) {
-  std::string m = std::string(kVerifyDisclaimer) + "\n\n# Verify: " + r.model + ", " +
-                  control::to_string(r.algorithm) + ", " + r.task + "\n\n**" +
-                  verdict_line(r.verdict) + "**" +
+  // The disclaimer, then the verdict line, then the heading.
+  std::string m = std::string(kVerifyDisclaimer) + "\n\n**" + verdict_line(r.verdict) + "**" +
                   (r.quick ? " (quick mode: never PASS, fewer than 100 runs or --quick)" : "") +
-                  "\n\nGain: " + r.gain_key + " = " + short_num(r.gain_used) + " (" +
+                  "\n\n# Verify: " + r.model + ", " + control::to_string(r.algorithm) + ", " +
+                  r.task + "\n\nGain: " + r.gain_key + " = " + short_num(r.gain_used) + " (" +
                   gain_note(r.gain_source) + ")\n\n## Runs\n\n";
   const std::string seeds = r.runs.empty() ? "-"
                                            : std::to_string(r.runs.front().seed) + ".." +

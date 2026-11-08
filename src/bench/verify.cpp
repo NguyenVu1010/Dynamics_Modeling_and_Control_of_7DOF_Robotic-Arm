@@ -50,7 +50,9 @@ double own_gain(const std::vector<KeyOverride>& overrides,
   return kNan;
 }
 
-// Max over the runs that did not hold of `metric`; NaN when none, or when one is NaN.
+// Max over the runs that did not hold of `metric`; NaN when none, or when one is NaN. A run that
+// did not hold but never settled has a NaN settle time: the worst cycle time is then unknown (null
+// in the report), and that run already fails run_passes, so PASS is blocked either way.
 template <typename Metric>
 double worst_of(const std::vector<SeedRun>& runs, Metric metric) {
   double worst = kNan;
@@ -174,6 +176,10 @@ common::Result<VerifyResult> verify(const pipeline::HardwareModel& model,
   if (options.tune) {
     TuneOptions tuning = options.tuning;
     tuning.jobs = tuning.jobs == 0 ? options.jobs : tuning.jobs;
+    tuning.cancel = options.cancel;
+    tuning.progress = [&progress](std::size_t done, std::size_t total) {
+      progress("tune", done, total);
+    };
     const std::size_t levels =
         tuning.levels.empty() ? default_levels(algorithm).size() : tuning.levels.size();
     const std::size_t tune_runs = levels * (tuning.seeds.empty() ? 10 : tuning.seeds.size());
@@ -182,7 +188,6 @@ common::Result<VerifyResult> verify(const pipeline::HardwareModel& model,
     if (!tuned) {
       return Out::error(tuned.reason());
     }
-    progress("tune", tune_runs, tune_runs);
     result.tuning = std::move(tuned.value());
     result.gain_source = GainSource::kDefaultNoAdmissible;
     if (result.tuning->chosen) {

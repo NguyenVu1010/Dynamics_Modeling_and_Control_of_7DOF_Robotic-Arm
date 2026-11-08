@@ -1,8 +1,10 @@
 #pragma once
 
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -75,6 +77,10 @@ struct TuneOptions {
   std::vector<double> levels;        // empty: default_levels
   std::vector<std::uint64_t> seeds;  // empty: 1..10
   unsigned jobs = 0;                 // 0: min(hardware_concurrency, 8)
+  // Set: no further run starts and tune returns the error "cancelled" (read between runs only).
+  const std::atomic<bool>* cancel = nullptr;
+  // May be empty: called after each run with the runs done and the total, one call at a time.
+  std::function<void(std::size_t done, std::size_t total)> progress;
 };
 
 // Every (level, seed) run of `algorithm` on `model` and `task` (pipeline::run_overrides plus

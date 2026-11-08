@@ -290,7 +290,7 @@ report.json keys, in this order (numbers `%.17g`, NaN `null`):
 | `pass_count`, `pass_rate` | runs that pass, and their share |
 | `wilson` | `[lo, hi]` of the pass rate |
 | `hold_rate` | share of runs that held |
-| `worst` | `final_pos_err_m`, `final_rot_err_deg`, `rms_joint_err_rad`, `cycle_time_s` (max settle time), each `{value, threshold, margin_limit}`: the max over the runs that did not hold (`null` when all held), the requirement, `(1 - margin_frac) * threshold` |
+| `worst` | `final_pos_err_m`, `final_rot_err_deg`, `rms_joint_err_rad`, `cycle_time_s` (max settle time), each `{value, threshold, margin_limit}`: the max over the runs that did not hold (`null` when all held, or when a run that did not hold has no value for that metric: `cycle_time_s` of a run that never settled; that run fails, so PASS is blocked anyway), the requirement, `(1 - margin_frac) * threshold` |
 | `tuning` | `{key, gain_used, gain_source, levels, rows, chosen, reason}`: `gain_source` `tuned`, `default_no_admissible` (no admissible level: the model's gain) or `default_tuning_off`; `rows` as the lines of tune.csv (flags 0/1); with tuning off `levels` and `rows` are `[]`, `chosen` `null` |
 | `assumptions` | the model's provenance entries of kind `assumed` or `derived`: `{key, kind, range` or `scale, sensitivity}`, sensitivity `"not run"` |
 | `causes`, `suggestions` | `[]` (filled by PR 6b) |
