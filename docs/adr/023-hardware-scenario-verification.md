@@ -286,6 +286,8 @@ trễ, so với profile, và ghi độ lệch vào báo cáo. Đến lúc đó, 
   `comparison.md`; một cặp giữ bố cục cũ.
 - **Seed (điểm chưa rõ 18).** E2E-17 chạy lại E2E-16 trên seed 101..200 và mong cùng kết luận.
 - **Thời gian nightly.** E2E-16 đo trên máy cục bộ với `--jobs 4`: 7210 s (khoảng 120 phút), RSS tối đa 56 MB;
-  E2E-17 cùng khối lượng trên seed khác. Hai kịch bản (trong `tests/`) không mang `--sensitivity-seeds`
-  hay `--no-sensitivity`, nên chọn cách nâng `timeout-minutes` của nightly lên 360 (nightly không
-  phải kiểm tra bắt buộc).
+  E2E-17 cùng khối lượng trên seed khác. Vì vậy hai kịch bản có tag riêng `verify-nightly` và chạy
+  trong job `verify` của nightly, mỗi kịch bản một runner song song (giới hạn 300 phút); job cũ giữ
+  120 phút. E2E-16 chạy độ nhạy với 10 hạt giống (`sensitivity_seeds: 10`), E2E-17 chỉ so kết luận
+  nên tắt độ nhạy (`no_sensitivity: true`). Tag `nightly` vẫn chỉ gồm Monte Carlo và quét như test
+  của nó quy định.
