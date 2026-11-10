@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iomanip>
+#include <locale>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -402,6 +403,7 @@ std::string format_display(double display_value) {
     decimals = std::min(std::max(kSignificant - 1 - exponent, 0), kMaxDecimals);
   }
   std::ostringstream out;
+  out.imbue(std::locale::classic());  // '.' separator and no grouping, whatever the global locale
   out << std::fixed << std::setprecision(decimals) << display_value;
   std::string text = out.str();
   if (text.find('.') != std::string::npos) {
