@@ -19,6 +19,7 @@
 #include "cobot/studio/studio_config.hpp"
 
 #include "metrics.hpp"  // bench: write_run_files, write_summary_* behind the export slots
+#include "param_card.hpp"
 #include "studio_worker.hpp"
 #include "time_cursor.hpp"
 
@@ -36,8 +37,6 @@ class QListWidget;
 class QProgressBar;
 class QPushButton;
 class QSpinBox;
-class QTreeWidget;
-class QTreeWidgetItem;
 namespace QtCharts {
 class QChartView;
 class QValueAxis;
@@ -85,19 +84,12 @@ class MainWindow : public QMainWindow {
   void closeEvent(QCloseEvent* event) override;  // releases bridge authority
 
  private:
-  // One editor row of paramTree: the catalog key and its value cells.
-  struct ParamRow {
-    std::string key;
-    QTreeWidgetItem* item = nullptr;
-    std::vector<QWidget*> cells;
-  };
-
   QWidget* build_config_tab();
   QWidget* build_tracking_tab();
   void select_base(int index);
   void load_base_values();  // base_values_ of config_.base
   void remove_override(const std::string& key);
-  void cell_edited(const ParamRow& row);
+  void card_edited(const std::string& key, const Value& v);  // a ParamCard's edited
   void refresh_fields();    // every field from config_ (signals blocked)
   void refresh_validity();  // validate(): field marks and the run/sweep buttons
   void refresh_runs();      // errorTable, chart, status bar
@@ -131,8 +123,9 @@ class MainWindow : public QMainWindow {
   ErrorModel* model_ = nullptr;
 
   QComboBox* base_combo_ = nullptr;
-  QTreeWidget* tree_ = nullptr;
-  std::vector<ParamRow> rows_;
+  QListWidget* group_list_ = nullptr;  // one row per page of the Configuration tab
+  QLabel* change_count_ = nullptr;
+  std::vector<ParamCard*> cards_;                         // the param:<key> cards
   std::vector<std::pair<std::string, QWidget*>> fields_;  // key -> editor, for validate() marks
   QDoubleSpinBox* omega_ = nullptr;
   QCheckBox* advanced_ = nullptr;
@@ -162,7 +155,8 @@ class MainWindow : public QMainWindow {
   QSlider* speed_ = nullptr;
   QPushButton* apply_gazebo_ = nullptr;
   QLabel* bridge_label_ = nullptr;
-  bool greyed_ = false;  // unsupported paramTree rows disabled (connected)
+  QLabel* apply_status_ = nullptr;  // applyStatusLabel
+  bool greyed_ = false;             // unsupported parameter cards disabled (connected)
   std::uint64_t apply_id_ = 0;
   StudioConfig applying_;                // sent with apply_id_
   std::optional<StudioConfig> applied_;  // the last accepted apply_config

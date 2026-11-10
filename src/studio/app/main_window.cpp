@@ -10,6 +10,7 @@
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFormLayout>
+#include <QFrame>
 #include <QGraphicsLineItem>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -20,14 +21,15 @@
 #include <QMouseEvent>
 #include <QProgressBar>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QSlider>
 #include <QSpinBox>
 #include <QSplitter>
+#include <QStackedWidget>
 #include <QStatusBar>
 #include <QTabWidget>
 #include <QTableView>
 #include <QTimer>
-#include <QTreeWidget>
 #include <QVBoxLayout>
 #include <QWheelEvent>
 #include <algorithm>
@@ -64,9 +66,9 @@ namespace {
 
 constexpr int kJoints = bench::kN;
 constexpr int kColumns = 12;
-constexpr double kMm = 1e-3;        // m per mm
-constexpr double kBig = 1e9;        // spin box bound for catalog limits that are infinite
-constexpr int kDecimals = 9;        // catalog values go down to 1e-7 (noise std)
+constexpr double kMm = 1e-3;  // m per mm
+constexpr double kBig = 1e9;  // spin box bound for catalog limits that are infinite
+constexpr int kGroupListWidth = 170;
 constexpr double kSame = 1e-9;      // relative, a spin box value equal to the base value
 constexpr int kMinPixels = 100;     // decimation columns when the plot is not laid out yet
 constexpr int kRedrawDelayMs = 30;  // coalesces chart redraws
@@ -85,16 +87,31 @@ const std::array<Qt::PenStyle, 5> kStyles = {
     Qt::SolidLine, Qt::DashLine, Qt::DotLine, Qt::DashDotLine, Qt::DashDotDotLine};
 
 // The literal arrays below are source strings of MainWindow::tr() at use time; QT_TRANSLATE_NOOP
-// lists them for lupdate. paramTree group names (param_catalog()):
-[[maybe_unused]] constexpr std::array<const char*, 8> kGroupNames = {
-    QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "Sensor"),
+// lists them for lupdate. The pages of the Configuration tab (groupList, design 3.1):
+constexpr std::array<const char*, 8> kPageTitles = {
+    QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "Controller"),
+    QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "Sensor / noise"),
     QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "Actuator"),
     QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "Friction"),
-    QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "Model"),
-    QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "Timing"),
-    QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "Comm"),
+    QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "Model & load"),
     QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "Transmission"),
-    QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "Controller")};
+    QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "Timing & comm"),
+    QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "Run")};
+constexpr std::size_t kRunPage = 7;
+
+// The page of a catalog group; Timing and Comm share one.
+int page_of_group(const std::string& group) {
+  static const std::map<std::string, int> pages = {{"Controller", 0},
+                                                   {"Sensor", 1},
+                                                   {"Actuator", 2},
+                                                   {"Friction", 3},
+                                                   {"Model", 4},
+                                                   {"Transmission", 5},
+                                                   {"Timing", 6},
+                                                   {"Comm", 6}};
+  const auto it = pages.find(group);
+  return it == pages.end() ? 0 : it->second;
+}
 
 struct Toggle {
   const char* name;
@@ -378,7 +395,20 @@ MainWindow::~MainWindow() {
 QWidget* MainWindow::build_config_tab() {
   auto* tab = new QWidget;
   tab->setObjectName(QStringLiteral("configTab"));
-  auto* form = new QFormLayout;
+  // A card of the pages (studio.qss card): a frame with a form layout.
+  const auto new_card = [] {
+    auto* frame = new QFrame;
+    frame->setProperty("card", true);
+    return std::make_pair(frame, new QFormLayout(frame));
+  };
+
+  // Top bar: title, base pair, change counter, file buttons.
+  auto* top = new QHBoxLayout;
+  auto* title = new QLabel(tr("Configuration"));
+  QFont bold = title->font();
+  bold.setBold(true);
+  title->setFont(bold);
+  top->addWidget(title);
   base_combo_ = new QComboBox;
   base_combo_->setObjectName(QStringLiteral("baseCombo"));
   for (const BasePair& p : pairs_) {
@@ -388,9 +418,66 @@ QWidget* MainWindow::build_config_tab() {
           QOverload<int>::of(&QComboBox::currentIndexChanged),
           this,
           &MainWindow::select_base);
-  form->addRow(tr("Base pair"), base_combo_);
+  top->addWidget(base_combo_);
+  change_count_ = new QLabel;
+  change_count_->setObjectName(QStringLiteral("changeCount"));
+  change_count_->setVisible(false);
+  top->addWidget(change_count_);
+  top->addStretch(1);
+  const auto add_button = [this](
+                              QHBoxLayout* bar, const char* name, const QString& text, auto slot) {
+    auto* b = new QPushButton(text);
+    b->setObjectName(QString::fromLatin1(name));
+    b->setFlat(true);
+    connect(b, &QPushButton::clicked, this, slot);
+    bar->addWidget(b);
+  };
+  add_button(top, "openButton", tr("Open..."), [this] {
+    const QString f =
+        QFileDialog::getOpenFileName(this, tr("Studio file"), {}, tr("YAML (*.yaml)"));
+    if (!f.isEmpty()) {
+      open_studio(f);
+    }
+  });
+  add_button(top, "saveButton", tr("Save..."), [this] {
+    const QString f =
+        QFileDialog::getSaveFileName(this, tr("Studio file"), {}, tr("YAML (*.yaml)"));
+    if (!f.isEmpty()) {
+      save_studio(f);
+    }
+  });
+  add_button(top, "exportButton", tr("Export for cobot_bench..."), [this] {
+    const QString d = QFileDialog::getExistingDirectory(this, tr("Export directory"));
+    if (!d.isEmpty()) {
+      const common::Result<Materialized> m = materialize(config_, d.toStdString());
+      if (!m) {
+        error_box(QString::fromStdString(m.reason()));
+      }
+    }
+  });
 
-  // Scalar fields with a key: equal to the base value means no override.
+  // Body: groupList selects a scrollable page of cards in paramPages.
+  group_list_ = new QListWidget;
+  group_list_->setObjectName(QStringLiteral("groupList"));
+  group_list_->setFixedWidth(kGroupListWidth);
+  auto* stack = new QStackedWidget;
+  stack->setObjectName(QStringLiteral("paramPages"));
+  std::array<QVBoxLayout*, kPageTitles.size()> pages{};
+  for (std::size_t k = 0; k < kPageTitles.size(); ++k) {
+    group_list_->addItem(tr(kPageTitles.at(k)));
+    auto* scroll = new QScrollArea;
+    scroll->setWidgetResizable(true);
+    scroll->setFrameShape(QFrame::NoFrame);
+    auto* content = new QWidget;
+    pages.at(k) = new QVBoxLayout(content);
+    scroll->setWidget(content);
+    stack->addWidget(scroll);
+  }
+  connect(group_list_, &QListWidget::currentRowChanged, stack, &QStackedWidget::setCurrentIndex);
+  group_list_->setCurrentRow(0);
+
+  // Controller page, top: omega with Advanced gains, then HAL timeout. Scalar fields with a key:
+  // equal to the base value means no override.
   const auto scalar = [this](QDoubleSpinBox* box, const char* key) {
     fields_.emplace_back(key, box);
     connect(box, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this, key](double v) {
@@ -420,15 +507,54 @@ QWidget* MainWindow::build_config_tab() {
   hal_timeout_ = spin(hal->min, hal->max, 1, tr(" ms"));
   hal_timeout_->setObjectName(QStringLiteral("halTimeoutSpin"));
   scalar(hal_timeout_, "config.safety.hal_timeout_ms");
-  form->addRow(tr("Omega"), omega_);
-  form->addRow(QString(), advanced_);
-  form->addRow(tr("HAL timeout"), hal_timeout_);
+  {
+    auto [frame, form] = new_card();
+    form->addRow(tr("Omega"), omega_);
+    form->addRow(QString(), advanced_);
+    pages.front()->addWidget(frame);
+  }
+  {
+    auto [frame, form] = new_card();
+    form->addRow(tr("HAL timeout"), hal_timeout_);
+    pages.front()->addWidget(frame);
+  }
 
-  // Tolerances: goal pos (mm), goal rot (deg), path pos (mm), path rot (deg).
+  // One card per other catalog key, on the page of its group, in catalog order.
+  for (const ParamInfo& p : param_catalog()) {
+    if (p.key == pipeline::kOmegaKey || p.key == "config.safety.hal_timeout_ms") {
+      continue;  // own fields above
+    }
+    const int page = page_of_group(p.group);
+    auto* card = new ParamCard(p);
+    connect(card, &ParamCard::edited, this, [this, key = p.key](const Value& v) {
+      card_edited(key, v);
+    });
+    connect(card, &ParamCard::undo_requested, this, [this, key = p.key] { remove_override(key); });
+    for (QWidget* w : card->editors()) {
+      fields_.emplace_back(p.key, w);
+    }
+    pages.at(static_cast<std::size_t>(page))->addWidget(card);
+    cards_.push_back(card);
+  }
+
+  // Run page: the settings of a run. Tolerances: goal pos (mm), goal rot (deg), path pos (mm),
+  // path rot (deg).
+  QVBoxLayout* run_page = pages.at(kRunPage);
+  speed_ = new QSlider(Qt::Horizontal);
+  speed_->setObjectName(QStringLiteral("speedSlider"));
+  speed_->setRange(1, 100);
+  speed_->setValue(static_cast<int>(std::lround(config_.speed_pct)));
+  speed_->setToolTip(tr("Speed of jogs and moves in the Control tab (%)"));
+  {
+    auto [frame, form] = new_card();
+    form->addRow(tr("Speed (%)"), speed_);
+    run_page->addWidget(frame);
+  }
   const std::array<const char*, 4> tol_names = {
       "goalPosSpin", "goalRotSpin", "pathPosSpin", "pathRotSpin"};
   const std::array<QString, 4> tol_labels = {
       tr("Goal position"), tr("Goal rotation"), tr("Path position"), tr("Path rotation")};
+  auto [tol_frame, tol_form] = new_card();
   for (std::size_t k = 0; k < tol_.size(); ++k) {
     tol_.at(k) = spin(1e-4, 1e3, 4, k % 2 == 0 ? tr(" mm") : tr(" deg"));
     tol_.at(k)->setObjectName(QString::fromLatin1(tol_names.at(k)));
@@ -442,15 +568,9 @@ QWidget* MainWindow::build_config_tab() {
               *dst.at(k) = v * (k % 2 == 0 ? kMm : kDegToRad);
               refresh_runs();
             });
-    form->addRow(tol_labels.at(k), tol_.at(k));
+    tol_form->addRow(tol_labels.at(k), tol_.at(k));
   }
-
-  speed_ = new QSlider(Qt::Horizontal);
-  speed_->setObjectName(QStringLiteral("speedSlider"));
-  speed_->setRange(1, 100);
-  speed_->setValue(static_cast<int>(std::lround(config_.speed_pct)));
-  speed_->setToolTip(tr("Speed of jogs and moves in the Control tab (%)"));
-  form->addRow(tr("Speed (%)"), speed_);
+  run_page->addWidget(tol_frame);
   waypoints_ = new QLineEdit;
   waypoints_->setObjectName(QStringLiteral("waypointsEdit"));
   connect(waypoints_, &QLineEdit::textChanged, this, [this](const QString& text) {
@@ -468,7 +588,6 @@ QWidget* MainWindow::build_config_tab() {
   auto* waypoints_row = new QHBoxLayout;
   waypoints_row->addWidget(waypoints_);
   waypoints_row->addWidget(browse);
-  form->addRow(tr("Waypoints"), waypoints_row);
   duration_ = spin(0.0, 3600.0, 3, tr(" s"));
   duration_->setObjectName(QStringLiteral("durationSpin"));
   duration_->setSpecialValueText(tr("planned"));
@@ -484,106 +603,43 @@ QWidget* MainWindow::build_config_tab() {
   connect(seed_, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int v) {
     config_.seed = v > 0 ? std::optional<std::uint64_t>(v) : std::nullopt;
   });
-  form->addRow(tr("Duration"), duration_);
-  form->addRow(tr("Seed"), seed_);
+  {
+    auto [frame, form] = new_card();
+    form->addRow(tr("Waypoints"), waypoints_row);
+    form->addRow(tr("Duration"), duration_);
+    form->addRow(tr("Seed"), seed_);
+    run_page->addWidget(frame);
+  }
+  for (QVBoxLayout* page : pages) {
+    page->addStretch(1);
+  }
 
-  // Buttons: studio file, cobot_bench export, back to the base pair.
-  auto* buttons = new QHBoxLayout;
-  const auto add_button = [&](const char* name, const QString& text, auto slot) {
-    auto* b = new QPushButton(text);
-    b->setObjectName(QString::fromLatin1(name));
-    connect(b, &QPushButton::clicked, this, slot);
-    buttons->addWidget(b);
-  };
-  add_button("openButton", tr("Open..."), [this] {
-    const QString f =
-        QFileDialog::getOpenFileName(this, tr("Studio file"), {}, tr("YAML (*.yaml)"));
-    if (!f.isEmpty()) {
-      open_studio(f);
-    }
-  });
-  add_button("saveButton", tr("Save..."), [this] {
-    const QString f =
-        QFileDialog::getSaveFileName(this, tr("Studio file"), {}, tr("YAML (*.yaml)"));
-    if (!f.isEmpty()) {
-      save_studio(f);
-    }
-  });
-  add_button("exportButton", tr("Export for cobot_bench..."), [this] {
-    const QString d = QFileDialog::getExistingDirectory(this, tr("Export directory"));
-    if (!d.isEmpty()) {
-      const common::Result<Materialized> m = materialize(config_, d.toStdString());
-      if (!m) {
-        error_box(QString::fromStdString(m.reason()));
-      }
-    }
-  });
-  add_button("resetButton", tr("Reset to base"), [this] {
+  // Bottom bar: back to the base pair; the bridge state and the primary action.
+  auto* bottom = new QHBoxLayout;
+  add_button(bottom, "resetButton", tr("Reset to base"), [this] {
     config_.overrides.clear();
     refresh_fields();
     refresh_validity();
   });
+  bottom->addStretch(1);
+  apply_status_ = new QLabel;
+  apply_status_->setObjectName(QStringLiteral("applyStatusLabel"));
+  bottom->addWidget(apply_status_);
   apply_gazebo_ = new QPushButton(tr("Apply to Gazebo"));
   apply_gazebo_->setObjectName(QStringLiteral("applyGazeboButton"));
+  apply_gazebo_->setProperty("primary", true);
   apply_gazebo_->setToolTip(
       tr("Materialise this configuration and apply it to the connected controller"));
   connect(apply_gazebo_, &QPushButton::clicked, this, &MainWindow::apply_gazebo);
-  buttons->addWidget(apply_gazebo_);
+  bottom->addWidget(apply_gazebo_);
 
-  tree_ = new QTreeWidget;
-  tree_->setObjectName(QStringLiteral("paramTree"));
-  tree_->setColumnCount(kJoints + 2);
-  QStringList header{tr("Parameter")};
-  for (int j = 1; j <= kJoints; ++j) {
-    header << tr("J%1").arg(j);
-  }
-  tree_->setHeaderLabels(header << QString());
-  std::map<std::string, QTreeWidgetItem*> groups;
-  for (const ParamInfo& p : param_catalog()) {
-    if (groups.count(p.group) == 0) {
-      groups[p.group] = new QTreeWidgetItem(tree_, {tr(p.group.c_str())});
-      groups[p.group]->setExpanded(true);
-    }
-    if (p.key == pipeline::kOmegaKey || p.key == "config.safety.hal_timeout_ms") {
-      continue;  // own fields above
-    }
-    ParamRow row{p.key, new QTreeWidgetItem(groups[p.group], {QString::fromStdString(p.key)}), {}};
-    const std::size_t index = rows_.size();
-    const auto edited = [this, index] { cell_edited(rows_.at(index)); };
-    const int cells = p.kind == ParamKind::kPerJoint ? kJoints : 1;
-    for (int c = 0; c < cells; ++c) {
-      QWidget* w = nullptr;
-      if (p.kind == ParamKind::kBool) {
-        auto* box = new QCheckBox;
-        connect(box, &QCheckBox::toggled, this, edited);
-        w = box;
-      } else if (p.kind == ParamKind::kChoice) {
-        auto* box = new QComboBox;
-        for (const std::string& choice : p.choices) {
-          box->addItem(QString::fromStdString(choice));
-        }
-        connect(box, QOverload<int>::of(&QComboBox::currentIndexChanged), this, edited);
-        w = box;
-      } else {
-        auto* box =
-            spin(p.min, p.max, kDecimals, QStringLiteral(" ") + QString::fromStdString(p.unit));
-        connect(box, &QDoubleSpinBox::editingFinished, this, edited);
-        w = box;
-      }
-      tree_->setItemWidget(row.item, c + 1, w);
-      row.cells.push_back(w);
-      fields_.emplace_back(p.key, w);
-    }
-    auto* reset = new QPushButton(tr("reset"));
-    connect(reset, &QPushButton::clicked, this, [this, key = p.key] { remove_override(key); });
-    tree_->setItemWidget(row.item, kJoints + 1, reset);
-    rows_.push_back(std::move(row));
-  }
-
+  auto* body = new QHBoxLayout;
+  body->addWidget(group_list_);
+  body->addWidget(stack, 1);
   auto* layout = new QVBoxLayout(tab);
-  layout->addLayout(form);
-  layout->addLayout(buttons);
-  layout->addWidget(tree_, 1);
+  layout->addLayout(top);
+  layout->addLayout(body, 1);
+  layout->addLayout(bottom);
   return tab;
 }
 
@@ -781,28 +837,11 @@ void MainWindow::remove_override(const std::string& key) {
   refresh_validity();
 }
 
-void MainWindow::cell_edited(const ParamRow& row) {
-  const ParamInfo* p = find_param(row.key);
-  Value v;
-  if (p->kind == ParamKind::kBool) {
-    v = qobject_cast<QCheckBox*>(row.cells.front())->isChecked();
-  } else if (p->kind == ParamKind::kChoice) {
-    v = qobject_cast<QComboBox*>(row.cells.front())->currentText().toStdString();
-  } else if (p->kind == ParamKind::kNumber) {
-    v = qobject_cast<QDoubleSpinBox*>(row.cells.front())->value();
+void MainWindow::card_edited(const std::string& key, const Value& v) {
+  if (same(v, base_values_[key].value)) {
+    remove_override(key);
   } else {
-    // As many entries as the base list (payload_offset_m has three).
-    const auto* base = std::get_if<std::vector<double>>(&base_values_[row.key].value);
-    std::vector<double> list;
-    for (std::size_t c = 0; c < row.cells.size() && (base == nullptr || c < base->size()); ++c) {
-      list.push_back(qobject_cast<QDoubleSpinBox*>(row.cells.at(c))->value());
-    }
-    v = list;
-  }
-  if (same(v, base_values_[row.key].value)) {
-    remove_override(row.key);
-  } else {
-    set_override(pipeline::KeyOverride{row.key, v});
+    set_override(pipeline::KeyOverride{key, v});
   }
 }
 
@@ -863,34 +902,29 @@ void MainWindow::refresh_fields() {
   set_double(duration_, config_.duration_s.value_or(0.0));
   speed_->setValue(static_cast<int>(std::lround(config_.speed_pct)));
 
-  QFont bold = tree_->font();
-  bold.setBold(true);
-  for (const ParamRow& row : rows_) {
-    const Value v = value_of(row.key);
-    const bool changed = overridden(row.key);
-    const bool gain = row.key.rfind("config.computed_torque.", 0) == 0;
-    row.item->setFont(0, changed ? bold : tree_->font());
-    row.item->setBackground(0, changed ? QBrush(QColor(255, 236, 179)) : QBrush());
-    const auto* list = std::get_if<std::vector<double>>(&v);
-    for (std::size_t c = 0; c < row.cells.size(); ++c) {
-      QWidget* w = row.cells.at(c);
-      const QSignalBlocker block(w);
-      w->setFont(changed ? bold : tree_->font());
-      w->setEnabled((!gain || advanced_->isChecked()) &&
-                    !(greyed_ && !find_param(row.key)->gazebo_supported));
-      if (auto* box = qobject_cast<QCheckBox*>(w)) {
-        box->setChecked(std::holds_alternative<bool>(v) && std::get<bool>(v));
-      } else if (auto* combo = qobject_cast<QComboBox*>(w)) {
-        combo->setCurrentText(std::holds_alternative<std::string>(v)
-                                  ? QString::fromStdString(std::get<std::string>(v))
-                                  : QString());
-      } else if (auto* box = qobject_cast<QDoubleSpinBox*>(w)) {
-        w->setVisible(list == nullptr || c < list->size());
-        box->setValue(list != nullptr
-                          ? (c < list->size() ? list->at(c) : 0.0)
-                          : (std::holds_alternative<double>(v) ? std::get<double>(v) : 0.0));
-      }
+  const bool advanced_on = advanced_->isChecked();
+  for (ParamCard* card : cards_) {
+    card->show_value(value_of(card->key()), overridden(card->key()));
+    // Per-joint kp/kd: only with Advanced gains (exclusive with omega).
+    if (card->key().rfind("config.computed_torque.", 0) == 0) {
+      card->setVisible(advanced_on);
     }
+  }
+  // The change counter and the groupList counts.
+  std::array<int, kPageTitles.size()> counts{};
+  for (const pipeline::KeyOverride& o : config_.overrides) {
+    if (const ParamInfo* p = find_param(o.key)) {
+      ++counts.at(static_cast<std::size_t>(page_of_group(p->group)));
+    }
+  }
+  const int n = static_cast<int>(config_.overrides.size());
+  change_count_->setText(tr("%n change(s)", "", n));
+  change_count_->setVisible(n > 0);
+  for (std::size_t k = 0; k < counts.size(); ++k) {
+    const QString title = tr(kPageTitles.at(k));
+    group_list_->item(static_cast<int>(k))
+        ->setText(counts.at(k) > 0 ? QStringLiteral("%1 (%2)").arg(title).arg(counts.at(k))
+                                   : title);
   }
 }
 
@@ -909,8 +943,14 @@ void MainWindow::refresh_validity() {
   for (const auto& field : fields_) {
     QWidget* w = field.second;
     const auto it = marks.find(w);
-    w->setToolTip(it == marks.end() ? QString() : it->second);
-    w->setStyleSheet(it == marks.end() ? QString() : QStringLiteral("border: 1px solid red;"));
+    const QString tip = it == marks.end() ? QString() : it->second;
+    const QString sheet = it == marks.end() ? QString() : QStringLiteral("border: 1px solid red;");
+    if (w->toolTip() != tip) {
+      w->setToolTip(tip);
+    }
+    if (w->styleSheet() != sheet) {  // a style sheet change re-polishes the widget
+      w->setStyleSheet(sheet);
+    }
   }
   if (!issues.empty() && marks.empty()) {
     statusBar()->showMessage(QString::fromStdString(issues.front()));
@@ -1277,16 +1317,15 @@ void MainWindow::bridge_tick() {
   apply_gazebo_->setEnabled(st.connected && st.mine && st.mode == pipeline::LoopMode::kStandby &&
                             valid_ && apply_id_ == 0);
   bridge_label_->setText(st.connected ? tr("Bridge: connected") : tr("Bridge: not connected"));
-  // Rows the Gazebo path cannot honour are greyed while connected (design 6.5, 6.7).
+  apply_status_->setText(st.connected ? tr("Gazebo: connected") : tr("Gazebo: not connected"));
+  // Cards of keys the Gazebo path cannot honour are greyed while connected (design 6.5, 6.7).
   if (st.connected != greyed_) {
     greyed_ = st.connected;
-    for (const ParamRow& row : rows_) {
-      if (!find_param(row.key)->gazebo_supported) {
-        row.item->setDisabled(greyed_);
-        row.item->setToolTip(0, greyed_ ? tr("not supported on Gazebo") : QString());
+    for (ParamCard* card : cards_) {
+      if (!find_param(card->key())->gazebo_supported) {
+        card->set_greyed(greyed_);
       }
     }
-    refresh_fields();
   }
 }
 
