@@ -13,7 +13,6 @@
 #include <QTabWidget>
 #include <QTableView>
 #include <QTimer>
-#include <QTreeWidget>
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
@@ -22,7 +21,6 @@
 #include <iterator>
 #include <memory>
 #include <optional>
-#include <set>
 #include <sstream>
 #include <stdexcept>
 #include <string>
@@ -243,12 +241,12 @@ TEST_F(StudioApp, WindowHasThreeTabsAndTheContractWidgets) {
   EXPECT_EQ(tabs.tabText(3), QStringLiteral("Verification"));
 
   for (const char* name :
-       {"baseCombo",       "paramTree",          "omegaSpin",   "advancedGains", "halTimeoutSpin",
-        "goalPosSpin",     "goalRotSpin",        "pathPosSpin", "pathRotSpin",   "speedSlider",
-        "waypointsEdit",   "durationSpin",       "seedSpin",    "openButton",    "saveButton",
-        "exportButton",    "resetButton",        "runList",     "chartView",     "jointCombo",
-        "errorTable",      "runButton",          "sweepButton", "cancelButton",  "progressBar",
-        "exportRunButton", "exportSummaryButton"}) {
+       {"baseCombo",     "groupList",      "paramPages",      "changeCount",        "omegaSpin",
+        "advancedGains", "halTimeoutSpin", "goalPosSpin",     "goalRotSpin",        "pathPosSpin",
+        "pathRotSpin",   "speedSlider",    "waypointsEdit",   "durationSpin",       "seedSpin",
+        "openButton",    "saveButton",     "exportButton",    "resetButton",        "runList",
+        "chartView",     "jointCombo",     "errorTable",      "runButton",          "sweepButton",
+        "cancelButton",  "progressBar",    "exportRunButton", "exportSummaryButton"}) {
     EXPECT_NE(window_->findChild<QWidget*>(QString::fromLatin1(name)), nullptr) << name;
   }
   for (const char* name : kToggles) {
@@ -278,12 +276,31 @@ TEST_F(StudioApp, WindowHasThreeTabsAndTheContractWidgets) {
     EXPECT_EQ(base.itemText(static_cast<int>(i)).toStdString(), kBaseNames[i]);
   }
 
-  // One top-level paramTree item per catalog group.
-  std::set<std::string> groups;
-  for (const ParamInfo& p : param_catalog()) {
-    groups.insert(p.group);
+  // groupList: the eight pages of the Configuration tab redesign (design 3.1), in that order. A
+  // row's text may carry a count suffix " (<n>)".
+  const std::vector<QString> pages = {QStringLiteral("Controller"),
+                                      QStringLiteral("Sensor / noise"),
+                                      QStringLiteral("Actuator"),
+                                      QStringLiteral("Friction"),
+                                      QStringLiteral("Model & load"),
+                                      QStringLiteral("Transmission"),
+                                      QStringLiteral("Timing & comm"),
+                                      QStringLiteral("Run")};
+  const auto& group_list = get<QListWidget>("groupList");
+  ASSERT_EQ(group_list.count(), static_cast<int>(pages.size()));
+  for (std::size_t i = 0; i < pages.size(); ++i) {
+    const QString row_text = group_list.item(static_cast<int>(i))->text();
+    EXPECT_TRUE(row_text == pages[i] || row_text.startsWith(pages[i] + QStringLiteral(" (")))
+        << i << ": " << row_text.toStdString();
   }
-  EXPECT_EQ(get<QTreeWidget>("paramTree").topLevelItemCount(), static_cast<int>(groups.size()));
+  // Every catalog key except omega and HAL timeout (their own spin boxes) has a param:<key> card.
+  for (const ParamInfo& p : param_catalog()) {
+    if (p.key == pipeline::kOmegaKey || p.key == "config.safety.hal_timeout_ms") {
+      continue;
+    }
+    EXPECT_NE(window_->findChild<QWidget*>(QString::fromStdString("param:" + p.key)), nullptr)
+        << p.key;
+  }
 
   // Joint 1..7 and Task.
   const auto& joint = get<QComboBox>("jointCombo");

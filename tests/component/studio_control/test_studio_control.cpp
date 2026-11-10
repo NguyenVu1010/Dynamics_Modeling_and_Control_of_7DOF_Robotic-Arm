@@ -21,6 +21,7 @@
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QElapsedTimer>
+#include <QFrame>
 #include <QLabel>
 #include <QLineEdit>
 #include <QListWidget>
@@ -36,9 +37,6 @@
 #include <QTest>
 #include <QTextEdit>
 #include <QTimer>
-#include <QTreeWidget>
-#include <QTreeWidgetItem>
-#include <QTreeWidgetItemIterator>
 #include <atomic>
 #include <chrono>
 #include <cmath>
@@ -770,33 +768,15 @@ TEST_F(StudioControl, ApplyToGazeboOnlyAsOwnerInStandby) {
   EXPECT_EQ(observer_.generation(), generation + 1);
 }
 
-// paramTree rows of keys the Gazebo path cannot honour (catalog gazebo_supported false) are
-// disabled with a tooltip while connected; supported rows are not.
+// Parameter cards (param:<key>) of keys the Gazebo path cannot honour (catalog gazebo_supported
+// false) are disabled with a tooltip while connected; supported cards are not.
 TEST_F(StudioControl, UnsupportedParamRowsAreGreyedWhileConnected) {
-  const auto row = [this](const std::string& key) -> QTreeWidgetItem* {
-    auto& tree = get<QTreeWidget>("paramTree");
-    for (QTreeWidgetItemIterator it(&tree); *it != nullptr; ++it) {
-      if ((*it)->text(0).toStdString() == key) {
-        return *it;
-      }
-    }
-    return nullptr;
+  const auto row = [this](const std::string& key) -> QFrame* {
+    return window_->findChild<QFrame*>(QString::fromStdString("param:" + key));
   };
-  const auto greyed = [this](QTreeWidgetItem* item) {
-    auto& tree = get<QTreeWidget>("paramTree");
-    bool cells_disabled = true;
-    bool any_cell = false;
-    bool tooltip = false;
-    for (int c = 0; c < tree.columnCount(); ++c) {
-      tooltip = tooltip || item->toolTip(c).contains(QStringLiteral("not supported on Gazebo"));
-      if (QWidget* w = tree.itemWidget(item, c); w != nullptr) {
-        any_cell = true;
-        cells_disabled = cells_disabled && !w->isEnabled();
-        tooltip = tooltip || w->toolTip().contains(QStringLiteral("not supported on Gazebo"));
-      }
-    }
-    const bool disabled = item->isDisabled() || (any_cell && cells_disabled);
-    return disabled && tooltip;
+  const auto greyed = [](const QFrame* card) {
+    return !card->isEnabled() &&
+           card->toolTip().contains(QStringLiteral("not supported on Gazebo"));
   };
   const std::vector<std::string> unsupported = {
       "model.payload_kg", "friction.coulomb_nm", "timing.period_jitter_std_us"};
