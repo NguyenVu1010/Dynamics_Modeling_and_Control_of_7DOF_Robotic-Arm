@@ -27,7 +27,7 @@ jobs:
         with: { fetch-depth: 0 }
       - run: sudo apt-get update && sudo apt-get install -y $CORE_APT $STUDIO_APT clang-format-18 clang-tidy-18
       - name: clang-format
-        run: git ls-files '*.cpp' '*.hpp' | xargs -r clang-format-18 --dry-run --Werror
+        run: git ls-files '*.cpp' '*.hpp' ':!third_party/**' | xargs -r clang-format-18 --dry-run --Werror
       - uses: actions/setup-python@v5
         with: { python-version: "3.12" }
       - run: pip install "ruff>=0.6"
@@ -38,7 +38,7 @@ jobs:
           # COBOT_BUILD_STUDIO puts src/studio/app/*.cpp in compile_commands.json (Qt includes).
           cmake -S . -B build -G Ninja -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DCMAKE_BUILD_TYPE=Release -DCOBOT_BUILD_STUDIO=ON
           # ros2_node and ros2_gui need the ROS headers: the gazebo job runs clang-tidy on them (sim.sh tidy).
-          files=$(git diff --name-only --diff-filter=AM origin/${{ github.base_ref }}...HEAD -- '*.cpp' ':!src/ros2_node/**' ':!src/ros2_gui/**')
+          files=$(git diff --name-only --diff-filter=AM origin/${{ github.base_ref }}...HEAD -- '*.cpp' ':!src/ros2_node/**' ':!src/ros2_gui/**' ':!third_party/**')
           if [ -n "$files" ]; then clang-tidy-18 -p build --quiet --warnings-as-errors='*' $files; fi
 
   core:

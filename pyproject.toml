@@ -20,7 +20,7 @@ where = ["src/eval"]
 line-length = 100
 target-version = "py312"
 src = ["src/eval", "tools", "tests/python"]
-extend-exclude = ["docs"]
+extend-exclude = ["docs", "third_party"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "ANN"]

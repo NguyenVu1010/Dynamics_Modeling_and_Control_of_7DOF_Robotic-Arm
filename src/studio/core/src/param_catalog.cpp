@@ -1,6 +1,10 @@
 #include "cobot/studio/param_catalog.hpp"
 
+#include <algorithm>
 #include <cmath>
+#include <iomanip>
+#include <locale>
+#include <sstream>
 #include <string>
 #include <utility>
 
@@ -216,11 +220,147 @@ bool gazebo_ignores(const std::string& key) {
          starts("friction.") || starts("transmission.");
 }
 
+// Presentation of each key (studio config UI design 3.2): the display unit is chosen so that the
+// values of the six profiles under config/ read between 0.1 and 1000 (counts, fractions and the
+// stiffnesses excepted); "" exactly when the YAML unit is "".
+struct Presentation {
+  const char* key;
+  const char* label;
+  const char* description;
+  const char* display_unit;
+  double display_scale;
+};
+
+constexpr double kMilli = 1e3;   // YAML unit -> milli-unit
+constexpr double kMicro = 1e6;   // YAML unit -> micro-unit
+constexpr double kPerMs = 1e-3;  // per second -> per millisecond
+
+// clang-format off
+constexpr Presentation kPresentation[] = {
+    {"config.computed_torque.omega", "Controller bandwidth",
+     "Natural frequency of the error dynamics; kp = omega^2, kd = 2 omega", "rad/s", 1.0},
+    {"config.computed_torque.kp", "Position gain kp", "Proportional gain, per joint", "1/s²", 1.0},
+    {"config.computed_torque.kd", "Velocity gain kd", "Derivative gain, per joint", "1/s", 1.0},
+    {"config.safety.hal_timeout_ms", "State timeout",
+     "Hold when no fresh state arrives for this long", "ms", 1.0},
+    {"config.safety.soft_margin_deg", "Joint limit margin",
+     "Hold when a joint gets this close to a limit", "deg", 1.0},
+    {"config.friction_compensation.enabled", "Friction compensation",
+     "Feed forward the modelled friction torque", "", 1.0},
+    {"config.deflection_comp.enabled", "Deflection compensation",
+     "Correct the gearbox deflection under load", "", 1.0},
+    {"sensor.encoder_bits", "Encoder resolution",
+     "Encoder bits per turn, per joint; 0 is no quantisation", "bit", 1.0},
+    {"sensor.q_noise_std_rad", "Position noise q",
+     "Encoder noise standard deviation, per joint", "µrad", kMicro},
+    {"sensor.q_offset_std_rad", "Position offset q",
+     "Standard deviation of the calibration offset, per joint", "mrad", kMilli},
+    {"sensor.qd_from_diff", "Velocity from position",
+     "Velocity by differencing the measured position", "", 1.0},
+    {"sensor.qd_filter_hz", "Velocity filter cutoff",
+     "Low-pass cutoff of the velocity estimate, per joint", "Hz", 1.0},
+    {"sensor.qd_noise_std_rad_s", "Velocity noise qd",
+     "Velocity noise standard deviation, per joint", "mrad/s", kMilli},
+    {"sensor.sensor_delay_cycles", "Sensor delay",
+     "Control cycles before a reading arrives", "cycles", 1.0},
+    {"sensor.position_source", "Position source",
+     "Encoder the position loop closes on: link or motor side", "", 1.0},
+    {"actuator.torque_scale_std", "Torque gain error",
+     "Standard deviation of the torque gain, as a fraction", "", 1.0},
+    {"actuator.torque_ripple_frac", "Torque ripple",
+     "Ripple amplitude as a fraction of the torque", "", 1.0},
+    {"actuator.ripple_periods_per_rev", "Ripple periods",
+     "Ripple periods per motor revolution", "1/rev", 1.0},
+    {"actuator.torque_cmd_resolution_nm", "Torque resolution",
+     "Quantisation step of the torque command", "mN m", kMilli},
+    {"actuator.motor_time_constant_s", "Motor time constant",
+     "First-order lag of the torque response", "ms", kMilli},
+    {"actuator.command_delay_cycles", "Command delay",
+     "Control cycles before a command takes effect", "cycles", 1.0},
+    {"actuator.torque_scale_asym_frac", "Torque asymmetry",
+     "Gain loss in the negative direction, as a fraction", "", 1.0},
+    {"actuator.deadband_nm", "Torque deadband",
+     "Commands below this give no torque", "mN m", kMilli},
+    {"actuator.torque_slew_nm_s", "Torque slew limit",
+     "Fastest change of the motor torque", "N m/ms", kPerMs},
+    {"actuator.knee_speed_rad_s", "Knee speed",
+     "Speed where the torque limit starts to fall", "rad/s", 1.0},
+    {"actuator.zero_torque_speed_rad_s", "Zero-torque speed",
+     "Speed where the motor gives no more torque", "rad/s", 1.0},
+    {"actuator.bus.v_nom_v", "Bus voltage",
+     "Nominal supply voltage; 0 turns the sag off", "V", 1.0},
+    {"actuator.bus.r_source_ohm", "Bus resistance",
+     "Source resistance of the shared supply", "mΩ", kMilli},
+    {"actuator.bus.v_min_v", "Bus minimum voltage",
+     "Lowest voltage the drives still run at", "V", 1.0},
+    {"friction.coulomb_nm", "Coulomb friction",
+     "Constant friction torque, per joint", "N m", 1.0},
+    {"friction.viscous_nm_s_rad", "Viscous friction",
+     "Friction torque per unit speed, per joint", "N m s/rad", 1.0},
+    {"model.link_mass_scale_std", "Link mass error",
+     "Standard deviation of each link mass, as a fraction", "", 1.0},
+    {"model.com_shift_std_m", "Centre of mass error",
+     "Standard deviation of the centre-of-mass shift", "mm", kMilli},
+    {"model.payload_kg", "Payload mass",
+     "Unmodelled mass held at the flange", "kg", 1.0},
+    {"model.payload_offset_m", "Payload offset",
+     "Payload centre in the link 7 frame, x, y, z", "mm", kMilli},
+    {"model.payload_radius_m", "Payload radius",
+     "Radius of the payload as a solid sphere", "mm", kMilli},
+    {"timing.period_jitter_std_us", "Period jitter",
+     "Standard deviation of the control period", "µs", 1.0},
+    {"timing.overrun_prob", "Overrun probability",
+     "Chance that a cycle overruns", "", 1.0},
+    {"timing.overrun_cycles", "Overrun length",
+     "Extra periods an overrun lasts", "cycles", 1.0},
+    {"comm.servo_rate_hz", "Servo rate",
+     "Rate of the servo packets; 0 is every control cycle", "Hz", 1.0},
+    {"comm.packet_loss_prob", "Packet loss",
+     "Chance that a servo packet is lost, each direction", "", 1.0},
+    {"comm.latency_burst_prob", "Latency burst",
+     "Chance per cycle that a latency burst starts", "", 1.0},
+    {"comm.burst_cycles", "Burst length",
+     "Reads that repeat the last sample in a burst", "cycles", 1.0},
+    {"transmission.stiffness_k1_nm_rad", "Stiffness K1",
+     "Gearbox stiffness below torque T1, per joint", "N m/rad", 1.0},
+    {"transmission.stiffness_k2_nm_rad", "Stiffness K2",
+     "Gearbox stiffness between torques T1 and T2, per joint", "N m/rad", 1.0},
+    {"transmission.stiffness_k3_nm_rad", "Stiffness K3",
+     "Gearbox stiffness above torque T2, per joint", "N m/rad", 1.0},
+    {"transmission.torque_t1_nm", "Breakpoint T1",
+     "Torque where stiffness K2 starts, per joint", "N m", 1.0},
+    {"transmission.torque_t2_nm", "Breakpoint T2",
+     "Torque where stiffness K3 starts, per joint", "N m", 1.0},
+    {"transmission.damping_ratio", "Gearbox damping",
+     "Gearbox damping as a fraction of critical", "", 1.0},
+    {"transmission.error_amp_rad", "Transmission error",
+     "Amplitude of the gearbox angle error", "mrad", kMilli},
+    {"transmission.lost_motion_rad", "Lost motion",
+     "Backlash width of the gearbox", "mrad", kMilli},
+    {"transmission.ratio", "Gear ratio",
+     "Motor turns per joint turn", "", 1.0},
+};
+// clang-format on
+
+void present(ParamInfo& p) {
+  for (const Presentation& row : kPresentation) {
+    if (p.key == row.key) {
+      p.label = row.label;
+      p.description = row.description;
+      p.display_unit = row.display_unit;
+      p.display_scale = row.display_scale;
+      break;
+    }
+  }
+  p.xyz = p.key == "model.payload_offset_m";
+}
+
 const std::vector<Entry>& entries() {
   static const std::vector<Entry> entries_list = [] {
     std::vector<Entry> out = make_catalog();
     for (Entry& e : out) {
       e.info.gazebo_supported = e.info.gazebo_supported && !gazebo_ignores(e.info.key);
+      present(e.info);
     }
     return out;
   }();
@@ -247,6 +387,35 @@ const ParamInfo* find_param(std::string_view key) {
     }
   }
   return nullptr;
+}
+
+std::string format_display(double display_value) {
+  if (!std::isfinite(display_value)) {
+    return std::to_string(display_value);
+  }
+  constexpr int kSignificant = 3;
+  constexpr int kMaxDecimals = 15;
+  constexpr double kInteger = 1000.0;  // from this magnitude on, rounded to an integer
+  const double magnitude = std::abs(display_value);
+  int decimals = 0;
+  if (magnitude > 0.0 && magnitude < kInteger) {
+    const int exponent = static_cast<int>(std::floor(std::log10(magnitude)));
+    decimals = std::min(std::max(kSignificant - 1 - exponent, 0), kMaxDecimals);
+  }
+  std::ostringstream out;
+  out.imbue(std::locale::classic());  // '.' separator and no grouping, whatever the global locale
+  out << std::fixed << std::setprecision(decimals) << display_value;
+  std::string text = out.str();
+  if (text.find('.') != std::string::npos) {
+    text.erase(text.find_last_not_of('0') + 1);
+    if (text.back() == '.') {
+      text.pop_back();
+    }
+  }
+  if (text == "-0") {
+    text = "0";
+  }
+  return text;
 }
 
 common::Result<pipeline::KeyOverride> base_value(const BasePair& base, const std::string& key) {
