@@ -132,11 +132,17 @@ ParamCard::ParamCard(const ParamInfo& info, QWidget* parent) : QFrame(parent), i
 }
 
 ParamSpin* ParamCard::add_field(int index, const QString& name) {
-  auto* spin = new ParamSpin(
-      info_.min * info_.display_scale, info_.max * info_.display_scale, qs(info_.display_unit));
+  // J1..J7 of a per-joint card get their range and value when they first show (configure_joints):
+  // a catalog range of +-1e300 costs Qt a slow exact rounding per bound, and the window has about
+  // two hundred of these hidden fields at start-up.
+  const bool lazy = index >= 0 && !info_.xyz;
+  auto* spin = lazy ? new ParamSpin(0.0, 0.0, qs(info_.display_unit))
+                    : new ParamSpin(info_.min * info_.display_scale,
+                                    info_.max * info_.display_scale,
+                                    qs(info_.display_unit));
   spin->setObjectName(name);
   const std::size_t f = fields_.size();
-  fields_.push_back(Field{spin, index, spin->value()});
+  fields_.push_back(Field{spin, index, spin->value(), lazy});
   editors_.push_back(spin);
   connect(spin, &ParamSpin::editingFinished, this, [this, f] { field_finished(f); });
   return spin;
@@ -186,6 +192,25 @@ QString ParamCard::full_text(double yaml_value) const {
          unit;
 }
 
+// The kept value's element of a field: the shared field shows the first one.
+double ParamCard::element(const Field& f) const {
+  if (const auto* list = std::get_if<std::vector<double>>(&kept_)) {
+    const std::size_t i = f.index < 0 ? 0 : static_cast<std::size_t>(f.index);
+    return i < list->size() ? list->at(i) : 0.0;
+  }
+  return std::holds_alternative<double>(kept_) ? std::get<double>(kept_) : 0.0;
+}
+
+void ParamCard::configure_joints() {
+  joints_ready_ = true;
+  for (Field& f : fields_) {
+    if (f.lazy) {
+      f.spin->set_display_range(info_.min * info_.display_scale, info_.max * info_.display_scale);
+      set_field(f, element(f));
+    }
+  }
+}
+
 void ParamCard::show_value(const Value& v, bool changed) {
   kept_ = v;
   if (switch_ != nullptr) {
@@ -198,16 +223,11 @@ void ParamCard::show_value(const Value& v, bool changed) {
     combo_->setCurrentText(std::holds_alternative<std::string>(v) ? qs(std::get<std::string>(v))
                                                                   : QString());
   } else {
-    const auto* list = std::get_if<std::vector<double>>(&v);
     for (Field& f : fields_) {
-      double x = 0.0;
-      if (list != nullptr) {
-        const std::size_t i = f.index < 0 ? 0 : static_cast<std::size_t>(f.index);
-        x = i < list->size() ? list->at(i) : 0.0;
-      } else if (std::holds_alternative<double>(v)) {
-        x = std::get<double>(v);
+      if (f.lazy && !joints_ready_) {
+        continue;  // configure_joints sets them
       }
-      set_field(f, x);
+      set_field(f, element(f));
     }
     if (toggle_ != nullptr) {
       update_joints();
@@ -219,8 +239,12 @@ void ParamCard::show_value(const Value& v, bool changed) {
     polished_ = true;
     for (QWidget* w : editors_) {
       w->setProperty("changed", changed);
-      w->style()->unpolish(w);
-      w->style()->polish(w);
+      // An editor not polished yet (a page never shown) takes the property when it first shows;
+      // polishing hundreds of hidden editors here would stall window construction.
+      if (w->testAttribute(Qt::WA_WState_Polished)) {
+        w->style()->unpolish(w);
+        w->style()->polish(w);
+      }
     }
   }
 }
@@ -253,6 +277,9 @@ void ParamCard::update_joints() {
   fields_.front().spin->setVisible(!differ);
   all_joints_->setVisible(!differ);
   range_->setVisible(differ);
+  if ((differ || expanded_) && !joints_ready_) {
+    configure_joints();
+  }
   joints_->setVisible(differ || expanded_);
 }
 

@@ -36,11 +36,15 @@ ParamSpin::ParamSpin(double display_min,
                      QWidget* parent)
     : QDoubleSpinBox(parent) {
   setDecimals(kDecimals);
-  setRange(std::max(display_min, -kHuge), std::min(display_max, kHuge));
+  set_display_range(display_min, display_max);
   setKeyboardTracking(false);
   if (!display_unit.isEmpty()) {
     setSuffix(QStringLiteral(" ") + display_unit);
   }
+}
+
+void ParamSpin::set_display_range(double display_min, double display_max) {
+  setRange(std::max(display_min, -kHuge), std::min(display_max, kHuge));
 }
 
 QString ParamSpin::textFromValue(double v) const {

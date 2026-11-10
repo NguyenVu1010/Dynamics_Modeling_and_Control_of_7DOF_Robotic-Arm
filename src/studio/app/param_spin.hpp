@@ -25,6 +25,8 @@ class ParamSpin : public QDoubleSpinBox {
             double display_max,
             const QString& display_unit,
             QWidget* parent = nullptr);
+  // The range in the display unit; infinite limits map to +-1e300 (as the constructor).
+  void set_display_range(double display_min, double display_max);
 
  protected:
   QString textFromValue(double v) const override;

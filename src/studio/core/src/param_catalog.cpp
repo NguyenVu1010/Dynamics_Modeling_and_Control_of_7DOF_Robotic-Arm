@@ -1,10 +1,9 @@
 #include "cobot/studio/param_catalog.hpp"
 
 #include <algorithm>
+#include <array>
+#include <charconv>
 #include <cmath>
-#include <iomanip>
-#include <locale>
-#include <sstream>
 #include <string>
 #include <utility>
 
@@ -21,6 +20,9 @@ constexpr double kOmegaMin = 10.0;      // rad/s, design 5.3
 constexpr double kOmegaMax = 200.0;     // rad/s
 constexpr double kHalTimeoutMin = 1.0;  // ms
 constexpr double kHalTimeoutMax = 50.0;
+// format_display: a fixed-point double needs at most 309 integer digits, a sign, a point and 15
+// decimals.
+constexpr std::size_t kFormatBuffer = 336;
 using Cfg = pipeline::Config<kN>;
 using Imp = imperfect::ImperfectionConfig<kN>;
 using Value = decltype(pipeline::KeyOverride::value);
@@ -402,10 +404,15 @@ std::string format_display(double display_value) {
     const int exponent = static_cast<int>(std::floor(std::log10(magnitude)));
     decimals = std::min(std::max(kSignificant - 1 - exponent, 0), kMaxDecimals);
   }
-  std::ostringstream out;
-  out.imbue(std::locale::classic());  // '.' separator and no grouping, whatever the global locale
-  out << std::fixed << std::setprecision(decimals) << display_value;
-  std::string text = out.str();
+  // to_chars: '.' separator and no grouping whatever the global locale, and no stream to build
+  // (the Configuration tab formats every editor of the window at start-up).
+  std::array<char, kFormatBuffer> buffer{};
+  const std::to_chars_result r = std::to_chars(buffer.data(),
+                                               buffer.data() + buffer.size(),
+                                               display_value,
+                                               std::chars_format::fixed,
+                                               decimals);
+  std::string text(buffer.data(), r.ptr);
   if (text.find('.') != std::string::npos) {
     text.erase(text.find_last_not_of('0') + 1);
     if (text.back() == '.') {
