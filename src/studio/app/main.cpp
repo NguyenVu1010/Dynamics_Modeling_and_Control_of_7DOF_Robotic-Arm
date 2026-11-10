@@ -1,15 +1,20 @@
 #include <QApplication>
 #include <QCommandLineParser>
 #include <QStandardPaths>
+#include <cstdio>
 #include <filesystem>
 
 #include "main_window.hpp"
+#include "theme.hpp"
 
 // cobot_studio [--config-dir <dir>] [--work-dir <dir>] [--bridge <name>] (feature studio-app,
 // ADR-021; --bridge: feature studio-control, region /cobot_<name>).
 int main(int argc, char** argv) {
-  const QApplication app(argc, argv);
+  QApplication app(argc, argv);
   QApplication::setApplicationName(QStringLiteral("cobot_studio"));
+  if (!cobot::studio::apply_theme(app)) {
+    std::fputs("cobot_studio: theme resources missing, using the default Qt style\n", stderr);
+  }
   QCommandLineParser parser;
   parser.setApplicationDescription(QApplication::tr("Configuration and tracking studio"));
   parser.addHelpOption();

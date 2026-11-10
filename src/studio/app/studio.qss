@@ -1,0 +1,58 @@
+/* Project rules of cobot_studio, applied after the Breeze light sheet (studio config UI design
+ * 3.5). The widgets opt in through dynamic properties: card, changed, primary, hint, keyName. */
+
+QFrame[card="true"]
+{
+    background-color: #ffffff;
+    border: 1px solid #e3e6eb;
+    border-radius: 7px;
+    padding: 10px;
+}
+
+QAbstractSpinBox[changed="true"],
+QLineEdit[changed="true"],
+QComboBox[changed="true"]
+{
+    background-color: #fff4d6;
+    border: 1px solid #f0c24b;
+    font-weight: bold;
+}
+
+QPushButton[primary="true"]
+{
+    background-color: #2563eb;
+    border: 1px solid #2563eb;
+    color: #ffffff;
+    font-weight: bold;
+}
+
+QPushButton[primary="true"]:disabled
+{
+    background-color: #eff0f1;
+    border: 1px solid #bab9b8;
+    color: #bab9b8;
+}
+
+QLabel[hint="true"]
+{
+    color: #6b7385;
+    font-size: 11px;
+}
+
+QLabel[keyName="true"]
+{
+    color: #a0a6b2;
+    font-family: monospace;
+    font-size: 10px;
+}
+
+QListWidget#groupList::item
+{
+    padding: 6px 12px;
+}
+
+QListWidget#groupList::item:selected
+{
+    background-color: #eaf1ff;
+    color: #1d4ed8;
+}

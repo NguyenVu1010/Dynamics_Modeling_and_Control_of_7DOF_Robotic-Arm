@@ -16,6 +16,8 @@ Under WSL the window opens through WSLg (Windows 11, no X server needed). Each r
 its inputs under the work dir, never in the repository. The source stays MIT; the `cobot_studio`
 binary links Qt Charts (GPLv3), so the binary as distributed is under GPLv3.
 
+The studio uses the Breeze light theme (BreezeStyleSheets, MIT, vendored in `third_party/breeze`).
+
 ## 3D view
 
 The Tracking tab also has a 3D view (Qt3D) that replays the checked runs at the chart's time

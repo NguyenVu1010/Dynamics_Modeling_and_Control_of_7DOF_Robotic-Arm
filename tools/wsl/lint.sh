@@ -21,7 +21,8 @@ done
 cd "$repo"
 
 # New files count before `git add` too (--others --exclude-standard): CI sees them once committed.
-mapfile -t cpp < <(git ls-files --cached --others --exclude-standard '*.cpp' '*.hpp')
+# third_party/ is vendored as generated upstream: no format or tidy check reads it.
+mapfile -t cpp < <(git ls-files --cached --others --exclude-standard '*.cpp' '*.hpp' ':!third_party/**')
 if [ "${#cpp[@]}" -eq 0 ]; then
   echo "LINT: git lists no C++ file; is this a git checkout?" >&2
   exit 1
@@ -42,8 +43,8 @@ build_dir="$(cobot_build_dir)"
 # Committed and uncommitted changes since the branch left $base, plus new untracked files.
 fork="$(git merge-base "$base" HEAD 2>/dev/null || echo "$base")"
 mapfile -t changed < <({
-  git diff --name-only --diff-filter=AM "$fork" -- '*.cpp' ':!src/ros2_node/**' ':!src/ros2_gui/**'
-  git ls-files --others --exclude-standard -- '*.cpp' ':!src/ros2_node/**' ':!src/ros2_gui/**'
+  git diff --name-only --diff-filter=AM "$fork" -- '*.cpp' ':!src/ros2_node/**' ':!src/ros2_gui/**' ':!third_party/**'
+  git ls-files --others --exclude-standard -- '*.cpp' ':!src/ros2_node/**' ':!src/ros2_gui/**' ':!third_party/**'
 } 2>/dev/null | sort -u || true)
 if [ "${#changed[@]}" -gt 0 ] && [ -f "$build_dir/compile_commands.json" ]; then
   clang-tidy-18 -p "$build_dir" --quiet --warnings-as-errors='*' "${changed[@]}"
