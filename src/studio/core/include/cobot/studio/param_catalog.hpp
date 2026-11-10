@@ -34,10 +34,22 @@ struct ParamInfo {
   bool sweepable = false;
   NoiseSource noise = NoiseSource::kNone;
   bool gazebo_supported = true;  // phase B greys the others
+  // Presentation (studio config UI design 3.2). English, label at most 28 characters and
+  // description at most 90; display_unit is UTF-8 (e.g. "µrad") and "" exactly when unit is "".
+  std::string label;           // short name, e.g. "Position noise q"
+  std::string description;     // one line, e.g. "Encoder noise standard deviation, per joint"
+  std::string display_unit;    // unit shown in the UI
+  double display_scale = 1.0;  // display value = YAML value * display_scale
+  bool xyz = false;            // a list of x, y, z, not joints (model.payload_offset_m only)
 };
 
 const std::vector<ParamInfo>& param_catalog();
 const ParamInfo* find_param(std::string_view key);  // nullptr when not listed
+
+// A display value to three significant digits, trailing zeros dropped and never an exponent:
+// 1.745 -> "1.75", 0.0005 -> "0.0005", -2.5 -> "-2.5"; a magnitude of at least 1000 is rounded
+// to an integer (1234.6 -> "1235", 50000 -> "50000").
+std::string format_display(double display_value);
 
 // Value of `key` in the base pair in YAML units (e.g. ms for hal_timeout_ms, degrees for _deg
 // keys; omega = sqrt(kp of joint 1)), read through the pipeline loaders, so a key the file does
