@@ -1,6 +1,7 @@
 #include "param_spin.hpp"
 
 #include <QFocusEvent>
+#include <QLocale>
 #include <QRegularExpression>
 #include <algorithm>
 
@@ -12,9 +13,22 @@ namespace {
 
 constexpr double kHuge = 1e300;  // bound for catalog limits that are infinite
 constexpr int kDecimals = 12;    // setValue keeps the display value
-constexpr int kFullDigits = 12;  // significant digits shown while editing
 
 }  // namespace
+
+void set_tooltip_part(QWidget* w, const char* part, const QString& text) {
+  w->setProperty(part, text);
+  QString tip;
+  for (const char* name : {"validityTip", "valueTip"}) {
+    const QString t = w->property(name).toString();
+    if (!t.isEmpty()) {
+      tip += (tip.isEmpty() ? QString() : QStringLiteral("\n")) + t;
+    }
+  }
+  if (w->toolTip() != tip) {
+    w->setToolTip(tip);
+  }
+}
 
 ParamSpin::ParamSpin(double display_min,
                      double display_max,
@@ -30,7 +44,7 @@ ParamSpin::ParamSpin(double display_min,
 }
 
 QString ParamSpin::textFromValue(double v) const {
-  return hasFocus() ? QString::number(v, 'g', kFullDigits)
+  return hasFocus() ? QString::number(v, 'g', QLocale::FloatingPointShortest)
                     : QString::fromStdString(format_display(v));
 }
 

@@ -50,7 +50,8 @@ class ParamCard : public QFrame {
   ParamSpin* add_field(int index, const QString& name);
   void field_finished(std::size_t f);
   void set_field(Field& f, double yaml_value);
-  void update_joints();  // per-joint view: shared field, J1..J7, range
+  QString full_text(double yaml_value) const;  // display value, every digit, and unit
+  void update_joints();                        // per-joint view: shared field, J1..J7, range
 
   ParamInfo info_;
   Value kept_;

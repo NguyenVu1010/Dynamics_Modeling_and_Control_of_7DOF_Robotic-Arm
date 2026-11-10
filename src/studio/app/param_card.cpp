@@ -3,6 +3,7 @@
 #include <QComboBox>
 #include <QHBoxLayout>
 #include <QLabel>
+#include <QLocale>
 #include <QSignalBlocker>
 #include <QStyle>
 #include <QToolButton>
@@ -149,7 +150,6 @@ void ParamCard::field_finished(std::size_t f) {
   if (display == field.shown) {
     return;
   }
-  field.shown = display;
   const double v = display / info_.display_scale;
   if (info_.kind == ParamKind::kNumber) {
     kept_ = v;
@@ -167,6 +167,7 @@ void ParamCard::field_finished(std::size_t f) {
     }
     kept_ = list;
   }
+  field.shown = display;
   emit edited(kept_);
 }
 
@@ -174,6 +175,15 @@ void ParamCard::set_field(Field& f, double yaml_value) {
   const QSignalBlocker block(f.spin);
   f.spin->setValue(yaml_value * info_.display_scale);
   f.shown = f.spin->value();
+  set_tooltip_part(f.spin, "valueTip", full_text(yaml_value));
+}
+
+// The value in the display unit with every digit (design 3.2: the full value is in the tooltip).
+QString ParamCard::full_text(double yaml_value) const {
+  const QString unit =
+      info_.display_unit.empty() ? QString() : QStringLiteral(" ") + qs(info_.display_unit);
+  return QString::number(yaml_value * info_.display_scale, 'g', QLocale::FloatingPointShortest) +
+         unit;
 }
 
 void ParamCard::show_value(const Value& v, bool changed) {
@@ -230,6 +240,7 @@ void ParamCard::update_joints() {
                         .arg(qs(format_display(*lo * info_.display_scale)),
                              qs(format_display(*hi * info_.display_scale))) +
                     unit);
+    range_->setToolTip(full_text(*lo) + tr(" to ") + full_text(*hi));
   }
   for (std::size_t j = 0; j < joint_cells_.size(); ++j) {
     joint_cells_.at(j)->setVisible(j < n);

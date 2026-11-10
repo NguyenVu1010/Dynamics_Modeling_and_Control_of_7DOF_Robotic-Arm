@@ -47,6 +47,7 @@
 #include "cobot/studio/series.hpp"
 
 #include "control_tab.hpp"
+#include "param_spin.hpp"
 #include "robot_view.hpp"
 #include "verify_tab.hpp"
 #include <QtCharts/QChart>
@@ -110,7 +111,13 @@ int page_of_group(const std::string& group) {
                                                    {"Timing", 6},
                                                    {"Comm", 6}};
   const auto it = pages.find(group);
-  return it == pages.end() ? 0 : it->second;
+  if (it == pages.end()) {
+    // A catalog group without a page is a programming error (the layout test catches it); its
+    // keys fall back to the Controller page rather than vanish.
+    qWarning("studio: catalog group '%s' has no Configuration page", group.c_str());
+    return 0;
+  }
+  return it->second;
 }
 
 struct Toggle {
@@ -943,11 +950,9 @@ void MainWindow::refresh_validity() {
   for (const auto& field : fields_) {
     QWidget* w = field.second;
     const auto it = marks.find(w);
-    const QString tip = it == marks.end() ? QString() : it->second;
     const QString sheet = it == marks.end() ? QString() : QStringLiteral("border: 1px solid red;");
-    if (w->toolTip() != tip) {
-      w->setToolTip(tip);
-    }
+    // The mark goes in front of a card editor's full-value tooltip.
+    set_tooltip_part(w, "validityTip", it == marks.end() ? QString() : it->second);
     if (w->styleSheet() != sheet) {  // a style sheet change re-polishes the widget
       w->setStyleSheet(sheet);
     }
