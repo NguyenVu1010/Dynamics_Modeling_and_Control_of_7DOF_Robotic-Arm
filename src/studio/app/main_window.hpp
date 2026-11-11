@@ -24,6 +24,7 @@
 #include "time_cursor.hpp"
 
 class QAbstractButton;
+class QButtonGroup;
 class QCloseEvent;
 class QSlider;
 class QGraphicsLineItem;
@@ -125,6 +126,7 @@ class MainWindow : public QMainWindow {
   QComboBox* base_combo_ = nullptr;
   QListWidget* group_list_ = nullptr;  // one row per page of the Configuration tab
   QLabel* change_count_ = nullptr;
+  QButtonGroup* noise_group_ = nullptr;                   // noiseLevel: button id = NoiseLevel
   std::vector<ParamCard*> cards_;                         // the param:<key> cards
   std::vector<std::pair<std::string, QWidget*>> fields_;  // key -> editor, for validate() marks
   QDoubleSpinBox* omega_ = nullptr;

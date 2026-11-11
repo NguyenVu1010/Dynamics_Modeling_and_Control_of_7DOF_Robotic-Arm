@@ -2,6 +2,7 @@
 
 #include <QAbstractTableModel>
 #include <QApplication>
+#include <QButtonGroup>
 #include <QCheckBox>
 #include <QCloseEvent>
 #include <QComboBox>
@@ -30,6 +31,7 @@
 #include <QTabWidget>
 #include <QTableView>
 #include <QTimer>
+#include <QToolButton>
 #include <QVBoxLayout>
 #include <QWheelEvent>
 #include <algorithm>
@@ -43,6 +45,7 @@
 
 #include "cobot/pipeline/log_record.hpp"
 #include "cobot/studio/metrics.hpp"
+#include "cobot/studio/noise_level.hpp"
 #include "cobot/studio/param_catalog.hpp"
 #include "cobot/studio/series.hpp"
 
@@ -119,6 +122,23 @@ int page_of_group(const std::string& group) {
   }
   return it->second;
 }
+
+// The noiseLevel buttons, in order (design 3.4).
+struct NoiseButton {
+  const char* name;
+  const char* text;
+  NoiseLevel level;
+};
+const std::array<NoiseButton, 5> kNoiseButtons = {
+    {{"noiseOff", QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "Off"), NoiseLevel::kOff},
+     {"noiseProfile",
+      QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "Profile"),
+      NoiseLevel::kProfile},
+     {"noiseX2", QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "×2"), NoiseLevel::kX2},
+     {"noiseX5", QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "×5"), NoiseLevel::kX5},
+     {"noiseCustom",
+      QT_TRANSLATE_NOOP("cobot::studio::MainWindow", "Custom"),
+      NoiseLevel::kCustom}}};
 
 struct Toggle {
   const char* name;
@@ -526,6 +546,49 @@ QWidget* MainWindow::build_config_tab() {
     pages.front()->addWidget(frame);
   }
 
+  // Sensor / noise page, top: the noise level (design 3.4), one action per click. Custom is only
+  // lit by refresh_fields.
+  {
+    auto* frame = new QFrame;
+    frame->setObjectName(QStringLiteral("noiseLevel"));
+    frame->setProperty("card", true);
+    auto* layout = new QVBoxLayout(frame);
+    auto* heading = new QLabel(tr("Noise level"));
+    QFont heading_font = heading->font();
+    heading_font.setBold(true);
+    heading->setFont(heading_font);
+    auto* hint = new QLabel(tr("Scales every noise standard deviation of the base pair"));
+    hint->setProperty("hint", true);
+    hint->setWordWrap(true);
+    layout->addWidget(heading);
+    layout->addWidget(hint);
+    auto* row = new QHBoxLayout;
+    row->setSpacing(0);
+    noise_group_ = new QButtonGroup(frame);
+    noise_group_->setExclusive(true);
+    for (const NoiseButton& n : kNoiseButtons) {
+      auto* b = new QToolButton;
+      b->setObjectName(QString::fromLatin1(n.name));
+      b->setText(tr(n.text));
+      b->setCheckable(true);
+      b->setAutoExclusive(true);
+      noise_group_->addButton(b, static_cast<int>(n.level));
+      row->addWidget(b);
+      if (n.level == NoiseLevel::kCustom) {
+        b->setEnabled(false);
+        continue;
+      }
+      connect(b, &QToolButton::clicked, this, [this, level = n.level] {
+        apply_noise_level(config_, base_values_, level);
+        refresh_fields();
+        refresh_validity();
+      });
+    }
+    row->addStretch(1);
+    layout->addLayout(row);
+    pages.at(static_cast<std::size_t>(page_of_group("Sensor")))->addWidget(frame);
+  }
+
   // One card per other catalog key, on the page of its group, in catalog order.
   for (const ParamInfo& p : param_catalog()) {
     if (p.key == pipeline::kOmegaKey || p.key == "config.safety.hal_timeout_ms") {
@@ -916,6 +979,11 @@ void MainWindow::refresh_fields() {
     if (card->key().rfind("config.computed_torque.", 0) == 0) {
       card->setVisible(advanced_on);
     }
+  }
+  if (QAbstractButton* b =
+          noise_group_->button(static_cast<int>(noise_level(config_, base_values_)))) {
+    const QSignalBlocker block(b);
+    b->setChecked(true);
   }
   // The change counter and the groupList counts.
   std::array<int, kPageTitles.size()> counts{};
