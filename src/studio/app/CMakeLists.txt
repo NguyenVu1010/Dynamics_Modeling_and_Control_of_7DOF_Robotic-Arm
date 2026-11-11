@@ -6,7 +6,8 @@
 # in as Qt resources (AUTORCC); theme.cpp registers them with Q_INIT_RESOURCE.
 find_package(Qt5 5.15 REQUIRED COMPONENTS Widgets Charts 3DCore 3DRender 3DExtras)
 
-add_library(cobot_studio_ui STATIC main_window.cpp studio_worker.cpp robot_view.cpp
+add_library(cobot_studio_ui STATIC main_window.cpp param_card.cpp param_spin.cpp studio_worker.cpp
+  robot_view.cpp
   control_tab.cpp verify_tab.cpp time_cursor.hpp theme.cpp studio.qrc
   ${PROJECT_SOURCE_DIR}/third_party/breeze/breeze.qrc)
 set_target_properties(cobot_studio_ui PROPERTIES AUTOMOC ON AUTORCC ON)

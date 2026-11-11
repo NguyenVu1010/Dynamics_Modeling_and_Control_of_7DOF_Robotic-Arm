@@ -1,5 +1,6 @@
 /* Project rules of cobot_studio, applied after the Breeze light sheet (studio config UI design
- * 3.5). The widgets opt in through dynamic properties: card, changed, primary, hint, keyName. */
+ * 3.5). The widgets opt in through dynamic properties: card, changed, primary, hint, keyName,
+ * switch (a bool switch, ParamCard). */
 
 QFrame[card="true"]
 {
@@ -55,4 +56,19 @@ QListWidget#groupList::item:selected
 {
     background-color: #eaf1ff;
     color: #1d4ed8;
+}
+
+QToolButton[switch="true"]
+{
+    min-width: 36px;
+    border: 1px solid #bab9b8;
+    border-radius: 9px;
+    padding: 2px 8px;
+}
+
+QToolButton[switch="true"]:checked
+{
+    background-color: #2563eb;
+    border: 1px solid #2563eb;
+    color: #ffffff;
 }
