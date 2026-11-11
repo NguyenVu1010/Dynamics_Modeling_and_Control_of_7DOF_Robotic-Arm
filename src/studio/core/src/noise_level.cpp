@@ -1,6 +1,7 @@
 #include "cobot/studio/noise_level.hpp"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <limits>
 #include <optional>
@@ -15,8 +16,9 @@ namespace {
 using Value = decltype(pipeline::KeyOverride::value);
 using List = std::vector<double>;
 
+// Profile comes first so it wins when several levels match (every base 0).
 constexpr std::array<NoiseLevel, 4> kLevels = {
-    NoiseLevel::kOff, NoiseLevel::kProfile, NoiseLevel::kX2, NoiseLevel::kX5};
+    NoiseLevel::kProfile, NoiseLevel::kOff, NoiseLevel::kX2, NoiseLevel::kX5};
 
 // The base value with every element multiplied by k; empty for a bool or string base.
 std::optional<Value> scaled(const Value& base, double k) {
@@ -96,10 +98,6 @@ double noise_factor(NoiseLevel level) {
 
 NoiseLevel noise_level(const StudioConfig& config,
                        const std::map<std::string, pipeline::KeyOverride>& base) {
-  // Profile first: when several levels match (every base 0), Profile is among them.
-  if (level_matches(config, base, noise_factor(NoiseLevel::kProfile))) {
-    return NoiseLevel::kProfile;
-  }
   for (const NoiseLevel level : kLevels) {
     if (level_matches(config, base, noise_factor(level))) {
       return level;
