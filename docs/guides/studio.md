@@ -18,6 +18,71 @@ binary links Qt Charts (GPLv3), so the binary as distributed is under GPLv3.
 
 The studio uses the Breeze light theme (BreezeStyleSheets, MIT, vendored in `third_party/breeze`).
 
+## Configuration tab
+
+![Configuration tab, Sensor / noise page at noise level x2](../media/studio-config-noise-x2.png)
+
+The tab edits the configuration of the next run or apply, as overrides of a base pair. It
+follows the design `docs/design/2026-11-10-studio-config-ui-design.md`.
+
+- **Top bar:**
+  - the base pair;
+  - the change counter (hidden when nothing is changed);
+  - Open, Save and Export for `cobot_bench`.
+- **Pages** (left list): Controller, Sensor / noise, Actuator, Friction, Model & load,
+  Transmission, Timing & comm and Run. A page with changes shows their count, for example
+  "Sensor / noise (2)".
+- **Cards:** one per parameter. A card has:
+  - a readable name and a one-line description;
+  - the YAML key, in small grey text;
+  - the value in a display unit (encoder noise in µrad, velocity noise in mrad/s).
+
+  A field shows three significant digits. When focused it shows the full value. A value you do
+  not edit is never written back, so display rounding never becomes an override.
+- **Changed values:**
+  - shown amber;
+  - the card's ↺ button returns the parameter to the base value;
+  - **Reset to base** returns every parameter.
+- **Per-joint parameters:**
+  - one field sets all seven joints;
+  - **Per joint ▸** opens J1..J7;
+  - when the joints already differ, the card opens J1..J7 itself and shows the range.
+  - `model.payload_offset_m` is always three fields x, y, z.
+- **Noise level** (Sensor / noise page): Off, Profile, ×2 and ×5 multiply, by 0, 1, 2 and 5,
+  the five noise standard deviations of the base pair:
+  - `sensor.q_noise_std_rad`
+  - `sensor.q_offset_std_rad`
+  - `sensor.qd_noise_std_rad_s`
+  - `actuator.torque_scale_std`
+  - `timing.period_jitter_std_us`
+
+  Custom lights up after a hand edit of one of them.
+- **Controller page:** omega, with **Advanced gains** for per-joint kp and kd (omega and kp/kd
+  exclude each other), the state timeout, the joint limit margin and the two compensations.
+- **Run page:** the jog and move speed, the four tolerances, the waypoint file, the duration
+  (0 keeps the planned one) and the seed (0 keeps the profile's).
+- **Apply to Gazebo** is the primary button in the bottom bar. While a controller is connected,
+  the cards of parameters Gazebo cannot honour are greyed ("not supported on Gazebo").
+
+| Controller | Run |
+|---|---|
+| ![Controller page](../media/studio-config-controller.png) | ![Run page](../media/studio-config-run.png) |
+
+### Screenshots and a studio binary from CI
+
+The `studio-shots` workflow runs on studio changes (pull requests and `main`) and on demand. It
+uploads two artifacts:
+- `studio-shots`: one PNG per page plus the noise ×2 view, on `budget_xarm7`;
+- `cobot_studio-ubuntu-24.04-x86_64`: the binary.
+
+```bash
+gh run download <run-id> -n studio-shots -D shots
+gh run download <run-id> -n cobot_studio-ubuntu-24.04-x86_64 -D bin
+chmod +x bin/cobot_studio
+bin/cobot_studio --config-dir config --base budget_xarm7     # Ubuntu 24.04 / WSL with the Qt5 packages above
+QT_QPA_PLATFORM=offscreen bin/cobot_studio --config-dir config --screenshot-dir shots --base budget_xarm7
+```
+
 ## 3D view
 
 The Tracking tab also has a 3D view (Qt3D) that replays the checked runs at the chart's time
