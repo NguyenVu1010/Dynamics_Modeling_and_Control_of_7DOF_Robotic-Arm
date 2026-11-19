@@ -73,11 +73,14 @@ constexpr int kColumns = 12;
 constexpr double kMm = 1e-3;  // m per mm
 constexpr double kBig = 1e9;  // spin box bound for catalog limits that are infinite
 constexpr int kGroupListWidth = 170;
-constexpr double kSame = 1e-9;      // relative, a spin box value equal to the base value
-constexpr int kMinPixels = 100;     // decimation columns when the plot is not laid out yet
-constexpr int kRedrawDelayMs = 30;  // coalesces chart redraws
-constexpr double kWheelPx = 0.25;   // pan pixels per wheel delta unit
-constexpr int kBridgeTickMs = 50;   // BridgeClient::tick: heartbeat, samples, responses
+constexpr int kFieldMaxWidth = 170;   // px, omega and HAL timeout like ParamSpin
+constexpr int kSliderMinWidth = 260;  // px
+constexpr int kPathMinWidth = 420;    // px
+constexpr double kSame = 1e-9;        // relative, a spin box value equal to the base value
+constexpr int kMinPixels = 100;       // decimation columns when the plot is not laid out yet
+constexpr int kRedrawDelayMs = 30;    // coalesces chart redraws
+constexpr double kWheelPx = 0.25;     // pan pixels per wheel delta unit
+constexpr int kBridgeTickMs = 50;     // BridgeClient::tick: heartbeat, samples, responses
 const char* const kDefaultBridge = "cobot_controller";
 const std::array<QColor, 8> kPalette = {QColor(31, 119, 180),
                                         QColor(255, 127, 14),
@@ -422,11 +425,42 @@ MainWindow::~MainWindow() {
 QWidget* MainWindow::build_config_tab() {
   auto* tab = new QWidget;
   tab->setObjectName(QStringLiteral("configTab"));
-  // A card of the pages (studio.qss card): a frame with a form layout.
+  // A card of the pages (studio.qss card): a frame with a form layout whose fields keep their
+  // size hint instead of spanning the page.
   const auto new_card = [] {
     auto* frame = new QFrame;
     frame->setProperty("card", true);
-    return std::make_pair(frame, new QFormLayout(frame));
+    auto* form = new QFormLayout(frame);
+    form->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
+    form->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    return std::make_pair(frame, form);
+  };
+  // A card headed like a ParamCard: bold catalog label and the editor on one row, the catalog
+  // description and the raw key under it; extra rows (Advanced gains) go in the returned layout.
+  const auto key_card = [](const ParamInfo& info, QWidget* editor) {
+    auto* frame = new QFrame;
+    frame->setProperty("card", true);
+    auto* title = new QLabel(QString::fromStdString(info.label));
+    QFont title_font = title->font();
+    title_font.setBold(true);
+    title->setFont(title_font);
+    auto* hint = new QLabel(QString::fromStdString(info.description));
+    hint->setProperty("hint", true);
+    hint->setWordWrap(true);
+    auto* key_name = new QLabel(QString::fromStdString(info.key));
+    key_name->setProperty("keyName", true);
+    key_name->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    auto* head = new QHBoxLayout;
+    head->addWidget(title);
+    head->addStretch(1);
+    head->addWidget(editor);
+    auto* hint_row = new QHBoxLayout;
+    hint_row->addWidget(hint, 1);
+    hint_row->addWidget(key_name);
+    auto* layout = new QVBoxLayout(frame);
+    layout->addLayout(head);
+    layout->addLayout(hint_row);
+    return std::make_pair(frame, layout);
   };
 
   // Top bar: title, base pair, change counter, file buttons.
@@ -534,17 +568,17 @@ QWidget* MainWindow::build_config_tab() {
   hal_timeout_ = spin(hal->min, hal->max, 1, tr(" ms"));
   hal_timeout_->setObjectName(QStringLiteral("halTimeoutSpin"));
   scalar(hal_timeout_, "config.safety.hal_timeout_ms");
-  {
-    auto [frame, form] = new_card();
-    form->addRow(tr("Omega"), omega_);
-    form->addRow(QString(), advanced_);
-    pages.front()->addWidget(frame);
+  for (QDoubleSpinBox* box : {omega_, hal_timeout_}) {
+    box->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    box->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    box->setMaximumWidth(kFieldMaxWidth);
   }
   {
-    auto [frame, form] = new_card();
-    form->addRow(tr("HAL timeout"), hal_timeout_);
+    auto [frame, layout] = key_card(*omega, omega_);
+    layout->addWidget(advanced_);
     pages.front()->addWidget(frame);
   }
+  pages.front()->addWidget(key_card(*hal, hal_timeout_).first);
 
   // Sensor / noise page, top: the noise level (design 3.4), one action per click. Custom is only
   // lit by refresh_fields.
@@ -615,6 +649,7 @@ QWidget* MainWindow::build_config_tab() {
   speed_->setRange(1, 100);
   speed_->setValue(static_cast<int>(std::lround(config_.speed_pct)));
   speed_->setToolTip(tr("Speed of jogs and moves in the Control tab (%)"));
+  speed_->setMinimumWidth(kSliderMinWidth);
   {
     auto [frame, form] = new_card();
     form->addRow(tr("Speed (%)"), speed_);
@@ -643,6 +678,7 @@ QWidget* MainWindow::build_config_tab() {
   run_page->addWidget(tol_frame);
   waypoints_ = new QLineEdit;
   waypoints_->setObjectName(QStringLiteral("waypointsEdit"));
+  waypoints_->setMinimumWidth(kPathMinWidth);
   connect(waypoints_, &QLineEdit::textChanged, this, [this](const QString& text) {
     config_.waypoints_yaml =
         text.isEmpty() ? std::nullopt : std::optional<fs::path>(text.toStdString());
