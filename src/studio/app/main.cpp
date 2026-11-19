@@ -46,9 +46,10 @@ int main(int argc, char** argv) {
       QApplication::tr("Save the Configuration pages as PNG files into <dir> and exit."),
       QStringLiteral("dir"));
   parser.addOption(screenshot_dir);
-  const QCommandLineOption base(QStringLiteral("base"),
-                                QApplication::tr("Base pair selected at start (e.g. budget)."),
-                                QStringLiteral("name"));
+  const QCommandLineOption base(
+      QStringLiteral("base"),
+      QApplication::tr("Base pair selected at start (e.g. budget_xarm7)."),
+      QStringLiteral("name"));
   parser.addOption(base);
   parser.process(app);
   cobot::studio::MainWindow window(parser.value(config_dir).toStdString(),
