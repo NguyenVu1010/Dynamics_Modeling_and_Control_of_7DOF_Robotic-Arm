@@ -70,9 +70,9 @@ namespace {
 
 constexpr int kJoints = bench::kN;
 constexpr int kColumns = 12;
-constexpr double kMm = 1e-3;  // m per mm
-constexpr double kBig = 1e9;  // spin box bound for catalog limits that are infinite
-constexpr int kGroupListWidth = 170;
+constexpr double kMm = 1e-3;          // m per mm
+constexpr double kBig = 1e9;          // spin box bound for catalog limits that are infinite
+constexpr int kGroupListWidth = 200;  // "Timing & comm (12)" without a scroll bar
 constexpr int kFieldMaxWidth = 170;   // px, omega and HAL timeout like ParamSpin
 constexpr int kSliderMinWidth = 260;  // px
 constexpr int kPathMinWidth = 420;    // px
@@ -521,6 +521,8 @@ QWidget* MainWindow::build_config_tab() {
   group_list_ = new QListWidget;
   group_list_->setObjectName(QStringLiteral("groupList"));
   group_list_->setFixedWidth(kGroupListWidth);
+  group_list_->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  group_list_->setTextElideMode(Qt::ElideMiddle);
   auto* stack = new QStackedWidget;
   stack->setObjectName(QStringLiteral("paramPages"));
   std::array<QVBoxLayout*, kPageTitles.size()> pages{};
@@ -1029,7 +1031,7 @@ void MainWindow::refresh_fields() {
     }
   }
   const int n = static_cast<int>(config_.overrides.size());
-  change_count_->setText(tr("%n change(s)", "", n));
+  change_count_->setText(n == 1 ? tr("1 change") : tr("%1 changes").arg(n));
   change_count_->setVisible(n > 0);
   for (std::size_t k = 0; k < counts.size(); ++k) {
     const QString title = tr(kPageTitles.at(k));

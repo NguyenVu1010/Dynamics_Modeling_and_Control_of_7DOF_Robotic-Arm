@@ -29,6 +29,7 @@ QFrame#noiseLevel QToolButton
     padding: 3px 14px;
 }
 
+QFrame#noiseLevel QToolButton:checked,
 QFrame[card="true"] QToolButton:checked
 {
     background-color: #dbeafe;
