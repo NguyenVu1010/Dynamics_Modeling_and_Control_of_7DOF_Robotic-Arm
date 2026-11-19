@@ -1,0 +1,53 @@
+name: studio-shots
+# Screenshots of the cobot_studio Configuration tab and the cobot_studio binary as artifacts
+# (feature studio-shots), so the docs images and a runnable studio come from CI instead of a local
+# build. Not a required check. The binary is built on ubuntu-24.04 and links the system Qt5:
+# run it on Ubuntu 24.04 (WSL included) after `apt install qtbase5-dev libqt5charts5-dev
+# qt3d5-dev`, with --config-dir pointing at a checkout's config/.
+on:
+  workflow_dispatch:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths:
+      - "src/studio/**"
+      - "third_party/breeze/**"
+      - ".github/workflows/studio-shots.yml"
+  push:
+    branches: [main]
+    paths:
+      - "src/studio/**"
+      - "third_party/breeze/**"
+      - ".github/workflows/studio-shots.yml"
+
+concurrency:
+  group: studio-shots-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shots:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: >
+          sudo apt-get update && sudo apt-get install -y cmake ninja-build g++ libeigen3-dev
+          libgtest-dev libgmock-dev libtinyxml2-dev libyaml-cpp-dev
+          qtbase5-dev libqt5charts5-dev qt3d5-dev fonts-dejavu-core
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCOBOT_BUILD_STUDIO=ON
+      - run: cmake --build build --parallel 4 --target cobot_studio
+      - name: Screenshots
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          mkdir -p work
+          build/src/studio/app/cobot_studio --config-dir config --work-dir work \
+            --screenshot-dir shots
+      - uses: actions/upload-artifact@v4
+        with:
+          name: studio-shots
+          path: shots/*.png
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cobot_studio-ubuntu-24.04-x86_64
+          path: build/src/studio/app/cobot_studio
+          if-no-files-found: error

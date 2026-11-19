@@ -8,7 +8,7 @@ find_package(Qt5 5.15 REQUIRED COMPONENTS Widgets Charts 3DCore 3DRender 3DExtra
 
 add_library(cobot_studio_ui STATIC main_window.cpp param_card.cpp param_spin.cpp studio_worker.cpp
   robot_view.cpp
-  control_tab.cpp verify_tab.cpp time_cursor.hpp theme.cpp studio.qrc
+  control_tab.cpp verify_tab.cpp screenshots.cpp time_cursor.hpp theme.cpp studio.qrc
   ${PROJECT_SOURCE_DIR}/third_party/breeze/breeze.qrc)
 set_target_properties(cobot_studio_ui PROPERTIES AUTOMOC ON AUTORCC ON)
 cobot_set_target_defaults(cobot_studio_ui)
