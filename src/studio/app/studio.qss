@@ -16,7 +16,8 @@ QFrame[card="true"] QLabel,
 QFrame[card="true"] QCheckBox,
 QFrame[card="true"] QToolButton,
 QFrame[card="true"] QWidget#joints,
-QFrame[card="true"] QWidget#jointCell
+QFrame[card="true"] QWidget#jointCell,
+QFrame[card="true"] QSlider
 {
     background-color: transparent;
 }
