@@ -10,6 +10,51 @@ QFrame[card="true"]
     padding: 10px;
 }
 
+/* Breeze paints every widget with the window grey: inside a card, labels, check boxes and the
+ * layout containers take the card's white, and the editors a white field. */
+QFrame[card="true"] QLabel,
+QFrame[card="true"] QCheckBox,
+QFrame[card="true"] QToolButton,
+QFrame[card="true"] QWidget#joints,
+QFrame[card="true"] QWidget#jointCell
+{
+    background-color: transparent;
+}
+
+/* Segmented buttons (noise level): white segments, the checked one in the accent blue. */
+QFrame#noiseLevel QToolButton
+{
+    background-color: #ffffff;
+    border: 1px solid #c8cdd6;
+    padding: 3px 14px;
+}
+
+QFrame#noiseLevel QToolButton:checked,
+QFrame[card="true"] QToolButton:checked
+{
+    background-color: #dbeafe;
+    border: 1px solid #2563eb;
+    color: #1d4ed8;
+}
+
+QFrame[card="true"] QAbstractSpinBox,
+QFrame[card="true"] QLineEdit,
+QFrame[card="true"] QComboBox
+{
+    background-color: #ffffff;
+}
+
+/* Typed fields: the step arrows take no room (ParamSpin also hides them). */
+QFrame[card="true"] QAbstractSpinBox::up-button,
+QFrame[card="true"] QAbstractSpinBox::down-button
+{
+    width: 0px;
+    border: none;
+}
+
+QFrame[card="true"] QAbstractSpinBox[changed="true"],
+QFrame[card="true"] QLineEdit[changed="true"],
+QFrame[card="true"] QComboBox[changed="true"],
 QAbstractSpinBox[changed="true"],
 QLineEdit[changed="true"],
 QComboBox[changed="true"]
@@ -47,6 +92,14 @@ QLabel[keyName="true"]
     font-size: 10px;
 }
 
+QListWidget#groupList
+{
+    background-color: #ffffff;
+    border: 1px solid #e3e6eb;
+    border-radius: 7px;
+    outline: none;
+}
+
 QListWidget#groupList::item
 {
     padding: 6px 12px;
@@ -58,7 +111,7 @@ QListWidget#groupList::item:selected
     color: #1d4ed8;
 }
 
-QToolButton[switch="true"]
+QFrame[card="true"] QToolButton[switch="true"]
 {
     min-width: 36px;
     border: 1px solid #bab9b8;
@@ -66,7 +119,7 @@ QToolButton[switch="true"]
     padding: 2px 8px;
 }
 
-QToolButton[switch="true"]:checked
+QFrame[card="true"] QToolButton[switch="true"]:checked
 {
     background-color: #2563eb;
     border: 1px solid #2563eb;

@@ -10,6 +10,8 @@
 namespace cobot::studio {
 
 namespace {
+constexpr int kFieldMinWidth = 110;  // px
+constexpr int kFieldMaxWidth = 170;  // px
 
 constexpr double kHuge = 1e300;  // bound for catalog limits that are infinite
 constexpr int kDecimals = 12;    // setValue keeps the display value
@@ -38,6 +40,11 @@ ParamSpin::ParamSpin(double display_min,
   setDecimals(kDecimals);
   set_display_range(display_min, display_max);
   setKeyboardTracking(false);
+  // Typed, not stepped: no arrow buttons, a compact right-aligned field (studio card polish).
+  setButtonSymbols(QAbstractSpinBox::NoButtons);
+  setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+  setMinimumWidth(kFieldMinWidth);
+  setMaximumWidth(kFieldMaxWidth);
   if (!display_unit.isEmpty()) {
     setSuffix(QStringLiteral(" ") + display_unit);
   }

@@ -115,10 +115,12 @@ ParamCard::ParamCard(const ParamInfo& info, QWidget* parent) : QFrame(parent), i
     });
     editors->addWidget(toggle_);
     joints_ = new QWidget;
+    joints_->setObjectName(QStringLiteral("joints"));  // studio.qss: transparent in the card
     auto* row = new QHBoxLayout(joints_);
     row->setContentsMargins(0, 0, 0, 0);
     for (int j = 0; j < kJoints; ++j) {
       auto* cell = new QWidget;
+      cell->setObjectName(QStringLiteral("jointCell"));
       auto* column = new QVBoxLayout(cell);
       column->setContentsMargins(0, 0, 0, 0);
       column->addWidget(new QLabel(tr("J%1").arg(j + 1)), 0, Qt::AlignHCenter);
