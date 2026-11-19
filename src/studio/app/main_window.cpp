@@ -73,6 +73,7 @@ constexpr int kColumns = 12;
 constexpr double kMm = 1e-3;          // m per mm
 constexpr double kBig = 1e9;          // spin box bound for catalog limits that are infinite
 constexpr int kGroupListWidth = 200;  // "Timing & comm (12)" without a scroll bar
+constexpr int kFieldMinWidth = 110;   // px, Run page fields like ParamSpin
 constexpr int kFieldMaxWidth = 170;   // px, omega and HAL timeout like ParamSpin
 constexpr int kSliderMinWidth = 260;  // px
 constexpr int kPathMinWidth = 420;    // px
@@ -425,16 +426,6 @@ MainWindow::~MainWindow() {
 QWidget* MainWindow::build_config_tab() {
   auto* tab = new QWidget;
   tab->setObjectName(QStringLiteral("configTab"));
-  // A card of the pages (studio.qss card): a frame with a form layout whose fields keep their
-  // size hint instead of spanning the page.
-  const auto new_card = [] {
-    auto* frame = new QFrame;
-    frame->setProperty("card", true);
-    auto* form = new QFormLayout(frame);
-    form->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
-    form->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
-    return std::make_pair(frame, form);
-  };
   // A card headed like a ParamCard: bold catalog label and the editor on one row, the catalog
   // description and the raw key under it; extra rows (Advanced gains) go in the returned layout.
   const auto key_card = [](const ParamInfo& info, QWidget* editor) {
@@ -461,6 +452,33 @@ QWidget* MainWindow::build_config_tab() {
     layout->addLayout(head);
     layout->addLayout(hint_row);
     return std::make_pair(frame, layout);
+  };
+  // A card with a bold title and a one-line description over a form (Run page).
+  const auto titled_card = [](const QString& heading, const QString& description) {
+    auto* frame = new QFrame;
+    frame->setProperty("card", true);
+    auto* layout = new QVBoxLayout(frame);
+    auto* title = new QLabel(heading);
+    QFont title_font = title->font();
+    title_font.setBold(true);
+    title->setFont(title_font);
+    auto* hint = new QLabel(description);
+    hint->setProperty("hint", true);
+    hint->setWordWrap(true);
+    layout->addWidget(title);
+    layout->addWidget(hint);
+    auto* form = new QFormLayout;
+    form->setFieldGrowthPolicy(QFormLayout::FieldsStayAtSizeHint);
+    form->setLabelAlignment(Qt::AlignLeft | Qt::AlignVCenter);
+    layout->addLayout(form);
+    return std::make_pair(frame, form);
+  };
+  // A typed field like ParamSpin: no step buttons, right-aligned, bounded width.
+  const auto typed_field = [](QAbstractSpinBox* box) {
+    box->setButtonSymbols(QAbstractSpinBox::NoButtons);
+    box->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    box->setMinimumWidth(kFieldMinWidth);
+    box->setMaximumWidth(kFieldMaxWidth);
   };
 
   // Top bar: title, base pair, change counter, file buttons.
@@ -653,7 +671,8 @@ QWidget* MainWindow::build_config_tab() {
   speed_->setToolTip(tr("Speed of jogs and moves in the Control tab (%)"));
   speed_->setMinimumWidth(kSliderMinWidth);
   {
-    auto [frame, form] = new_card();
+    auto [frame, form] =
+        titled_card(tr("Speed"), tr("Speed of jogs and moves in the Control tab, in percent"));
     form->addRow(tr("Speed (%)"), speed_);
     run_page->addWidget(frame);
   }
@@ -661,10 +680,12 @@ QWidget* MainWindow::build_config_tab() {
       "goalPosSpin", "goalRotSpin", "pathPosSpin", "pathRotSpin"};
   const std::array<QString, 4> tol_labels = {
       tr("Goal position"), tr("Goal rotation"), tr("Path position"), tr("Path rotation")};
-  auto [tol_frame, tol_form] = new_card();
+  auto [tol_frame, tol_form] =
+      titled_card(tr("Tolerances"), tr("Pass limits of a run: at the goal and along the path"));
   for (std::size_t k = 0; k < tol_.size(); ++k) {
     tol_.at(k) = spin(1e-4, 1e3, 4, k % 2 == 0 ? tr(" mm") : tr(" deg"));
     tol_.at(k)->setObjectName(QString::fromLatin1(tol_names.at(k)));
+    typed_field(tol_.at(k));
     connect(tol_.at(k),
             QOverload<double>::of(&QDoubleSpinBox::valueChanged),
             this,
@@ -699,6 +720,7 @@ QWidget* MainWindow::build_config_tab() {
   duration_ = spin(0.0, 3600.0, 3, tr(" s"));
   duration_->setObjectName(QStringLiteral("durationSpin"));
   duration_->setSpecialValueText(tr("planned"));
+  typed_field(duration_);
   fields_.emplace_back("duration_s", duration_);
   connect(duration_, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, [this](double v) {
     config_.duration_s = v > 0.0 ? std::optional<double>(v) : std::nullopt;
@@ -708,11 +730,14 @@ QWidget* MainWindow::build_config_tab() {
   seed_->setObjectName(QStringLiteral("seedSpin"));
   seed_->setRange(0, std::numeric_limits<int>::max());
   seed_->setSpecialValueText(tr("profile"));
+  typed_field(seed_);
   connect(seed_, QOverload<int>::of(&QSpinBox::valueChanged), this, [this](int v) {
     config_.seed = v > 0 ? std::optional<std::uint64_t>(v) : std::nullopt;
   });
   {
-    auto [frame, form] = new_card();
+    auto [frame, form] = titled_card(
+        tr("Run"),
+        tr("Waypoint file; duration 0 keeps the planned one; seed 0 keeps the profile's"));
     form->addRow(tr("Waypoints"), waypoints_row);
     form->addRow(tr("Duration"), duration_);
     form->addRow(tr("Seed"), seed_);

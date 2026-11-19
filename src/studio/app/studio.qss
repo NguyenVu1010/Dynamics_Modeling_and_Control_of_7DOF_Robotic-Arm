@@ -52,6 +52,14 @@ QFrame[card="true"] QAbstractSpinBox::down-button
     border: none;
 }
 
+QFrame[card="true"] QAbstractSpinBox::up-arrow,
+QFrame[card="true"] QAbstractSpinBox::down-arrow
+{
+    image: none;
+    width: 0px;
+    height: 0px;
+}
+
 QFrame[card="true"] QAbstractSpinBox[changed="true"],
 QFrame[card="true"] QLineEdit[changed="true"],
 QFrame[card="true"] QComboBox[changed="true"],
