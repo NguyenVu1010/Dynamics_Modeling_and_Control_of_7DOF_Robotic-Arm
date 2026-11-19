@@ -40,7 +40,7 @@ jobs:
         run: |
           mkdir -p work
           build/src/studio/app/cobot_studio --config-dir config --work-dir work \
-            --screenshot-dir shots
+            --screenshot-dir shots --base budget
       - uses: actions/upload-artifact@v4
         with:
           name: studio-shots

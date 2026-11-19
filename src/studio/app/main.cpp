@@ -1,4 +1,5 @@
 #include <QApplication>
+#include <QComboBox>
 #include <QCommandLineParser>
 #include <QStandardPaths>
 #include <cstdio>
@@ -9,6 +10,7 @@
 #include "theme.hpp"
 
 // cobot_studio [--config-dir <dir>] [--work-dir <dir>] [--bridge <name>] [--screenshot-dir <dir>]
+// [--base <pair>]
 // (feature studio-app, ADR-021; --bridge: feature studio-control, region /cobot_<name>;
 // --screenshot-dir: feature studio-shots, saves the Configuration pages as PNG and exits, works
 // with QT_QPA_PLATFORM=offscreen).
@@ -44,10 +46,23 @@ int main(int argc, char** argv) {
       QApplication::tr("Save the Configuration pages as PNG files into <dir> and exit."),
       QStringLiteral("dir"));
   parser.addOption(screenshot_dir);
+  const QCommandLineOption base(QStringLiteral("base"),
+                                QApplication::tr("Base pair selected at start (e.g. budget)."),
+                                QStringLiteral("name"));
+  parser.addOption(base);
   parser.process(app);
   cobot::studio::MainWindow window(parser.value(config_dir).toStdString(),
                                    parser.value(work_dir).toStdString(),
                                    parser.value(bridge).toStdString());
+  if (parser.isSet(base)) {
+    auto* combo = window.findChild<QComboBox*>(QStringLiteral("baseCombo"));
+    const int index = combo != nullptr ? combo->findText(parser.value(base)) : -1;
+    if (index < 0) {
+      std::fprintf(stderr, "cobot_studio: unknown base pair %s\n", qPrintable(parser.value(base)));
+      return 1;
+    }
+    combo->setCurrentIndex(index);
+  }
   if (parser.isSet(screenshot_dir)) {
     constexpr int kShotWidth = 1400;
     constexpr int kShotHeight = 900;
