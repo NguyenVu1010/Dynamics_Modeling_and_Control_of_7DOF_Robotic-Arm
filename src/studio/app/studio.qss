@@ -16,7 +16,8 @@ QFrame[card="true"] QLabel,
 QFrame[card="true"] QCheckBox,
 QFrame[card="true"] QToolButton,
 QFrame[card="true"] QWidget#joints,
-QFrame[card="true"] QWidget#jointCell
+QFrame[card="true"] QWidget#jointCell,
+QFrame[card="true"] QSlider
 {
     background-color: transparent;
 }
@@ -50,6 +51,14 @@ QFrame[card="true"] QAbstractSpinBox::down-button
 {
     width: 0px;
     border: none;
+}
+
+QFrame[card="true"] QAbstractSpinBox::up-arrow,
+QFrame[card="true"] QAbstractSpinBox::down-arrow
+{
+    image: none;
+    width: 0px;
+    height: 0px;
 }
 
 QFrame[card="true"] QAbstractSpinBox[changed="true"],
